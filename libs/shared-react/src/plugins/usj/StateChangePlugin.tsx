@@ -14,7 +14,6 @@ import {
   $getCommonAncestorCompatible,
   $isBookNode,
   $isParaNode,
-  $isSomeParaNode,
   $isImmutableChapterNode,
   $isVerseBlockNode,
 } from "shared";
@@ -70,8 +69,10 @@ export function StateChangePlugin({ onStateChange }: { onStateChange?: OnStateCh
 
       // In the block verse layout the top-level element is the verse block, which carries no
       // marker of its own. The block marker the host wants is still the paragraph inside it that
-      // holds the caret, so resolve through the block.
-      if ($isVerseBlockNode(node)) node = $findMatchingParent(anchorNode, $isSomeParaNode) ?? node;
+      // holds the caret, so resolve through the block. `$isParaNode`, not `$isSomeParaNode`: an
+      // implied paragraph has no marker to report, and the reporting guard below is the same
+      // predicate - resolving to a node that guard then rejects would emit no state change at all.
+      if ($isVerseBlockNode(node)) node = $findMatchingParent(anchorNode, $isParaNode) ?? node;
 
       const nodeKey = node.getKey();
       const elementDOM = activeEditor.getElementByKey(nodeKey);

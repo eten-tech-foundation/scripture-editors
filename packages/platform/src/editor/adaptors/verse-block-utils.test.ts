@@ -3,11 +3,16 @@ import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedLexicalNode } from "lexical";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  COMMENT_MARK_TYPE,
+  ENDING_MS_COMMENT_MARKER,
   isSerializedImpliedParaNode,
   isSerializedParaNode,
+  isSerializedTypedMarkNode,
   isSerializedVerseBlockNode,
   SerializedParaNode,
+  SerializedTypedMarkNode,
   SerializedVerseBlockNode,
+  STARTING_MS_COMMENT_MARKER,
 } from "shared";
 import { BLOCK_VERSE_VIEW_MODE, getViewOptions, isSomeSerializedVerseNode } from "shared-react";
 
@@ -40,6 +45,15 @@ function paraMarkersIn(verseBlock: SerializedVerseBlockNode): string[] {
   return verseBlock.children.map((child) =>
     isSerializedParaNode(child) ? child.marker : child.type,
   );
+}
+
+/** The comment marks under a node, in document order. */
+function commentMarksIn(node: SerializedLexicalNode): SerializedTypedMarkNode[] {
+  const children = (node as { children?: SerializedLexicalNode[] }).children ?? [];
+  return children.flatMap((child) => [
+    ...(isSerializedTypedMarkNode(child) ? [child] : []),
+    ...commentMarksIn(child),
+  ]);
 }
 
 /** All text under a node, joined, so text placement can be asserted without walking the tree. */
@@ -128,7 +142,7 @@ describe("groupVersesIntoBlocks", () => {
 
     const verseBlocks = verseBlocksIn(children);
     expect(verseBlocks).toHaveLength(1);
-    expect(verseBlocks[0]).toMatchObject({ number: "14-15", start: 14, end: 15 });
+    expect(verseBlocks[0]).toMatchObject({ number: "14-15" });
     expect(textIn(verseBlocks[0]).match(/the bridged verse/g)).toHaveLength(1);
   });
 
@@ -201,6 +215,53 @@ describe("groupVersesIntoBlocks", () => {
     expect(descriptor).toBeDefined();
     expect(textIn(descriptor)).toContain("A psalm of David");
     expect(verseBlocksIn(children).map((verseBlock) => verseBlock.number)).toEqual(["1"]);
+  });
+
+  // Hebrew psalm versification puts verse 1 inside the `\d` descriptor. Treating a heading marker
+  // that carries a verse as chrome would leave that verse with no block at all, so it is split like
+  // any other paragraph.
+  it("gives a verse inside a heading paragraph its own block", () => {
+    const children = $groupUsj(
+      usjChapter(
+        {
+          type: "para",
+          marker: "d",
+          content: [
+            { type: "verse", marker: "v", number: "1", sid: "PSA 51:1" },
+            "For the director of music ",
+          ],
+        },
+        {
+          type: "para",
+          marker: "q1",
+          content: [{ type: "verse", marker: "v", number: "3", sid: "PSA 51:3" }, "Have mercy "],
+        },
+      ),
+    );
+
+    const verseBlocks = verseBlocksIn(children);
+    expect(verseBlocks.map((verseBlock) => verseBlock.number)).toEqual(["1", "3"]);
+    expect(textIn(verseBlocks[0])).toContain("For the director of music");
+  });
+
+  // A verse milestone can be an `eid`-only closer. `createVerse` coerces its missing number to
+  // `""`, so the node type alone would open a numberless block and truncate the real verse's.
+  it("does not open a block for a verse closer", () => {
+    const children = $groupUsj(
+      usjChapter({
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1", sid: "GEN 1:1" },
+          "the first verse ",
+          { type: "verse", marker: "v", eid: "GEN 1:1" },
+        ],
+      }),
+    );
+
+    const verseBlocks = verseBlocksIn(children);
+    expect(verseBlocks.map((verseBlock) => verseBlock.number)).toEqual(["1"]);
+    expect(textIn(verseBlocks[0])).toContain("the first verse");
   });
 
   it("closes the open verse at a chapter marker", () => {
@@ -288,7 +349,11 @@ describe("groupVersesIntoBlocks", () => {
     expect(stanzaBreaks).toHaveLength(1);
   });
 
-  it("closes the open verse at a semantic divider", () => {
+  // A semantic division is contentless vertical space, not a heading. Ending the verse there would
+  // leave the paragraph after it - which carries no verse marker of its own - outside every block
+  // and so off every row, the same content loss the sidebar case below exists to prevent. Core's
+  // slicer does not treat `sd*` as a boundary either.
+  it("keeps a semantic divider and the text after it inside the open verse", () => {
     const children = $groupUsj(
       usjChapter(
         {
@@ -301,8 +366,28 @@ describe("groupVersesIntoBlocks", () => {
       ),
     );
 
+    const verseBlocks = verseBlocksIn(children);
+    expect(verseBlocks).toHaveLength(1);
+    expect(textIn(verseBlocks[0])).toContain("after the divider");
+  });
+
+  // `qa` is the one hand-added entry in the boundary set - the data files file this poetry-acrostic
+  // heading under Poetry rather than with the headings - so nothing else would catch its loss.
+  it("closes the open verse at a poetry-acrostic heading", () => {
+    const children = $groupUsj(
+      usjChapter(
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", sid: "GEN 1:1" }, "before "],
+        },
+        { type: "para", marker: "qa", content: ["Aleph"] },
+        { type: "para", marker: "p", content: ["after the acrostic heading "] },
+      ),
+    );
+
     const [verseBlock] = verseBlocksIn(children);
-    expect(textIn(verseBlock)).not.toContain("after the divider");
+    expect(textIn(verseBlock)).not.toContain("after the acrostic heading");
   });
 
   // A sidebar is not a paragraph, so an earlier version closed the block on it and left the rest
@@ -358,6 +443,72 @@ describe("groupVersesIntoBlocks", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("not grouped into blocks"));
     // The adaptor's `setLogger` only assigns when its argument is truthy, so passing `undefined`
     // would leave this dead mock installed for every test after this one.
+    initialize(undefined, { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() });
+  });
+
+  // A comment can wrap a run that crosses a verse marker. The mark is split with the run and cloned
+  // onto each side keeping its IDs, so the highlight survives in both blocks - the annotation
+  // registry already maps one ID to a set of mark node keys. Core breaks such a highlight.
+  it("clones a comment mark that spans a verse boundary onto both blocks", () => {
+    const children = $groupUsj(
+      usjChapter({
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1", sid: "GEN 1:1" },
+          "before the comment ",
+          { type: "ms", marker: STARTING_MS_COMMENT_MARKER, sid: "comment-1" },
+          "commented one ",
+          { type: "verse", marker: "v", number: "2", sid: "GEN 1:2" },
+          "commented two ",
+          { type: "ms", marker: ENDING_MS_COMMENT_MARKER, eid: "comment-1" },
+          "after the comment ",
+        ],
+      }),
+    );
+
+    const [firstBlock, secondBlock] = verseBlocksIn(children);
+    const [firstMark] = commentMarksIn(firstBlock);
+    const [secondMark] = commentMarksIn(secondBlock);
+
+    expect(textIn(firstMark)).toBe("commented one ");
+    expect(textIn(secondMark)).toBe("commented two ");
+    expect(firstMark.typedIDs).toEqual({ [COMMENT_MARK_TYPE]: ["comment-1"] });
+    expect(secondMark.typedIDs).toEqual(firstMark.typedIDs);
+    // The uncommented text on either side stays outside the marks it neighbours.
+    expect(textIn(firstBlock)).toContain("before the comment");
+    expect(textIn(secondBlock)).toContain("after the comment");
+  });
+
+  // USJ does not nest verses inside character content, so this is malformed input. It stays with
+  // the surrounding run rather than being silently dropped, and is reported.
+  it("warns about a verse nested inside character content", () => {
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
+    initialize(undefined, logger);
+
+    const { root } = serializeEditorState(
+      usjChapter({
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1", sid: "GEN 1:1" },
+          {
+            type: "char",
+            marker: "nd",
+            content: [{ type: "verse", marker: "v", number: "2", sid: "GEN 1:2" }, "nested "],
+          },
+        ],
+      }),
+      blockVerseOptions,
+    );
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("nested inside a 'char' node"),
+    );
+    const verseBlocks = verseBlocksIn(root.children);
+    expect(verseBlocks.map((verseBlock) => verseBlock.number)).toEqual(["1"]);
+    expect(textIn(verseBlocks[0])).toContain("nested");
+    // See the note in the container test below: `setLogger` only assigns when truthy.
     initialize(undefined, { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() });
   });
 

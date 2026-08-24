@@ -130,6 +130,7 @@ import {
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
+  isBlockVerseLayout,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -194,8 +195,7 @@ export function serializeEditorState(
     if (usj.content.length > 0) {
       children = insertImpliedParasRecurse(recurseNodes(usj.content));
       // After implied paragraphs exist, so the grouping only ever sees paragraph containers.
-      if (_viewOptions?.verseLayout === "block")
-        children = groupVersesIntoBlocks(children, _logger);
+      if (isBlockVerseLayout(_viewOptions)) children = groupVersesIntoBlocks(children, _logger);
     } else children = [emptyImpliedParaNode];
   } else {
     children = [emptyImpliedParaNode];

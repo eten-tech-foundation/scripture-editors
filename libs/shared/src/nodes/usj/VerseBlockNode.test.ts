@@ -41,6 +41,20 @@ describe("VerseBlockNode", () => {
     });
   });
 
+  // Imported USFM can carry a reversed bridge. Publishing it would hand a layout a negative span,
+  // so the range is withheld exactly as it is for a number that does not parse at all.
+  it("omits the range attributes for a reversed bridge", () => {
+    withEditor(nodes, () => {
+      const verseBlock = $createVerseBlockNode("3-1");
+      const dom = verseBlock.createDOM();
+
+      expect(verseBlock.getRange()).toEqual({ start: 3, end: 1 });
+      expect(dom.getAttribute("data-verse-number")).toBe("3-1");
+      expect(dom.getAttribute("data-verse-start")).toBeNull();
+      expect(dom.getAttribute("data-verse-end")).toBeNull();
+    });
+  });
+
   it("omits the range attributes for a non-numeric verse number", () => {
     withEditor(nodes, () => {
       const dom = $createVerseBlockNode("abc").createDOM();
@@ -114,18 +128,36 @@ describe("VerseBlockNode", () => {
       const json = $createVerseBlockNode("14-15").exportJSON();
 
       expect(isSerializedVerseBlockNode(json)).toBe(true);
-      expect(json).toMatchObject({
-        type: "verse-block",
-        number: "14-15",
-        start: 14,
-        end: 15,
-        version: 1,
-      });
+      expect(json).toMatchObject({ type: "verse-block", number: "14-15", version: 1 });
 
       const restored = VerseBlockNode.importJSON(json);
       expect($isVerseBlockNode(restored)).toBe(true);
       expect(restored.getNumber()).toBe("14-15");
       expect(restored.getRange()).toEqual({ start: 14, end: 15 });
+    });
+  });
+
+  // The number is authoritative and the range is derived from it, so serializing the range would
+  // put state on the wire that nothing reads back and that a hand-edited number could contradict.
+  it("serializes the number only, leaving the range derived", () => {
+    withEditor(nodes, () => {
+      const json = $createVerseBlockNode("14-15").exportJSON();
+
+      expect(json).not.toHaveProperty("start");
+      expect(json).not.toHaveProperty("end");
+    });
+  });
+
+  // Every platform editor shares one Lexical namespace, so a payload copied here is accepted when
+  // pasted into an ordinary editor - which registers no `VerseBlockNode` and would throw parsing
+  // it. Excluding the wrapper sends its paragraphs in its place. Lexical's clipboard asks with
+  // `"html"` (`$appendNodesToJSON`), which is why that is the destination that matters.
+  it("keeps itself out of the clipboard payload", () => {
+    withEditor(nodes, () => {
+      const verseBlock = $createVerseBlockNode("1");
+
+      expect(verseBlock.excludeFromCopy("html")).toBe(true);
+      expect(verseBlock.excludeFromCopy("clone")).toBe(false);
     });
   });
 

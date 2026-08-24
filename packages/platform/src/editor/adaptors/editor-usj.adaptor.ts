@@ -63,6 +63,7 @@ import {
   TypedMarkNode,
   UnknownNode,
   UNMATCHED_TAG_NAME,
+  isSerializedVerseBlockNode,
   VerseBlockNode,
   VerseNode,
 } from "shared";
@@ -103,6 +104,19 @@ export function deserializeSerializedEditorState(
     (!rootChildren[0].children || rootChildren[0].children.length === 0)
   )
     return EMPTY_USJ;
+
+  // The block verse layout splits a paragraph that spans verses across their blocks, so this tree
+  // no longer describes the source USJ's paragraphs. Report and give up rather than emit USJ that
+  // looks right and has the wrong structure. Reported rather than thrown because this runs inside a
+  // Lexical change listener, where `onError` would rethrow and tear the editor down, and because
+  // every other unexpected-node case in this file reports and moves on.
+  if (rootChildren.some(isSerializedVerseBlockNode)) {
+    _logger?.error(
+      "Block verse layout is not round-trippable to USJ. VerseBlockNode is read-only view state; " +
+        "use the source USJ instead.",
+    );
+    return;
+  }
 
   const children = removeImpliedParasRecurse(rootChildren);
   const content = recurseNodes(children);
@@ -505,13 +519,11 @@ function recurseNodes(
         markers.push(createUnmatchedMarker(node as SerializedImmutableUnmatchedNode));
         break;
       case VerseBlockNode.getType():
-        // The block verse layout splits a paragraph that spans verses across their blocks, so this
-        // tree no longer describes the source USJ's paragraphs. Refuse rather than emit USJ that
-        // looks right and has the wrong structure.
-        throw new Error(
-          "Block verse layout is not round-trippable to USJ. VerseBlockNode is read-only view " +
-            "state; use the source USJ instead.",
-        );
+        // Unreachable in practice: verse blocks are root children, and `deserializeSerializedEditorState`
+        // gives up on the whole tree before recursing. Kept so a nested one cannot be emitted as if
+        // its paragraphs were the source USJ's.
+        _logger?.error("Block verse layout is not round-trippable to USJ; skipping the block.");
+        break;
       default:
         _logger?.error(`Unexpected node type '${node.type}'!`);
     }

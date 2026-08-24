@@ -410,6 +410,12 @@ describe("Editor Node Utilities", () => {
       expect(parseVerseRange("abc-5")).toEqual({ start: NaN, end: 5 });
       expect(parseVerseRange("5-abc")).toEqual({ start: 5, end: NaN });
     });
+
+    // Imported USFM can carry a reversed bridge. It parses as written rather than being reordered,
+    // so a caller can recognize it - `VerseBlockNode` withholds the range attributes for one.
+    it("parses a reversed range as written", () => {
+      expect(parseVerseRange("3-1")).toEqual({ start: 3, end: 1 });
+    });
   });
 
   describe("isSelectionStartNodeExpectedError()", () => {

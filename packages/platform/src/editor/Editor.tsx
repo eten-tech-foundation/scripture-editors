@@ -148,6 +148,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const editedUsjRef = useRef(defaultUsj);
   const expandedNoteKeyRef = useRef<string>(undefined);
+  const hasReportedUsjLocationsUnavailableRef = useRef(false);
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [contextMarker, setContextMarker] = useState<string>();
@@ -268,12 +269,41 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
    * are split across verse blocks, so an edit has no correct USJ to go back to; refusing is what
    * keeps the rendered document and `getUsj()` from silently diverging.
    */
-  const assertEditable = (operation: string) => {
+  /**
+   * Reports, once per editor, that a USJ-addressed selection API has nothing to answer with.
+   *
+   * Per editor rather than per module: a multi-pane webview mounts several of these, and a
+   * module-level flag would leave every pane after the first failing silently. Through the injected
+   * logger for the same reason - the host that mounted this editor is the one that needs to know.
+   */
+  const reportUsjLocationsUnavailable = (operation: string) => {
+    if (hasReportedUsjLocationsUnavailableRef.current) return;
+    hasReportedUsjLocationsUnavailableRef.current = true;
+    loggerRef.current?.warn(
+      `Editor: cannot ${operation} in the block verse layout; its paragraphs are split across ` +
+        "verse blocks, so editor content indexes do not match the source USJ.",
+    );
+  };
+
+  const assertNotBlockVerse = (operation: string) => {
     if (isBlockVerse)
       throw new Error(
         `Cannot ${operation} in the block verse layout; it is a read-only view whose structure ` +
           "does not match the source USJ.",
       );
+  };
+
+  /**
+   * Refuses an operation that would change the document in a read-only editor, block verse or not.
+   *
+   * Lexical does not block `editor.update()` on `editable: false`, so a host calling one of these
+   * on a read-only editor would otherwise mutate the document while `getUsj()` kept returning the
+   * unedited USJ. Reads the same way as the character-marker methods below, which already refuse on
+   * `effectiveIsReadonly`.
+   */
+  const assertEditable = (operation: string) => {
+    assertNotBlockVerse(operation);
+    if (effectiveIsReadonly) throw new Error(`Cannot ${operation} in readonly mode`);
   };
 
   const initialConfig = useMemo<InitialConfigType>(
@@ -351,7 +381,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         );
         return;
       }
-      assertEditable("apply an update");
+      // Block verse only, not `effectiveIsReadonly`: a read-only pane in a collaborative session is
+      // a supported flow, and it stays current by having remote deltas applied to it. Throwing here
+      // would tear down the host's op loop for the same reason the remote branch above reports and
+      // drops instead of throwing.
+      assertNotBlockVerse("apply an update");
       editorRef.current?.update(
         () => {
           if (source === "remote") $addUpdateTag(DELTA_CHANGE_TAG);
@@ -377,9 +411,17 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (ops) this.applyUpdate(ops);
     },
     getSelection() {
+      if (isBlockVerse) {
+        reportUsjLocationsUnavailable("get the selection");
+        return undefined;
+      }
       return editorRef.current?.read($getUsjSelectionFromEditor);
     },
     setSelection(selection) {
+      if (isBlockVerse) {
+        reportUsjLocationsUnavailable("set the selection");
+        return;
+      }
       editorRef.current?.update(() => {
         const editorSelection = $getRangeFromUsjSelection(selection);
         if (editorSelection !== undefined) {
@@ -402,6 +444,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           },
       fifth?: TypedMarkOnRemove,
     ) {
+      if (isBlockVerse) {
+        reportUsjLocationsUnavailable("set an annotation");
+        return;
+      }
+
       let onClick: TypedMarkOnClick | undefined;
       let onRemove: TypedMarkOnRemove | undefined;
       let onMouseEnter: TypedMarkOnMouseEnter | undefined;
@@ -575,8 +622,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // only local user edits (which carry no blacklisted tag) ever reach this point.
 
       // Nothing to report in the block verse layout: its paragraphs are split across verse blocks,
-      // so there is no USJ this tree corresponds to. The mutating entry points refuse before they
-      // can reach here (see `assertEditable`), so this is the last resort rather than the guard.
+      // so there is no USJ this tree corresponds to. Unreachable through the public API - the
+      // editor is not editable and every mutating entry point refuses (see `assertEditable`) - and
+      // even if it were reached, `deserializeEditorState` reports and returns `undefined` for such
+      // a tree, so no change could be emitted. This just keeps that error out of the log.
       if (isBlockVerse) return;
 
       const newUsj = editorUsjAdaptor.deserializeEditorState(editorState);

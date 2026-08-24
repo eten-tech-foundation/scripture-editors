@@ -64,6 +64,7 @@ export type VerseLayout =
  * ```typescript
  * const viewOptions: ViewOptions = {
  *   markerMode: "hidden",
+ *   noteMode: "collapsed",
  *   hasSpacing: true,
  *   isFormattedFont: true
  * };
@@ -210,6 +211,15 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
  * mode and then genuinely tweaked describe a view that is no longer that mode and yield
  * `undefined`.
  *
+ * @remarks
+ * This is narrower than the field-by-field matching it replaced, which tested only `markerMode`,
+ * `hasSpacing`, `isFormattedFont`, `hasGutterParaMarkers` and `hasActiveTextFocusBox`. Every other
+ * field now counts, `noteMode` included - it has no default to fill in (call sites read `undefined`
+ * inconsistently, some as collapsed and some as not), so it is part of what identifies a mode and
+ * has to be given. Options built from a mode with `noteMode` changed - say
+ * `{ ...getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE), noteMode: "expanded" }` - used to return the
+ * mode they started from and now return `undefined`.
+ *
  * @param viewOptions - View options of the editor.
  * @returns the view mode if the view is defined, `undefined` otherwise.
  *
@@ -264,7 +274,7 @@ export function getVerseNodeClass(viewOptions: ViewOptions | undefined) {
   // Block verse is read-only, so its marker is never the editable `VerseNode`. Today the marker
   // mode below would reach the same answer - block verse hides markers - but dispatching on the
   // layout first keeps that independent of how markers happen to be configured.
-  if (viewOptions.verseLayout === "block") return ImmutableVerseNode;
+  if (isBlockVerseLayout(viewOptions)) return ImmutableVerseNode;
 
   return viewOptions.markerMode === "editable" ? VerseNode : ImmutableVerseNode;
 }

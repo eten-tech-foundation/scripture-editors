@@ -6,25 +6,26 @@
  * opposite nesting. Running as a post-pass over the serialized children leaves every `create*`
  * function in `usj-editor.adaptor.ts` untouched, so the inline layouts cannot be affected.
  *
- * Semantics are ported from paranext-core's `sliceUsjToVerse`
+ * Where a verse starts and ends follows paranext-core's `sliceUsjToVerse`
  * (`extensions/src/platform-scripture-editor/src/scripture-text-grid/verse-display.utils.ts`),
- * generalized from slicing out one verse to grouping every verse in one pass.
+ * generalized from slicing out one verse to grouping every verse in one pass. Core's other half -
+ * `hasRenderableText`, the emptiness verdict its grid consults to suppress a row - is deliberately
+ * not ported: this is the model layer, so a verse opener always gets its block, and whether a block
+ * with nothing renderable in it is shown, collapsed, or hidden stays a view-layer decision.
  */
 
 import {
   CategoryType,
   isSerializedBookNode,
-  isSerializedImpliedParaNode,
   isSerializedParaNode,
   isSerializedTypedMarkNode,
   isSomeSerializedChapterNode,
+  isSomeSerializedParaNode,
   MarkerType,
   LoggerBasic,
-  parseVerseRange,
-  SerializedImpliedParaNode,
-  SerializedParaNode,
   SerializedTypedMarkNode,
   SerializedVerseBlockNode,
+  SomeSerializedParaNode,
   VERSE_BLOCK_TYPE,
   usfmMarkers,
   VERSE_BLOCK_VERSION,
@@ -32,28 +33,36 @@ import {
 import { isSomeSerializedVerseNode, SomeSerializedVerseNode } from "shared-react";
 import { SerializedLexicalNode } from "lexical";
 
+const SEMANTIC_DIVISION_MARKER = /^sd\d*$/;
+
 /**
  * Paragraph markers that begin a heading rather than verse content. Grouping stops at these so a
  * following section header does not become part of the preceding verse.
  *
  * Derived from the generated marker data rather than hand-listed, so a heading marker added
  * upstream cannot be silently swallowed into the preceding verse's block. `qa` is added because it
- * is a poetry-acrostic heading that the data files under Poetry. The book titles this picks up
+ * is a poetry-acrostic heading that the data files file under Poetry. The book titles this picks up
  * (`mt*`) precede every verse, so treating them as boundaries costs nothing, and `mte*` closing an
  * open verse at the end of a book is correct.
+ *
+ * `sd*` is excluded even though the data files file it with the headings: a semantic division is
+ * contentless vertical space, not a heading. Ending the open verse there would leave the rest of
+ * that verse outside every block - the paragraph after it carries no verse marker of its own - and
+ * so off every layout row, the same content loss that keeps a non-paragraph container with the open
+ * verse below. Core's `sliceUsjToVerse` hand-lists its boundary markers and does not include `sd*`
+ * either, so both paths end a verse in the same place.
  */
 const STRUCTURAL_MARKERS = new Set([
   ...Object.entries(usfmMarkers)
     .filter(
-      ([, marker]) =>
-        marker.category === CategoryType.TitlesHeadings && marker.type === MarkerType.Paragraph,
+      ([name, marker]) =>
+        marker.category === CategoryType.TitlesHeadings &&
+        marker.type === MarkerType.Paragraph &&
+        !SEMANTIC_DIVISION_MARKER.test(name),
     )
     .map(([marker]) => marker),
   "qa",
 ]);
-
-/** A paragraph container whose children may hold verses. */
-type SerializedParagraph = SerializedParaNode | SerializedImpliedParaNode;
 
 /**
  * A run of a paragraph's content. The first run of a paragraph has no verse of its own - it either
@@ -89,7 +98,7 @@ export function groupVersesIntoBlocks(
       continue;
     }
 
-    if (!isSerializedParagraph(child)) {
+    if (!isSomeSerializedParaNode(child)) {
       // Anything else at root - a table, an `\esb` sidebar - holds its content in a structure that
       // cannot be split into one row per verse. Keeping it with the open verse is what preserves
       // the rest of that verse: the paragraph after it carries no verse marker of its own, so
@@ -150,10 +159,6 @@ export function groupVersesIntoBlocks(
   return grouped;
 }
 
-function isSerializedParagraph(node: SerializedLexicalNode): node is SerializedParagraph {
-  return isSerializedParaNode(node) || isSerializedImpliedParaNode(node);
-}
-
 /**
  * Splits a paragraph's children at each verse marker.
  *
@@ -168,7 +173,7 @@ function splitIntoRuns(nodes: SerializedLexicalNode[], logger?: LoggerBasic): Ve
   const addToCurrentRun = (node: SerializedLexicalNode) => runs[runs.length - 1].nodes.push(node);
 
   nodes.forEach((node) => {
-    if (isSomeSerializedVerseNode(node)) {
+    if (isVerseOpener(node)) {
       runs.push({ verse: node, nodes: [node] });
       return;
     }
@@ -203,12 +208,24 @@ function cloneMark(
   return { ...markNode, children };
 }
 
-/** Whether a verse marker is somewhere below this node. Used only to report malformed input. */
+/**
+ * Whether a serialized verse node opens a verse rather than closing one.
+ *
+ * A verse milestone can be an `eid`-only closer carrying no number, and `createVerse` coerces a
+ * missing number to `""`, so the node type alone cannot tell the two apart. Treating a closer as an
+ * opener would start a numberless block and truncate the real verse's. Core's slicer guards on the
+ * number for the same reason.
+ */
+function isVerseOpener(node: SerializedLexicalNode): node is SomeSerializedVerseNode {
+  return isSomeSerializedVerseNode(node) && node.number !== "";
+}
+
+/** Whether a verse opener is somewhere below this node. Used only to report malformed input. */
 function containsVerse(node: SerializedLexicalNode): boolean {
   const children = (node as { children?: SerializedLexicalNode[] }).children;
   if (!Array.isArray(children)) return false;
 
-  return children.some((child) => isSomeSerializedVerseNode(child) || containsVerse(child));
+  return children.some((child) => isVerseOpener(child) || containsVerse(child));
 }
 
 /**
@@ -217,24 +234,19 @@ function containsVerse(node: SerializedLexicalNode): boolean {
  * paragraph would put a `\p` in the document that the source USJ never had.
  */
 function createFragment(
-  para: SerializedParagraph,
+  para: SomeSerializedParaNode,
   nodes: SerializedLexicalNode[],
-): SerializedParagraph | undefined {
+): SomeSerializedParaNode | undefined {
   if (nodes.length === 0) return undefined;
 
   return { ...para, children: nodes };
 }
 
-/** An empty block carrying the verse's number and the range it covers. */
+/** An empty block carrying the verse's number; the range it covers is derived from that number. */
 function createVerseBlock(verse: SomeSerializedVerseNode): SerializedVerseBlockNode {
-  const number = verse.number ?? "";
-  const { start, end } = parseVerseRange(number);
-
   return {
     type: VERSE_BLOCK_TYPE,
-    number,
-    start,
-    end,
+    number: verse.number,
     children: [],
     direction: null,
     format: "",
