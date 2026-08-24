@@ -36,11 +36,13 @@ import { expect } from "vitest";
  */
 export function expectEveryTextBearingNodeRendered(editor: LexicalEditor, when: string): void {
   const unrendered: string[] = [];
+  let textBearingNodes = 0;
   editor.getEditorState().read(() => {
     $dfs($getRoot()).forEach(({ node }) => {
       if (!$isTextNode(node) && !$isDecoratorNode(node)) return;
       const text = node.getTextContent();
       if (!text) return;
+      textBearingNodes += 1;
       const rendered = editor.getElementByKey(node.getKey())?.textContent;
       if (rendered !== text)
         unrendered.push(
@@ -49,4 +51,7 @@ export function expectEveryTextBearingNodeRendered(editor: LexicalEditor, when: 
     });
   });
   expect(unrendered, when).toEqual([]);
+  // An empty violation list says nothing unless the walk actually reached content: an editor that
+  // never loaded has nothing to render, and would otherwise satisfy this net vacuously.
+  expect(textBearingNodes, `${when}: no text-bearing node was visited`).toBeGreaterThan(0);
 }

@@ -18,29 +18,29 @@ import { VerseNode } from "./VerseNode.js";
 import { Klass, LexicalNode, LexicalNodeReplacement, ParagraphNode } from "lexical";
 
 export * from "./attributeDisplay.utils.js";
+export * from "./AttributeRunNode.js";
+export * from "./BookNode.js";
 export * from "./caretBoundaries.utils.js";
+export * from "./ChapterNode.js";
 export * from "./charGlyphs.utils.js";
+export * from "./CharNode.js";
 export * from "./charStack.utils.js";
 export * from "./displayRunDescriptor.js";
 export * from "./displayRunSync.utils.js";
 export * from "./glyphPositions.utils.js";
-export * from "./pendedDisplayOwners.utils.js";
-export * from "./AttributeRunNode.js";
-export * from "./BookNode.js";
-export * from "./ChapterNode.js";
-export * from "./CharNode.js";
 export * from "./ImmutableChapterNode.js";
 export * from "./ImmutableTableNode.js";
 export * from "./ImmutableTableRowNode.js";
 export * from "./ImmutableTableCellNode.js";
 export * from "./ImpliedParaNode.js";
+export * from "./markerSeparators.utils.js";
 export * from "./MilestoneNode.js";
+export * from "./nestedGlyphs.utils.js";
 export * from "./node-constants.js";
 export * from "./node.utils.js";
-export * from "./markerSeparators.utils.js";
-export * from "./nestedGlyphs.utils.js";
 export * from "./NoteNode.js";
 export * from "./ParaNode.js";
+export * from "./pendedDisplayOwners.utils.js";
 export * from "./VerseNode.js";
 
 export const usjBaseNodes: readonly (Klass<LexicalNode> | LexicalNodeReplacement)[] = [

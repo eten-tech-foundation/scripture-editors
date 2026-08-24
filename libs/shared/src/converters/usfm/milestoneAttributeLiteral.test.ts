@@ -2,12 +2,13 @@ import { usfmFragmentToUsjContent } from "./usfmFragmentToUsj.js";
 import type { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 
 /**
- * A milestone whose attribute list will not parse ENDS THERE, and the bytes follow it as siblings.
+ * A milestone cannot hold content, so it ENDS where content it cannot hold begins, and the bytes
+ * follow it as siblings with the author's own `\*` left over as an unmatched closing marker.
  *
- * The chain is: a list that will not parse is content (matching Paratext 9, which leaves such an
- * attribute span as text), and a milestone cannot hold content — it is self-closing. So the
- * milestone closes immediately and the bytes become its siblings, with the author's own `\*` left
- * over as an unmatched closing marker.
+ * Content reaches a milestone by three routes, all the same rule: an attribute list that will not
+ * parse (a list that will not parse is content, matching Paratext 9, which leaves such a span as
+ * text), bytes typed BEFORE a list that does parse, and — with no `|` at all — everything between
+ * the marker and the closer.
  *
  * The point of doing it this way is that both spellings converge:
  *
@@ -17,10 +18,10 @@ import type { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
  * Both tokenize identically, so the settle that rewrites the first into the second is a FIXED
  * POINT — re-reading the saved bytes gives the same tree. Two rejected alternatives each lose
  * something: refusing the whole token drops the milestone the author did write, and building the
- * milestone while discarding the attribute text drops those bytes instead. This keeps every byte,
- * which is the only reading that can round-trip.
+ * milestone while discarding the content drops those bytes instead. This keeps every byte, which
+ * is the only reading that can round-trip.
  */
-describe("a milestone with an unparseable attribute list ends before the bytes", () => {
+describe("a milestone ends where content it cannot hold begins", () => {
   function content(usfm: string) {
     const [para] = usfmFragmentToUsjContent(usfm) as MarkerObject[];
     return para.content;
@@ -64,6 +65,51 @@ describe("a milestone with an unparseable attribute list ends before the bytes",
     expect(content(`\\p \\qt1-s |sid="asdf"\\*things\\*text`)).toEqual(
       content(`\\p \\qt1-s things|sid="asdf"\\*text`),
     );
+  });
+
+  it("ejects content typed with NO attribute list at all", () => {
+    // The third face of the same rule: no `|`, so every byte between the marker and the closer is
+    // content. The milestone ends where it begins, and the author's `\*` is left unmatched.
+    expect(content(`\\p \\qt1-s stuff\\*text`)).toEqual([
+      { type: "ms", marker: "qt1-s" },
+      "stuff",
+      { type: "unmatched", marker: "*" },
+      "text",
+    ]);
+  });
+
+  it("reads the settled spelling of pipe-less content identically", () => {
+    expect(content(`\\p \\qt1-s\\*stuff\\*text`)).toEqual(content(`\\p \\qt1-s stuff\\*text`));
+  });
+
+  it("ejects only the marker's separator space, keeping the content's own spacing", () => {
+    // The space that ends the marker name belongs to the marker, so it goes with it; every space
+    // inside the content is the content's own and stays. Convergence is what proves the count.
+    expect(content(`\\p \\qt1-s some stuff\\*text`)).toEqual(
+      content(`\\p \\qt1-s\\*some stuff\\*text`),
+    );
+  });
+
+  it("leaves a milestone with nothing between marker and closer alone", () => {
+    expect(content(`\\p \\qt1-s\\*text`)).toEqual([{ type: "ms", marker: "qt1-s" }, "text"]);
+  });
+
+  it("still parses a genuine attribute list as attributes, never as ejected content", () => {
+    // Nothing follows the milestone but the text after the closer: no ejected run, and no
+    // unmatched `\*`, because the closer is the milestone's own.
+    expect(content(`\\p \\qt1-s |who="Jesus"\\*text`)).toEqual([
+      { type: "ms", marker: "qt1-s", who: "Jesus" },
+      "text",
+    ]);
+  });
+
+  it("ejects content that precedes a bare pipe, which itself carries no bytes to keep", () => {
+    expect(content(`\\p \\qt1-s things|\\*text`)).toEqual([
+      { type: "ms", marker: "qt1-s" },
+      "things",
+      { type: "unmatched", marker: "*" },
+      "text",
+    ]);
   });
 
   it("still builds the milestone with its attributes when the list parses", () => {

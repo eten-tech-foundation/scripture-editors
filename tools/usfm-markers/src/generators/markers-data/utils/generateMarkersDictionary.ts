@@ -25,7 +25,9 @@ export enum Justification {
   Center = "Center",
   Right = "Right",
   // Full/justified alignment (`\Justification Both` in a Paratext .sty). Lowercased downstream to
-  // "both" to match the consumer `MarkerStyleInfo.justification` union.
+  // "both" to match the consumer `MarkerStyleInfo.justification` union. Defensive: the vendored
+  // usfm.sty (3.0.11) declares no `\Justification Both`, so nothing in the generated output
+  // exercises it — a custom.sty may, so keep it rather than deleting it as unreachable.
   Both = "Both",
 }
 

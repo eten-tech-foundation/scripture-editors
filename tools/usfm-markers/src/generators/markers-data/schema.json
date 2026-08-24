@@ -15,7 +15,7 @@
     },
     "outputPath": {
       "type": "string",
-      "description": "Where to save the resulting file",
+      "description": "Where to save the resulting file. Only libs/shared/src/utils/usfm works as-is: the generated defaultStyleInfo.ts imports StyleInfo from the hand-written ./styleInfo.js next to it, so any other output path emits an unresolvable import.",
       "default": "libs/shared/src/utils/usfm"
     }
   },

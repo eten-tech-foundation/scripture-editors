@@ -204,6 +204,17 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
       expect(css).toContain(".usfm_x\\{\\}"); // braces escaped, cannot terminate the rule early
       expect(css).not.toContain(".usfm_x{} {");
     });
+
+    it("warns and falls back to the default scope when containerSelector could break out", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const css = generateUsjCss(
+        { markers: { p: { marker: "p", styleType: "paragraph", bold: true } } },
+        { containerSelector: ".x { } body" },
+      );
+      expect(css).toBe(".editor-input.usfm .usfm_p { font-weight: bold; }");
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 
   it("respects a custom containerSelector", () => {

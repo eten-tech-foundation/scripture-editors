@@ -235,7 +235,7 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
         !event.ctrlKey &&
         !event.metaKey
       ) {
-        const textDirection = rootElement.dir || "ltr";
+        const textDirection = getEditorTextDirection(rootElement);
         const isHandled = $extendOneVisibleStop(
           selection,
           isMovingForward(textDirection, event.key) ? "next" : "previous",
@@ -255,7 +255,7 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
 
       if (!rootElement) return false;
 
-      const direction = rootElement.dir || "ltr";
+      const direction = getEditorTextDirection(rootElement);
       // The `\fp` boundary hops apply only to plain arrow moves: modified arrows (shift range
       // extension, word/line jumps) keep native semantics.
       const hasModifier = event.shiftKey || event.altKey || event.ctrlKey || event.metaKey;
@@ -283,6 +283,24 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
 }
 
 // --- Helper functions for direction checking ---
+
+/**
+ * The direction the editor's content reads in, from its root element — what "forward" means for a
+ * horizontal arrow key. It lives here because arrow navigation is the only caller; it is exported
+ * only so the unit test can reach it, as `hasVisualLineBeyondCaret` above is.
+ *
+ * KNOWN GAP: a project configured for "auto" direction reads as `"ltr"` here. `TextDirectionPlugin`
+ * returns early without setting `dir` on the root when the configured direction is `"auto"`, and
+ * the host forwards `"auto"` through unchanged — so `dir` stays empty and every direction-sensitive
+ * behavior below moves the wrong logical way for an RTL script. The likely fix is
+ * `getComputedStyle(rootElement).direction`, which reflects what `dir="auto"` resolved to and picks
+ * up a direction set in CSS as well; it changes caret behavior for every RTL user and jsdom has no
+ * layout to resolve it, so it needs validating against a real RTL project first. Every direction
+ * read goes through here, so that is a one-place change.
+ */
+export function getEditorTextDirection(rootElement: HTMLElement): string {
+  return rootElement.dir || "ltr";
+}
 
 function isMovingForward(direction: string, key: string): boolean {
   return (
@@ -462,23 +480,14 @@ type CaretLanding =
   | { kind: "element"; node: ElementNode; offset: number };
 
 /**
- * Minimal shape of `Intl.Segmenter`, declared locally so this file does not depend on the ambient
- * lib target carrying it. Absent at runtime, the code-point fallbacks below still keep the caret off
- * the inside of a surrogate pair.
+ * Segments text into user-perceived characters. The type is in the lib target, but the runtime is
+ * not guaranteed to have it — where it is missing, the code-point fallbacks below still keep the
+ * caret off the inside of a surrogate pair.
  */
-interface GraphemeSegmenter {
-  segment(input: string): Iterable<{ index: number; segment: string }>;
-}
-
-const graphemeSegmenter: GraphemeSegmenter | undefined = (() => {
-  const intl = Intl as unknown as {
-    Segmenter?: new (
-      locales?: string | undefined,
-      options?: { granularity: string },
-    ) => GraphemeSegmenter;
-  };
-  return intl.Segmenter ? new intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
-})();
+const graphemeSegmenter: Intl.Segmenter | undefined =
+  typeof Intl.Segmenter === "undefined"
+    ? undefined
+    : new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** The offset just past `text`'s first grapheme — where a forward crossing into it lands. */
 function firstGraphemeEnd(text: string): number {

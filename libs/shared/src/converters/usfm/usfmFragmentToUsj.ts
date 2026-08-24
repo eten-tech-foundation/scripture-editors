@@ -20,12 +20,13 @@
  * `UsxUsfmParserSink.cs:262-266`), not literal text.
  *
  * Literal-text degradation remains only for fragments the
- * tokenizer cannot confidently parse at all: a bare `\`, non-attribute
- * content before a milestone's `\*` (the milestone run degrades, while the
- * `\*` itself becomes an unmatched element), or an unterminated milestone
- * (stylesheet-declared, or matching the suffix convention above). A stray
- * `\*` with no milestone to close is NOT literal — it becomes an unmatched
- * element (see above).
+ * tokenizer cannot confidently parse at all: a bare `\`, or an unterminated
+ * milestone (stylesheet-declared, or matching the suffix convention above).
+ * Content between a milestone's marker and its `\*` is NOT literal: a
+ * milestone cannot hold content, so it ends where the content begins, the
+ * content follows it as a sibling, and the author's `\*` becomes an unmatched
+ * element. A stray `\*` with no milestone to close is NOT literal either — it
+ * becomes an unmatched element (see above).
  *
  * Figures, tables, and sidebars assemble to their faithful USJ shapes at the
  * assembly level, marker-name driven (they are parser-level structures in
@@ -538,20 +539,27 @@ function scanMilestone(
     // ratified answer for a `|` typed into a milestone glyph.
     if (!attributes && between.slice(pipeIndex + 1).trim() !== "")
       return { token: { kind: "milestone", marker: name }, next: index + pipeIndex };
-    // Content BEFORE the attribute list is the same story from the other side: a milestone cannot
-    // hold it, so the milestone ends — keeping the attributes, which are valid and its own — and
-    // the content follows as a sibling, with the author's `\*` left to scan as unmatched. Without
-    // this the bytes were simply dropped: `\qt1-s things|sid="asdf"\*` silently became a milestone
-    // with no trace of `things`. Resuming at `closeIndex` is what leaves the `\*` unmatched, and
-    // the leading separator space belongs to the marker rather than the content, so it goes.
-    const beforePipe = between.slice(0, pipeIndex);
-    if (attributes && beforePipe.trim() !== "")
-      return {
-        token: { kind: "milestone", marker: name, attributes },
-        next: closeIndex,
-        ejectedText: beforePipe.replace(/^[ \u00A0]/, ""),
-      };
-  } else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
+  }
+  // Content a milestone cannot hold — the bytes before a valid attribute list, or, when there is
+  // no `|` at all, everything between the marker and the closer. A milestone is self-closing, so
+  // it ENDS where that content begins: the content follows it as a sibling, and the author's `\*`
+  // is left to scan as an unmatched closing marker. Valid attributes stay, because they are
+  // genuinely the milestone's own; only what it cannot hold moves.
+  //
+  // That is what ParatextData writes to disk — `\qt1-s stuff\*` is saved as `\qt1-s\*stuff\*` —
+  // so the two spellings must tokenize IDENTICALLY for a reload to be a fixed point. Reading the
+  // stray content as literal text instead dissolves the milestone the author did write, leaving
+  // the editor disagreeing with the file.
+  //
+  // Resuming at `closeIndex` is what leaves the `\*` unmatched, and the leading separator space
+  // belongs to the marker rather than the content, so it goes with the marker.
+  const ejected = pipeIndex >= 0 ? between.slice(0, pipeIndex) : between;
+  if (ejected.trim() !== "")
+    return {
+      token: { kind: "milestone", marker: name, attributes },
+      next: closeIndex,
+      ejectedText: ejected.replace(/^[ \u00A0]/, ""),
+    };
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }
 

@@ -27,7 +27,8 @@
     "dist",
     "src",
     "!src/**/*.test.ts",
-    "!src/**/*.test.tsx"
+    "!src/**/*.test.tsx",
+    "!src/**/*.test-helpers.*"
   ],
   "scripts": {
     "generate:test-data": "cross-env GENERATE_TEST_DATA=1 pnpm vitest run generate-2sa-lexical-states",

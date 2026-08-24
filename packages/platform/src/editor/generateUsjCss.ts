@@ -23,7 +23,8 @@ export interface UsjCssOptions {
    * Scope prefix; must at least match the static usj-nodes.css rules' specificity. Defaults to
    * `".editor-input.usfm"` (the editor ContentEditable carries both classes): at (0,2,0) the base
    * rule ties the static `.usfm.formatted-font` rules and wins by injection order, so the project
-   * default font/size actually applies (project styles win where defined).
+   * default font/size actually applies (project styles win where defined). A value carrying
+   * anything outside {@link SAFE_SELECTOR_REGEX} is replaced by the default with a warning.
    */
   containerSelector?: string;
 }
@@ -66,6 +67,27 @@ function escapeCssIdentifier(value: string): string {
  * a value that passes cannot escape `color: <value>`. Anything else is dropped with a warning.
  */
 const SAFE_COLOR_REGEX = /^[#\w().,%/\s-]+$/;
+
+/** The scope prefix used when none is supplied — see {@link UsjCssOptions.containerSelector}. */
+const DEFAULT_CONTAINER_SELECTOR = ".editor-input.usfm";
+
+/**
+ * Characters permitted in the container selector — type/class/id/attribute selectors, pseudo-
+ * classes, and the combinators. Excludes every rule/comment/element breakout character (`;{}<\` and
+ * `/`), so a value that passes cannot close the rule it prefixes, start a comment, or end a
+ * `<style>` element. Anything else falls back to the default with a warning.
+ */
+const SAFE_SELECTOR_REGEX = /^[\w.#[\]="':()>+~*,\s-]+$/;
+
+/** The container selector to emit: the caller's, or the default when the caller's is unsafe. */
+function safeContainerSelector(containerSelector: string): string {
+  if (SAFE_SELECTOR_REGEX.test(containerSelector)) return containerSelector;
+  // eslint-disable-next-line no-console -- no logger seam in this pure function; loud-fail per project convention.
+  console.warn(
+    `[generateUsjCss] Ignoring unsafe containerSelector "${containerSelector}"; using "${DEFAULT_CONTAINER_SELECTOR}".`,
+  );
+  return DEFAULT_CONTAINER_SELECTOR;
+}
 
 function markerDeclarations(
   marker: string,
@@ -134,20 +156,19 @@ function markerDeclarations(
  * @public
  */
 export function generateUsjCss(styleInfo: StyleInfo, options: UsjCssOptions = {}): string {
-  const { zoom = 1, rtl = false, containerSelector = ".editor-input.usfm" } = options;
+  const { zoom = 1, rtl = false, containerSelector = DEFAULT_CONTAINER_SELECTOR } = options;
+  const scope = safeContainerSelector(containerSelector);
   const rules: string[] = [];
   const baseDecls: string[] = [];
   if (styleInfo.defaultFont)
     baseDecls.push(`font-family: "${escapeCssString(styleInfo.defaultFont)}"`);
   if (styleInfo.defaultFontSize)
     baseDecls.push(`font-size: ${formatLength(styleInfo.defaultFontSize * zoom)}pt`);
-  if (baseDecls.length > 0) rules.push(`${containerSelector} { ${baseDecls.join("; ")}; }`);
+  if (baseDecls.length > 0) rules.push(`${scope} { ${baseDecls.join("; ")}; }`);
   for (const [marker, entry] of Object.entries(styleInfo.markers)) {
     const decls = markerDeclarations(marker, entry, zoom, rtl);
     if (decls.length > 0)
-      rules.push(
-        `${containerSelector} .usfm_${escapeCssIdentifier(marker)} { ${decls.join("; ")}; }`,
-      );
+      rules.push(`${scope} .usfm_${escapeCssIdentifier(marker)} { ${decls.join("; ")}; }`);
   }
   return rules.join("\n");
 }

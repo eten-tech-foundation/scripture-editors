@@ -217,17 +217,20 @@ export function expectTier2FixedPoint(usj: Usj, expandedNotes = false): void {
   const headless = loadHeadless(usj, viewOptions);
   const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
   const changed: string[] = [];
+  let rebuildScopes = 0;
   headless.update(
     () => {
       $getRoot()
         .getChildren()
         .filter($isParaNode)
         .forEach((para, index) => {
+          rebuildScopes += 1;
           if ($rebuildParas([para], context)) changed.push(`#${index} \\${para.getMarker()}`);
         });
       $collectNotes($getRoot().getChildren())
         .filter((note) => note.getIsCollapsed() === false)
         .forEach((note, index) => {
+          rebuildScopes += 1;
           if ($rebuildNoteContent(note, context))
             changed.push(`note#${index} \\${note.getMarker()}`);
         });
@@ -235,4 +238,9 @@ export function expectTier2FixedPoint(usj: Usj, expandedNotes = false): void {
     { discrete: true },
   );
   expect(changed).toEqual([]);
+  // An empty refusal list says nothing unless something was actually driven through a rebuild: USJ
+  // that reloaded as an empty tree would otherwise satisfy the fixed point vacuously.
+  expect(rebuildScopes, "no paragraph or note was driven through a Tier-2 rebuild").toBeGreaterThan(
+    0,
+  );
 }

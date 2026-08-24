@@ -267,9 +267,22 @@ tip it was rebased onto).
       what covers the class (no kind discards a typed byte), though this exact repro is still named
       by no pin of its own.
 
-- [ ] **M3** Deleting a milestone's attribute bar dissolves the milestone into literal text.
-      **REPORTED 2026-08-20 by the owner; measured, and it is NOT the divergence it first looked
-      like. NEEDS THE OWNER'S RATIFICATION before a fix is written.**
+- [x] **M3** Deleting a milestone's attribute bar dissolves the milestone into literal text.
+      **REPORTED 2026-08-20 by the owner; measured, ratified, and FIXED.** The owner ruled on what
+      reaches disk: a milestone is self-closing, so it ends where content it cannot hold begins, and
+      `\qt1-s stuff\*` must resolve the way `\qt1-s\*stuff\*` does. Keeping it literal made the
+      editor disagree with the file.
+
+      The refusal is gone and all three faces of the rule now come out of one code path. Proven by
+      **output-to-output convergence** rather than a hand-written tree — `content("\qt1-s\*stuff\*")`
+      must equal `content("\qt1-s stuff\*")` — which is the shape both sibling commits used and is
+      what makes an off-by-one separator space fail. Pinned in `milestoneAttributeLiteral.test.ts`
+      (6 cases: convergence ×2, a genuine attribute list still parsing as attributes, an empty
+      milestone, and both pre-existing ejection shapes unchanged). Went red first.
+
+      **A second silent data loss fell out of the unification and is now pinned:** content before a
+      BARE pipe (`\qt1-s things|\*`) used to drop `things` entirely, because `af2d4d3a` guarded its
+      ejection with `attributes &&` and this variant slipped between the branches. It now ejects.
 
       Start with `\qt1-s |stuff\*` and delete the attribute bar (`|`), so `stuff` is no longer an
       attribute list. The owner expects `\qt1-s\*stuff\*` — the milestone ending where the content it
@@ -304,10 +317,20 @@ tip it was rebased onto).
       and could well write `\qt1-s\*stuff\*` back out. If so this IS an editor↔file divergence after
       all — just created downstream, where no headless test in these repos can see it.
 
-      That reframes the fix: ejecting in the pipe-less case would make the editor **agree with
-      ParatextData** rather than reverse a decision for its own sake. **Confirming it is a C#
-      question** — a capture test in paranext-core recording what ParatextData writes for this shape
-      would settle it, and the approval gate explicitly permits capture tests that RECORD behavior.
+      That reframed the fix: ejecting in the pipe-less case makes the editor **agree with
+      ParatextData** rather than reverse a decision for its own sake. A C# capture test in
+      paranext-core recording what ParatextData writes for this shape would confirm it from the
+      other side; the approval gate explicitly permits capture tests that RECORD behavior.
+
+      **One limitation was inherited, not introduced, and wants a ruling.** The ejected text goes
+      through `pushText`, bypassing the main loop's `regularizeSpaces` and `//`-optbreak splitting,
+      so convergence holds for ordinary content but breaks on those two byte classes — measured,
+      `\qt1-s a//b\*` gives `[ms, "a//b", unmatched]` where the settled `\qt1-s\*a//b\*` gives
+      `[ms, "a", optbreak, "b", unmatched]`, and `a  b` stays doubled unsettled but collapses
+      settled. This already affected the before-pipe ejection shipped in `af2d4d3a`. The remedy is
+      one line in `tokenize` (`pushTextWithOptbreaks(regularizeSpaces(...))`), but it changes a
+      shipped sibling's behavior and touches the whitespace-preservation machinery, so it was left
+      for the owner.
 - [x] **M2** The milestone marker name is editable on screen and silently never persists.
       Fixed in `sv/fb5/milestone-edit` (merged to `sv/residual-backlog`), not by this round —
       the fixed-point signature folded a milestone's sid/eid/attributes but not its `marker`, so a

@@ -348,9 +348,9 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
   // must TERMINATE rather than loop, but by different routes. A bare `\` is a genuine literal
   // no-op — one of usfmFragmentToUsjContent's remaining literal-degradation cases — so it
   // terminates via `$rebuildParas`'s fixed-point refusal (nothing mutated; node-identity pins).
-  // A stray `\*` (and the `\*` left after a milestone run degrades to literal) instead makes real
-  // structural progress into an ImmutableUnmatchedNode that the next rebuild preserves as a
-  // sentinel. Either way the mere fact each test RETURNS proves termination.
+  // A stray `\*` (and the one left over when a milestone ejects content it cannot hold) instead
+  // makes real structural progress into an ImmutableUnmatchedNode that the next rebuild preserves
+  // as a sentinel. Either way the mere fact each test RETURNS proves termination.
   it("does not hang: a bare backslash is a true no-op, refused rather than looping", async () => {
     let pText: TextNode, qText: TextNode, pParaKey: string;
     const { editor } = await testEnvironment(() => {
@@ -403,7 +403,7 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     });
   }, 15000);
 
-  it("does not hang: non-attribute content before a milestone \\* settles literal + unmatched, not a loop", async () => {
+  it("does not hang: non-attribute content before a milestone \\* ejects, not a loop", async () => {
     let pText: TextNode, qText: TextNode;
     const { editor } = await testEnvironment(() => {
       ({ pText, qText } = $twoParas("body", "second"));
@@ -411,10 +411,11 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
 
     await act(async () =>
       editor.update(() => {
-        // `\ts-s x\*`: the `\*` closes, but the content before it is not a `|`-attribute run, so
-        // scanMilestone bails and the milestone run degrades to literal text — while the `\*`
-        // itself becomes an ImmutableUnmatchedNode (PT9 sink.Unmatched), which is real
-        // structural progress and then a rebuild sentinel. Termination, not refusal.
+        // `\ts-s x\*`: the `\*` closes, but the content before it is not a `|`-attribute run. A
+        // milestone is self-closing, so it ends where content it cannot hold begins — the
+        // milestone takes its own `\*` and `x` is ejected after it, leaving the typed `\*` as an
+        // ImmutableUnmatchedNode (PT9 sink.Unmatched). That is real structural progress and then a
+        // rebuild sentinel. Termination, not refusal.
         pText.setTextContent("body \\ts-s x\\*");
         pText.select(pText.getTextContentSize(), pText.getTextContentSize());
       }),
@@ -422,7 +423,8 @@ describe("genuine fixed-point refusal (no real progress possible)", () => {
     await act(async () => editor.update(() => qText.select(0, 0)));
 
     editor.getEditorState().read(() => {
-      expect($getRoot().getTextContent()).toContain("\\ts-s x"); // literal run intact
+      // The milestone closes itself and the content it cannot hold follows it.
+      expect($getRoot().getTextContent()).toContain("\\ts-s\\*x\\*");
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
       const unmatched = paras[0].getChildren().filter($isImmutableUnmatchedNode);

@@ -7,7 +7,11 @@ import { $expectSelectionToBe } from "../../../../../libs/shared/src/nodes/usj/t
 import { $createImmutableNoteCallerNode, $createImmutableVerseNode } from "../../nodes/usj";
 import { getDefaultViewOptions, getViewOptions } from "../../views/view-options.utils";
 import { STANDARD_VIEW_MODE, UNFORMATTED_VIEW_MODE } from "../../views/view-mode.model";
-import { ArrowNavigationPlugin, hasVisualLineBeyondCaret } from "./ArrowNavigationPlugin";
+import {
+  ArrowNavigationPlugin,
+  getEditorTextDirection,
+  hasVisualLineBeyondCaret,
+} from "./ArrowNavigationPlugin";
 import { $opaqueBlockAncestor } from "./OpaqueBlockGuardPlugin";
 import { TextDirectionPlugin } from "./TextDirectionPlugin";
 import {
@@ -729,6 +733,22 @@ describe("hasVisualLineBeyondCaret", () => {
     const tallerSameLineInline = { top: 94, bottom: 124, height: 30 };
     expect(hasVisualLineBeyondCaret(caret, [caret, tallerSameLineInline], "down")).toBe(false);
     expect(hasVisualLineBeyondCaret(caret, [caret, tallerSameLineInline], "up")).toBe(false);
+  });
+});
+
+describe("getEditorTextDirection", () => {
+  it("reads an explicit direction off the editor's root element", () => {
+    const root = document.createElement("div");
+    root.dir = "rtl";
+    expect(getEditorTextDirection(root)).toBe("rtl");
+    root.dir = "ltr";
+    expect(getEditorTextDirection(root)).toBe("ltr");
+  });
+
+  it('answers "ltr" when the root carries no direction', () => {
+    // The case an "auto"-direction project lands in, since TextDirectionPlugin never writes `dir`
+    // for "auto" — see the helper's doc comment for why that LTR answer is a known gap.
+    expect(getEditorTextDirection(document.createElement("div"))).toBe("ltr");
   });
 });
 
