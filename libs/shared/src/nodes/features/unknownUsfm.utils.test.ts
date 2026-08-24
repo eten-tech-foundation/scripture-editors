@@ -10,7 +10,7 @@ interface Case {
 }
 
 // Table-driven over exactly the per-kind rules in the design (opening/attributes/closingAttributes/
-// closing bytes unknownDisplayParts computes for Task 13 to render around an UnknownNode's
+// closing bytes unknownDisplayParts computes to render around an UnknownNode's
 // existing content children), plus attribute-less variants of the kinds that carry real attribute
 // bytes.
 const cases: Case[] = [

@@ -1,8 +1,8 @@
 /**
- * Corpus losslessness property test — Phase 1's cross-cutting safety net.
+ * Corpus losslessness property test — the marker-edit engine's cross-cutting safety net.
  *
- * Every Phase-1 task (char-span attribute display, milestone re-tokenization, recoverability-
- * based sentinel classification, and the fixed-point signature that folds in char
+ * Every part of the marker-edit engine (char-span attribute display, milestone re-tokenization,
+ * recoverability-based sentinel classification, and the fixed-point signature that folds in char
  * `unknownAttributes` and milestone node state) exists to keep one invariant true: display bytes
  * built from real project data re-tokenize back to themselves. This test pins that invariant
  * directly, over real corpus data, instead of trusting the unit tests in `tier2Rebuild.utils.test.tsx`
@@ -12,7 +12,7 @@
  * headless editor in Standard view (`editable` marker mode, matching how the real app displays
  * text a user can type into), an UNEDITED `$rebuildParas` request must refuse as a fixed point:
  * return `false`, and leave the editor -> USJ round trip byte-identical. A paragraph that fails
- * this is either a genuine Phase 1 regression (reported, not silently skipped) or a pre-existing
+ * this is either a genuine rebuild regression (reported, not silently skipped) or a pre-existing
  * non-fixed-point the nesting arc already documents elsewhere (skip-listed below with the exact
  * mechanism named, not a task number).
  *
@@ -108,7 +108,7 @@ function skipReason(para: ParaNode): string | undefined {
   return SKIP_LIST.find((entry) => text.includes(entry.contains))?.reason;
 }
 
-describe("$rebuildParas — 2SA corpus losslessness (Phase 1 safety net)", () => {
+describe("$rebuildParas — 2SA corpus losslessness (safety net)", () => {
   it("refuses an unedited rebuild as a fixed point for every paragraph in the corpus", () => {
     const editor = loadEditor(usj2Sa);
     const usjBefore = deserializeSerializedEditorState(
@@ -140,7 +140,7 @@ describe("$rebuildParas — 2SA corpus losslessness (Phase 1 safety net)", () =>
     // Sanity check that the corpus actually loaded and was walked, not silently empty.
     expect(paraCount).toBeGreaterThan(100);
 
-    // Every failing paragraph is either a real Phase-1 bug (never expected here) or belongs in
+    // Every failing paragraph is either a real rebuild bug (never expected here) or belongs in
     // SKIP_LIST with a named mechanism — see the report for the full skip-list accounting.
     expect(failures).toEqual([]);
 

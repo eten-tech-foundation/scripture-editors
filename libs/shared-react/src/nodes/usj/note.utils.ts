@@ -282,10 +282,12 @@ export function $createNoteChildren(
   const chapterVerseSeparator = nodeOptions.chapterVerseSeparator ?? ":";
   const verseRangeSeparator = nodeOptions.verseRangeSeparator ?? "-";
   // `verse` (e.g. "16-18") is only populated for a verse bridge; replace the raw "-" bridge
-  // separator with the project's configured verseRangeSeparator (PT9 `GetFormattedVerse`).
+  // separator with the project's configured verseRangeSeparator (PT9 `GetFormattedVerse`). Passed as
+  // a REPLACER FUNCTION, not a replacement string, so a separator containing `$` is inserted
+  // literally instead of being read as a `$&`/`$1` substitution pattern.
   const referenceText =
     chapterNum !== undefined && verseNum !== undefined
-      ? `${chapterNum}${chapterVerseSeparator}${(verse ?? `${verseNum}`).replace(/-/g, verseRangeSeparator)} `
+      ? `${chapterNum}${chapterVerseSeparator}${(verse ?? `${verseNum}`).replace(/-/g, () => verseRangeSeparator)} `
       : undefined;
 
   switch (marker) {

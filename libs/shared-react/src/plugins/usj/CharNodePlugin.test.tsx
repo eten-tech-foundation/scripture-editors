@@ -767,7 +767,7 @@ describe("CharNodePlugin", () => {
 
       await act(async () => {
         editor.update(() => {
-          // Mid-edit: the user has typed into the run (Task 6 re-tokenizes on caret departure),
+          // Mid-edit: the user has typed into the run (re-tokenized on caret departure),
           // so its text has drifted from canonical while the caret still sits inside it.
           run.setTextContent('|lemma="gra');
           run.select(run.getTextContentSize(), run.getTextContentSize());

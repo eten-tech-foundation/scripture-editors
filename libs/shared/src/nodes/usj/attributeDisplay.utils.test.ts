@@ -68,6 +68,16 @@ describe("milestoneAttributes", () => {
     expect(milestoneAttributes(undefined, undefined, undefined)).toEqual({});
   });
 
+  // An authored `sid=""` is a byte the document holds, not an absent attribute. Folding it out
+  // deletes it from the displayed run, and a settle re-derives node state FROM those displayed
+  // bytes — so a truthiness test loses the empty value all the way out to the saved file.
+  // `orderedAttributes` tests membership with `in` for exactly this reason; the two must agree.
+  it("keeps an empty sid/eid, which the document authored rather than omitted", () => {
+    expect(milestoneAttributes("", undefined, { who: "TJ" })).toEqual({ sid: "", who: "TJ" });
+    expect(milestoneAttributes(undefined, "", { who: "TJ" })).toEqual({ eid: "", who: "TJ" });
+    expect(Object.keys(milestoneAttributes("", "", { who: "TJ" }))).toEqual(["sid", "eid", "who"]);
+  });
+
   // An authored order is the order the attributes appeared in the document. Paratext 9 preserves
   // it, so the fold must too — the sid-first default above is only what an order-less milestone
   // (one whose source already was canonical) gets.

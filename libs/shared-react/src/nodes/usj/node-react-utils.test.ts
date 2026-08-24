@@ -1481,6 +1481,24 @@ describe("$insertNote()", () => {
         .filter($isCharNode)
         .find((c) => c.getMarker() === "fr");
       expect(fr?.getTextContent()).toBe("1:16–18 ");
+
+      // The separator is project-configured text, so it must reach the reference LITERALLY. Handed
+      // to `String.replace` as a replacement STRING, a `$&` in it expands to the matched "-"
+      // instead of being inserted, so the separator has to go through a replacer function.
+      const dollarSeparator = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "MAT", chapterNum: 1, verseNum: 16, verse: "16-18" },
+        viewOptions,
+        { verseRangeSeparator: "$&" },
+        undefined,
+      );
+      const frDollar = dollarSeparator
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "fr");
+      expect(frDollar?.getTextContent()).toBe("1:16$&18 ");
     });
   });
 

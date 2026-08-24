@@ -154,7 +154,15 @@ export function milestoneAttributes(
   attributeOrder?: readonly string[],
 ): UnknownAttributes {
   return orderedAttributes(
-    { ...(sid && { sid }), ...(eid && { eid }), ...unknownAttributes },
+    // Presence, not truthiness: an authored `sid=""` is a byte the document holds, and folding it
+    // out here deletes it from the displayed run — which a settle then re-derives node state from,
+    // so the empty value would be gone from the file. Matches `orderedAttributes`' own `in` test
+    // directly above, which exists for exactly this reason.
+    {
+      ...(sid !== undefined && { sid }),
+      ...(eid !== undefined && { eid }),
+      ...unknownAttributes,
+    },
     attributeOrder,
   );
 }
