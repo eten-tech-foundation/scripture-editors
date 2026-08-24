@@ -145,6 +145,7 @@ import {
   getDefaultViewOptions,
   getVerseNodeClass,
   hasStandardViewWhitespace,
+  isBlockVerseLayout,
   isCollapsedNoteMode,
   isSomeSerializedVerseNode,
   showParaMarkerPrefix,
@@ -235,8 +236,7 @@ export function serializeEditorState(
     if (usj.content.length > 0) {
       children = insertImpliedParasRecurse(recurseNodes(usj.content));
       // After implied paragraphs exist, so the grouping only ever sees paragraph containers.
-      if (_viewOptions?.verseLayout === "block")
-        children = groupVersesIntoBlocks(children, _logger);
+      if (isBlockVerseLayout(_viewOptions)) children = groupVersesIntoBlocks(children, _logger);
     } else children = [emptyImpliedParaNode];
   } else {
     children = [emptyImpliedParaNode];

@@ -28,12 +28,12 @@ export const VERSE_BLOCK_CLASS_NAME = "verse-block";
 
 export type SerializedVerseBlockNode = Spread<
   {
-    /** The verse marker verbatim, e.g. `"5"` or `"14-15"`. */
+    /**
+     * The verse marker verbatim, e.g. `"5"` or `"14-15"`. The only state on the wire: the range it
+     * covers is derived from it by {@link VerseBlockNode.getRange}, so it cannot go stale when a
+     * serialized `number` is hand-edited.
+     */
     number: string;
-    /** First verse number covered. */
-    start: number;
-    /** Last verse number covered; equal to `start` unless the marker bridges verses. */
-    end: number;
   },
   SerializedElementNode
 >;
@@ -91,18 +91,30 @@ export class VerseBlockNode extends ElementNode {
     return false;
   }
 
-  // No `exportDOM`/`importDOM`: Lexical's default export already emits `createDOM`'s element, so a
-  // copied passage carries these wrappers. There is deliberately no import counterpart - block
-  // verse is read-only, so pasting one back in is not a supported flow.
+  // No `exportDOM`/`importDOM`: Lexical's default export already emits `createDOM`'s element, so
+  // the HTML flavor of a copied passage carries these wrappers, which an ordinary paste unwraps
+  // because there is no import counterpart. Block verse is read-only, so pasting one back in is
+  // not a supported flow.
+
+  /**
+   * Keeps the wrapper out of the `application/x-lexical-editor` clipboard payload; its paragraphs
+   * travel in its place.
+   *
+   * Every platform editor shares one Lexical namespace, so a payload copied from a block verse
+   * editor is accepted when pasted into an ordinary one - which registers no `VerseBlockNode`, so
+   * `$parseSerializedNode` would throw on the unknown type and `onError` would rethrow and tear the
+   * editor down. `TypedMarkNode` and `UnknownNode` exclude themselves the same way; Lexical's
+   * clipboard only ever asks with `"html"`.
+   */
+  override excludeFromCopy(destination: "clone" | "html"): boolean {
+    return destination !== "clone";
+  }
 
   override exportJSON(): SerializedVerseBlockNode {
-    const { start, end } = this.getRange();
     return {
       ...super.exportJSON(),
       type: VERSE_BLOCK_TYPE,
       number: this.getNumber(),
-      start,
-      end,
       version: VERSE_BLOCK_VERSION,
     };
   }

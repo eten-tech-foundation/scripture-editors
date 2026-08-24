@@ -3,7 +3,10 @@
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import Editorial from "../Editorial";
 import { EditorRef } from "./editor.model";
-import { deserializeSerializedEditorState } from "./adaptors/editor-usj.adaptor";
+import {
+  deserializeSerializedEditorState,
+  initialize as initializeEditorUsjAdaptor,
+} from "./adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "./adaptors/usj-editor.adaptor";
 import { act, render } from "@testing-library/react";
 import { createRef } from "react";
@@ -157,6 +160,94 @@ describe("block verse layout guards", () => {
     expect(() => callMarkerMethod(editor)).toThrow(/readonly/i);
   });
 
+  // Every entry point that would change the document has to refuse before it can, because Lexical
+  // does not block `editor.update()` on `editable: false` - an edit that went through would leave
+  // the rendered document and `getUsj()` silently diverged.
+  it.each([
+    ["cut", (ref: EditorRef) => ref.cut()],
+    ["paste", (ref: EditorRef) => ref.paste()],
+    ["pastePlainText", (ref: EditorRef) => ref.pastePlainText()],
+    ["formatPara", (ref: EditorRef) => ref.formatPara("q1")],
+    ["insertNote", (ref: EditorRef) => ref.insertNote("f")],
+  ] as const)("refuses %s", async (_name, callMethod) => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(
+        <Editorial
+          ref={ref}
+          defaultUsj={usjGen1v1}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          options={{ isReadonly: true, view: blockVerseOptions }}
+        />,
+      );
+    });
+
+    const editor = ref.current;
+    if (!editor) throw new Error("editor ref is not set");
+    expect(() => callMethod(editor)).toThrow(/block verse/i);
+  });
+
+  // The same guards close a gap that predates this layout: these methods used to go through for a
+  // host that simply passed `isReadonly: true`, unlike their character-marker neighbours.
+  it.each([
+    ["cut", (ref: EditorRef) => ref.cut()],
+    ["paste", (ref: EditorRef) => ref.paste()],
+    ["pastePlainText", (ref: EditorRef) => ref.pastePlainText()],
+    ["formatPara", (ref: EditorRef) => ref.formatPara("q1")],
+    ["insertNote", (ref: EditorRef) => ref.insertNote("f")],
+  ] as const)("refuses %s in a plain readonly editor", async (_name, callMethod) => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(
+        <Editorial
+          ref={ref}
+          defaultUsj={usjGen1v1}
+          scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
+          options={{ isReadonly: true }}
+        />,
+      );
+    });
+
+    const editor = ref.current;
+    if (!editor) throw new Error("editor ref is not set");
+    expect(() => callMethod(editor)).toThrow(/readonly/i);
+  });
+
+  // The USJ-addressed APIs have no location to answer with, and no return value a host could check
+  // for `setSelection`/`setAnnotation`. Report through the editor's own logger so a multi-pane host
+  // hears it for every pane, not just the one that happened to ask first.
+  it.each([
+    ["getSelection", (ref: EditorRef) => ref.getSelection()],
+    ["setSelection", (ref: EditorRef) => ref.setSelection({ start: { jsonPath: "$", offset: 0 } })],
+    [
+      "setAnnotation",
+      (ref: EditorRef) =>
+        ref.setAnnotation(
+          { start: { jsonPath: "$", offset: 0 }, end: { jsonPath: "$", offset: 0 } },
+          "comment",
+          "annotation-1",
+        ),
+    ],
+  ] as const)("reports that %s is unavailable", async (_name, callMethod) => {
+    const logger = createLogger();
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(
+        <Editorial
+          ref={ref}
+          defaultUsj={usjGen1v1}
+          options={{ isReadonly: true, view: blockVerseOptions }}
+          logger={logger}
+        />,
+      );
+    });
+
+    const editor = ref.current;
+    if (!editor) throw new Error("editor ref is not set");
+    expect(callMethod(editor)).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("block verse layout"));
+  });
+
   // A local update is a caller error, so it throws.
   it("refuses a local delta update", async () => {
     const ref = createRef<EditorRef>();
@@ -196,16 +287,19 @@ describe("block verse layout guards", () => {
 });
 
 describe("editor-usj adaptor with verse blocks", () => {
-  // Refusing loudly beats emitting USJ that looks right and has the wrong paragraph structure.
-  it("throws rather than exporting a block verse tree as USJ", () => {
+  // Giving up beats emitting USJ that looks right and has the wrong paragraph structure. Reported
+  // rather than thrown: this runs inside a Lexical change listener, where `onError` would rethrow
+  // and tear the editor down, and every other unexpected-node case in the adaptor reports too.
+  it("reports and gives up rather than exporting a block verse tree as USJ", () => {
+    const logger = createLogger();
+    initializeEditorUsjAdaptor(logger);
     const serializedEditorState = usjEditorAdaptor.serializeEditorState(
       usjGen1v1,
       blockVerseOptions,
     );
 
-    expect(() => deserializeSerializedEditorState(serializedEditorState)).toThrow(
-      /not round-trippable/i,
-    );
+    expect(deserializeSerializedEditorState(serializedEditorState)).toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("not round-trippable"));
   });
 
   it("still exports normally for the inline layouts", () => {

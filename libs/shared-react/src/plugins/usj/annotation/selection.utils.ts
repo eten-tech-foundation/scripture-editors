@@ -64,14 +64,15 @@ import {
  *   a range), it defaults to the 'start' value.
  * - If either the start or end node cannot be found, or if their offsets are undefined, the
  *   function returns undefined.
+ * - In the block verse layout it always returns `undefined`: that layout splits a paragraph
+ *   spanning verses across their blocks, so the editor's content indexes no longer match the
+ *   source USJ's and no location can be resolved. Callers that need to tell a host why report it
+ *   through their own logger - these are `$` functions with none threaded in.
  */
 export function $getRangeFromUsjSelection(
   selection: SelectionRange | AnnotationRange,
 ): RangeSelection | undefined {
-  if ($hasVerseBlocks()) {
-    warnUsjLocationsUnavailable();
-    return undefined;
-  }
+  if ($hasVerseBlocks()) return undefined;
 
   const { start } = selection;
   let { end } = selection;
@@ -100,13 +101,11 @@ export function $getRangeFromUsjSelection(
  * forward and backward selections, as well as collapsed (single point) selections.
  *
  * @returns A USJ `SelectionRange` object containing the start and end positions of the selection,
- *   or `undefined` if there is no valid range selection.
+ *   or `undefined` if there is no valid range selection. Always `undefined` in the block verse
+ *   layout - see {@link $getRangeFromUsjSelection} for why.
  */
 export function $getUsjSelectionFromEditor(): SelectionRange | undefined {
-  if ($hasVerseBlocks()) {
-    warnUsjLocationsUnavailable();
-    return undefined;
-  }
+  if ($hasVerseBlocks()) return undefined;
 
   const editorSelection = $getSelection();
   if (!editorSelection || !$isRangeSelection(editorSelection)) return;
@@ -542,17 +541,4 @@ function $hasVerseBlocks(): boolean {
     if ($isVerseBlockNode(child)) return true;
   }
   return false;
-}
-
-let hasWarnedUsjLocationsUnavailable = false;
-
-/** Warns once per session; the callers run on every selection change. */
-function warnUsjLocationsUnavailable() {
-  if (hasWarnedUsjLocationsUnavailable) return;
-  hasWarnedUsjLocationsUnavailable = true;
-  // eslint-disable-next-line no-console -- these are `$` functions with no logger threaded in.
-  console.warn(
-    "USJ selection locations are unavailable in the block verse layout: its paragraphs are split " +
-      "across verse blocks, so editor content indexes do not match the source USJ.",
-  );
 }
