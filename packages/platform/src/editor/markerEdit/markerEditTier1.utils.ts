@@ -158,24 +158,29 @@ const OPENER_NAME_REGEX = /^\\(\+?[\w-]+)(?:[ \u00A0]|$)/;
  * marker, which is the only thing an unknown-marker paragraph's split ever rested on.
  *
  * The tokenizer is the authority, so this asks its question, not a shape question: what marker do
- * these bytes name, and what kind is that marker? Three edits reach the same answer, which is why
- * they share one gate instead of accumulating one condition each:
+ * these bytes name, and is that marker PARAGRAPH-kind? That is exactly {@link isParaKindMarker},
+ * the same positional-kind rule the rest of this file's opener decisions read, so the gate states
+ * the ONE property instead of enumerating the kinds that satisfy it — enumerating `Character`
+ * alone is what left a milestone (inline, so nothing about it wants a block) holding a split it
+ * had no reason to hold, and re-tokenizing the stranded paragraph alone then fabricated a `\p`
+ * the user never typed. Every degrading edit reaches the answer through the one property:
  *
  * - the `\` deleted (`asdf`) — no marker interpretation at all, so nothing makes the line a block;
- * - the marker corrected to a known CHAR marker (`\w `, `\wj`) — inline, never a block;
+ * - the marker corrected to a CHAR marker (`\w `, `\wj`) — inline, never a block;
+ * - the marker corrected to a MILESTONE (`\qt-s`) or a NOTE (`\f`) — likewise inline;
  * - the separator retyped INTO the name (`\wjthings` back to `\wj things`) — the name scan ends at
  *   the space again, so the marker is `wj` and the trailing bytes are its content.
  *
- * Everything else keeps the split: a known PARAGRAPH marker is authored blockness; a marker the
+ * Everything else keeps the split: a PARAGRAPH marker is authored blockness, and a marker the
  * effective stylesheet does not know stays block-shaped, because that is exactly what the
- * tokenizer's unknown-token default makes it (PT9 DetermineUnknownTokenType); and notes and
- * milestones keep their existing routing rather than gaining a rejoin they never had.
+ * tokenizer's unknown-token default makes it (PT9 DetermineUnknownTokenType) — the arm that keeps
+ * a genuinely unknown name such as `qt1s` on a line of its own.
  */
 function openerBytesEndTheSplit(text: string, getMarkerFn: MarkerLookup): boolean {
   if (!text.startsWith("\\")) return true;
   const name = OPENER_NAME_REGEX.exec(text)?.[1];
   if (name === undefined) return false;
-  return getMarkerFn(name.replace(/^\+/, ""))?.type === MarkerType.Character;
+  return !isParaKindMarker(name, getMarkerFn);
 }
 
 /**
@@ -313,14 +318,14 @@ export function $applyOpenerRename(
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
-      // Correcting an unknown-split artifact's marker to a CHAR-kind one removes the split's
+      // Correcting an unknown-split artifact's marker to any INLINE kind removes the split's
       // only reason to exist: in the file, `\p some` + newline + `\w stuff` is ONE paragraph (a
-      // newline before an inline marker is ordinary whitespace). Widen the settle scope to
-      // include the PREVIOUS paragraph so re-tokenization rejoins them — the gate reads the
-      // glyph's own bytes (which already carry `newMarker` on every path into this function), so
-      // notes and milestones keep today's routing without a second kind check here. The shape
-      // gate and the fabricated-`\p` failure mode live in {@link $unknownSplitRejoinScope}'s doc
-      // comment.
+      // newline before an inline marker is ordinary whitespace), and the same holds for a
+      // milestone or a note. Widen the settle scope to include the PREVIOUS paragraph so
+      // re-tokenization rejoins them — the gate reads the glyph's own bytes (which already carry
+      // `newMarker` on every path into this function) through the SAME positional-kind rule this
+      // branch is guarded by, so no second kind check belongs here. The shape gate and the
+      // fabricated-`\p` failure mode live in {@link $unknownSplitRejoinScope}'s doc comment.
       if ($tryUnknownSplitRejoin(node, context)) {
         context.logger?.debug(
           `[MarkerEdit] unknown-split paragraph rejoined its predecessor on rename to "${newMarker}"`,
