@@ -248,6 +248,43 @@ function $clampSelectionToLength(node: MarkerNode, newLength: number): void {
 }
 
 /**
+ * The marker NAME's span inside an opening glyph's bytes — `[start, end)` over the name that
+ * follows the `\` and, on a nested glyph, its `+`. `undefined` when the bytes are not
+ * opener-shaped at all.
+ */
+function markerNameSpan(text: string): { start: number; end: number } | undefined {
+  const match = /^\\(\+?)([\w-]+)/.exec(text);
+  if (!match) return undefined;
+  const start = 1 + match[1].length;
+  return { start, end: start + match[2].length };
+}
+
+/**
+ * How far into `node`'s marker NAME the collapsed caret sits, or `undefined` when the caret is
+ * not in that name at all — it is elsewhere in the document, it is a range, it sits before the
+ * `\`, or it is past a terminator the user typed to END the name.
+ *
+ * This is the property that tells the two gestures reaching {@link $applyOpenerRename} apart. A
+ * user who terminates a name has said the name is finished and has left the caret beyond it, so
+ * the caret belongs in the content ({@link $moveCaretPastMarker}). A rename the SETTLE applies
+ * while the caret is still inside the name is a background event the user did not ask for, and a
+ * background event may not move the caret out from under them.
+ *
+ * Read-only: safe inside `editor.update()` or either read form. Call BEFORE the rename rewrites
+ * the glyph — the offset is measured against the bytes the user is looking at.
+ */
+function $caretOffsetInMarkerName(node: MarkerNode): number | undefined {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
+  if (selection.anchor.key !== node.getKey()) return undefined;
+  const span = markerNameSpan(node.getTextContent());
+  if (!span) return undefined;
+  const { offset } = selection.anchor;
+  if (offset < span.start || offset > span.end) return undefined;
+  return offset - span.start;
+}
+
+/**
  * Land the caret in the content after a rename that COMPLETED a marker name — `\s` retyped to
  * `\s1` plus the space that terminates it. That terminator is the user saying the name is
  * finished, so the caret belongs past the glyph and its separator, where the content starts.
@@ -267,6 +304,31 @@ function $moveCaretPastMarker(node: MarkerNode): void {
   // offset 1 of the following text node.
   if ($isTextNode(next)) next.select(1, 1);
   else node.select(node.getTextContentSize(), node.getTextContentSize());
+}
+
+/**
+ * Where the caret goes after an in-place rename, given how far into the name it sat BEFORE that
+ * rename ({@link $caretOffsetInMarkerName}).
+ *
+ * Caret INSIDE the name: it stays the same distance into the name, re-resolved against the
+ * glyph's rewritten bytes rather than kept as a raw offset — canonicalization re-spells the
+ * glyph around the name (a nested span's `+`, an absorbed terminator), so the same character
+ * position is not the same offset afterwards. Caret anywhere else: the name-completion landing
+ * ({@link $moveCaretPastMarker}), unchanged.
+ *
+ * Mutating: call inside `editor.update()`, after the rename has rewritten the glyph.
+ */
+function $landCaretAfterRename(node: MarkerNode, caretOffsetInName: number | undefined): void {
+  if (caretOffsetInName !== undefined) {
+    const latest = node.getLatest();
+    const span = markerNameSpan(latest.getTextContent());
+    if (span) {
+      const offset = Math.min(span.start + caretOffsetInName, span.end);
+      latest.select(offset, offset);
+      return;
+    }
+  }
+  $moveCaretPastMarker(node);
 }
 
 /**
@@ -310,6 +372,9 @@ export function $applyOpenerRename(
   if (newMarker.startsWith("+") && !node.getNested()) {
     return $requestTier2ForNode(node, context);
   }
+  // Read BEFORE anything mutates: both arms below rewrite the glyph, and the caret's distance
+  // into the name is measured against the bytes the user typed. See {@link $landCaretAfterRename}.
+  const caretOffsetInName = $caretOffsetInMarkerName(node);
   const parent = node.getParent();
   if ($isParaNode(parent)) {
     if (!isParaKindMarker(newMarker, context.getMarker)) {
@@ -332,7 +397,8 @@ export function $applyOpenerRename(
     const oldParaMarker = node.getMarker();
     parent.setMarker(newMarker);
     node.setMarker(newMarker); // rewrites __text to canonical, absorbing the typed terminator
-    if ($renamesTheMarkerName(oldParaMarker, newMarker)) $moveCaretPastMarker(node);
+    if ($renamesTheMarkerName(oldParaMarker, newMarker))
+      $landCaretAfterRename(node, caretOffsetInName);
     context.logger?.debug(`[MarkerEdit] para marker renamed to "${newMarker}"`);
     return true;
   }
@@ -366,7 +432,7 @@ export function $applyOpenerRename(
       closer.setMarker(clean); // same update: opener authority rewrites the closer
     }
     node.setMarker(clean);
-    if ($renamesTheMarkerName(oldMarker, clean)) $moveCaretPastMarker(node);
+    if ($renamesTheMarkerName(oldMarker, clean)) $landCaretAfterRename(node, caretOffsetInName);
     context.logger?.debug(`[MarkerEdit] ${parent.getType()} marker renamed to "${clean}"`);
     return true;
   }

@@ -24,14 +24,30 @@ tip it was rebased onto).
 
 ## Cursor and caret
 
-- [ ] **C1** Editing an opening inline marker makes the cursor jump around. *No record anywhere.*
+- [x] **C1** Editing an opening inline marker makes the cursor jump around. **REPRODUCED AND FIXED
+      (2026-08-20)** once the owner supplied the missing gesture. It is the debounce settle, not the
+      typing: with
+      the caret INSIDE the opening marker's name (`\w|j asdf\wj*`), type a character so the name
+      reads `\ws|j`, then wait. The settle resolves the marker to `wsj` and follows the closer, but
+      lands the caret at content start — `\wsj |asdf\wsj*` — instead of leaving it where the user
+      left it, `\ws|j asdf\wsj*`. A settle is a background event the user did not ask for, so it
+      must not move the caret. `$applyOpenerRename` called `$moveCaretPastMarker` on ANY name change,
+      in both arms; that helper exists for the other gesture — a name FINISHED by a typed terminator
+      — and had no way to tell it from an idle settle firing while the caret is still in the name.
+      Fixed by the property rather than a special case: the caret's offset within the name is read
+      BEFORE the mutation and re-resolved against the glyph's rewritten bytes afterwards, so an
+      absorbed terminator or a nested `+` cannot shift it; a caret past a terminator (the
+      name-completion gesture) still lands in the content as before. Pinned for both the char and
+      para arms in `markerEdit/typedByteSettle.test.tsx`, whose header already carries this contract.
 - [x] **C2** Enter, Enter, then backspace ×3 to remove the fresh `\p `: caret should return between
       the two words, not jump to paragraph end. — fb-engine-fixes defect 2, with this exact repro.
       Earlier rounds targeted "end of the previous line", which is a different place for a
       mid-paragraph Enter.
-- [ ] **C3** Typing an unmatched `\nd*` moves the cursor several characters forward; a matched closer
-      does not. **UNVERIFIED** — marker-resolution made unmatched closers caret-addressable text and
-      fb2 fixed a class of typed-byte caret offsets, but no pin covers this gesture.
+- [x] **C3** Typing an unmatched `\nd*` moves the cursor several characters forward; a matched closer
+      does not. **FIXED** — owner re-checked by hand and it no longer reproduces (2026-08-20).
+      Marker-resolution made unmatched closers caret-addressable text and fb2 fixed a class of
+      typed-byte caret offsets; between them the gesture is correct. Still carries no pin of its own,
+      so a regression here would be caught only indirectly.
 - [x] **C4** Typing a verse marker mangles the next word and the cursor. — marker-resolution; the
       pended `\` was read as departed and settled mid-word.
 - [x] **C5** Up/Down arrow on a verse marker jumps to the next paragraph. — reproduced headlessly
@@ -42,8 +58,12 @@ tip it was rebased onto).
       always meant (a position that hosts no caret of its own). Pinned in
       `ArrowNavigationPlugin.test.tsx`, "caret inside an editable verse marker glyph", asserting the
       press is left UNCLAIMED rather than asserting a caret that jsdom cannot move.
-- [ ] **C6** Mouse-click after a footnote at paragraph end: caret disappears; Space then scrolls the
-      page. Arrow-left works. **PARTIAL** — the gap the pre-existing `TODO` named is confirmed and
+- [x] **C6** Mouse-click after a footnote at paragraph end: caret disappears; Space then scrolls the
+      page. Arrow-left works. **FIXED — owner confirms it is fully working in the app (2026-08-20).**
+      The design question below was answered by building the caret host; a real browser does paint a
+      caret in it, which is the one thing jsdom could not establish. The historical analysis is kept
+      below because it records why the position needed a node to render in at all.
+      *Original triage:* the gap the pre-existing `TODO` named is confirmed and
       pinned (`2026-08-19-co-caret.md`): a note that is its paragraph's last child has nothing after
       it, so the only position past it is an element point with no text node, and one backward press
       recovers — which is why arrow-left works. One contained half is FIXED: the forward arrow no
@@ -94,9 +114,11 @@ tip it was rebased onto).
 
 - [x] **W1** Cannot delete the space after a paragraph marker.
 - [x] **W2** Deleting the space after an opening inline marker does nothing; should rename the marker.
-- [ ] **W3** Forward-Delete of spaces between parts fails; Backspace works. **MIS-SCOPED** — the
-      whitespace work is direction-agnostic and fixes a *deleted-then-resurrected* byte. The reported
-      defect is a byte that is never deleted at all, in one direction only.
+- [x] **W3** Forward-Delete of spaces between parts fails; Backspace works. **FIXED** — owner
+      re-checked by hand and it no longer reproduces (2026-08-20). The original triage read it as
+      MIS-SCOPED, since the whitespace work is direction-agnostic and fixes a
+      *deleted-then-resurrected* byte while the report was a byte never deleted at all, in one
+      direction only. Whatever closed it was incidental, so it carries no pin of its own.
 - [x] **W4** Wrapping a selection in `\nd` emits no separator after the opener.
       **NOT-REPRODUCED** — green at both anchors; a display pin already existed at the anchor. What
       was missing is the SEMANTIC half: that pin asserts the NBSP is shown and says outright that the
@@ -145,7 +167,10 @@ tip it was rebased onto).
 - [x] **E2** Enter at the end of a paragraph whose last element is an inline marker does not open the
       paragraph palette. — fb2 defect 2, same fix.
 - [ ] **E3** Enter should show a temporary new line that disappears if no marker is chosen (P9
-      parity). **NEEDS YOUR RULING** — triaged in wave 6. The "disappears" half already holds and
+      parity). **DEFERRED to later work by owner decision (2026-08-20).** The "disappears" half
+      already holds and is pinned; the provisional line was never built, and whether to build it is
+      a product decision that is not blocking this branch.
+      *Original triage (wave 6):* The "disappears" half already holds and
       is pinned: Enter claims the key and SUPPRESSES the split (the in-editor menu in
       `UsjNodesMenuPlugin`, the host palette in its capture-phase Enter claim), so dismissing
       leaves the document byte-identical — `markerMenuHarness.test.tsx`, "Escape cancels the split
@@ -167,13 +192,27 @@ tip it was rebased onto).
       **MIS-SCOPED for two rounds** — the backlog recorded the *book/header region* case and the fix
       made that region offer *paragraph* markers: the mirror image at a different site. Your version
       landed only in fb3, by splitting the content-start probe in two.
-- [ ] **P2** `\f` + Space with a selection does nothing. **PARTIAL** — Space-over-selection now wraps
-      generally, but wrapping a selection in a *note* is a different operation and no document says
-      which happens for `\f`.
+- [x] **P2** `\f` + Space with a selection does nothing. **FIXED** — owner re-checked by hand and the
+      reported gesture works (2026-08-20). To be explicit about what "PARTIAL" used to mean, since it
+      was never a half-fix in the code: Space-over-selection wraps generally, and that part shipped.
+      What was unresolved was a *specification* question — wrapping a selection in a **note** is a
+      different operation from wrapping it in a character span (a note takes the selected text as its
+      content rather than styling it in place), and no document said which one `\f` + Space should
+      perform. The owner's hand check answers it: the behavior the editor now produces is the wanted
+      one. No pin covers the note-marker branch specifically.
 - [x] **P3** Use the active palette in Standard view. — decided and shipped in fb-palette-active; the
       trigger `\` no longer lands in the document.
-- [ ] **P4** Changing the paragraph marker with the top dropdown does not update the current editor.
-      **DIAGNOSED, HOST FIX PENDING** — wave 6. The chain is fully wired and `formatPara` retags
+- [x] **P4** Changing the paragraph marker with the top dropdown does not update the current editor.
+      **FIXED HOST-SIDE (2026-08-20).** The diagnosis below was right and the repair had genuinely
+      never landed — the dropdown's action called `formatPara` directly with no selection restore, so
+      it worked only when the selection happened to survive the popover, which is why it could look
+      fixed. The host now restores the caret before applying, as the `\` and Enter palettes do; the
+      callback is supplied by the web view because the module that builds these menu items ships in
+      the extension-host bundle and may only `import type` from the editor package. **A fifth
+      apply surface had the same exposure and was fixed with it:** the legacy inline marker menu
+      (`generateInlineMarkerMenuListItems`) called `insertMarker` with no restore, and it explicitly
+      focuses its own search input on open. Both pinned, order-asserted, in the host repo.
+      *Original triage (wave 6):* The chain is fully wired and `formatPara` retags
       correctly whenever a selection exists (`Editor.test.tsx`). The dropdown is the only one of the
       four marker-apply surfaces that does not restore the caret first, and opening its popover
       takes focus off the editor, where Lexical's blur processing can null the selection.
@@ -191,8 +230,14 @@ tip it was rebased onto).
       default attribute (`|G5485`), where the attribute name appears nowhere in the bytes:
       `markerEdit/charAttributeTypedSettle.test.tsx`, "typing a closing marker keeps the span's
       default attribute".
-- [ ] **A2** Undo and move off does not settle attribute text into real attribute state.
-      **STILL OPEN, but no headless repro.** The premise recorded here was wrong: char attribute runs
+- [x] **A2** Undo and move off does not settle attribute text into real attribute state.
+      **FIXED — owner confirms (2026-08-20), and the mechanism is now known.** The S1 ruling ("a
+      settle is never its own undo entry") is what closed it: with settles no longer pushed onto the
+      undo stack, one Ctrl+Z undoes the user's edit together with the settle it caused, so the
+      "undo then move off" gesture no longer strands typed attribute text in a half-settled state.
+      **Nothing further is needed.** No repro was ever captured against the original defect, which is
+      why the analysis below reads as inconclusive; it is kept for the pins it names.
+      *Original triage:* The premise recorded here was wrong: char attribute runs
       ARE covered — the display-run registry carries a `char` descriptor with all nine duties, and the
       reported gesture was already pinned (`markerEdit/markerEditUndoResettle.test.tsx`). What that pin
       lacked was the app's real plugin stack, since this run kind is jointly owned by `CharNodePlugin`'s
@@ -217,9 +262,52 @@ tip it was rebased onto).
 
 ## Milestones
 
-- [ ] **M1** Typing `\qt-s ` then `\*` eats the space and jumps the caret forward one.
-      **UNVERIFIED** — fb2's typed-byte matrix claims no kind discards a typed byte any more, but
-      this repro is named nowhere.
+- [x] **M1** Typing `\qt-s ` then `\*` eats the space and jumps the caret forward one. **FIXED** —
+      owner re-checked by hand and it no longer reproduces (2026-08-20). fb2's typed-byte matrix is
+      what covers the class (no kind discards a typed byte), though this exact repro is still named
+      by no pin of its own.
+
+- [ ] **M3** Deleting a milestone's attribute bar dissolves the milestone into literal text.
+      **REPORTED 2026-08-20 by the owner; measured, and it is NOT the divergence it first looked
+      like. NEEDS THE OWNER'S RATIFICATION before a fix is written.**
+
+      Start with `\qt1-s |stuff\*` and delete the attribute bar (`|`), so `stuff` is no longer an
+      attribute list. The owner expects `\qt1-s\*stuff\*` — the milestone ending where the content it
+      cannot hold begins — and reports the editor showing `\qt1-s stuff\*` instead.
+
+      What headless measurement shows (full display-sync plugin stack, delete at the caret, depart to
+      settle): **screen and file agree byte-for-byte.** The file is
+      `["before \qt1-s stuff", {unmatched *}]` — the milestone is gone entirely, replaced by literal
+      text plus an unmatched closer. So there is no editor↔file divergence, and the display side is
+      sound: loading the shape the owner expects renders `\qt1-s\*stuff\*` with its closing glyph,
+      and both existing ejection shapes render theirs after a settle.
+
+      **Root cause.** `scanMilestone` (`converters/usfm/usfmFragmentToUsj.ts`) refuses the token when
+      there is content but no pipe — `else if (between.trim() !== "") return undefined` — and the
+      caller falls back to `pushText` over the raw bytes. That line dates from the original tokenizer
+      work; neither `c4fa05de` ("a milestone ends where content it cannot hold begins") nor
+      `af2d4d3a` ("a milestone ejects content it cannot hold") touched it. Those two handled only the
+      *pipe-present* cases (an unparseable list after a `|`, and content before a `|`). The pipe-less
+      case is the third face of the same rule and was never covered.
+
+      **The candidate fix reverses a deliberate "keep it literal" decision**, which is why it is
+      gated: emit the milestone and eject the text, as the pipe-present branches do, so
+      `\qt1-s stuff\*` and `\qt1-s\*stuff\*` tokenize identically — the fixed-point property those
+      commits were built around. Pin would go in `converters/usfm/milestoneAttributeLiteral.test.ts`.
+
+      **The owner's report and the measurement are probably both right, via ParatextData.** The
+      owner reports the FILE does get the `\*`; the measurement above says the editor's own USJ does
+      not. The USX leg was checked and is innocent: `usj-to-usx.ts` writes the USJ string out as raw
+      character data and `{type:"unmatched"}` as `<unmatched marker="*"/>`, so `\qt1-s stuff` crosses
+      verbatim and nothing is lost. But those bytes are *text* to this editor's tokenizer and
+      *markup* to ParatextData's stylesheet-driven parser, which would read `\qt1-s` as a milestone
+      and could well write `\qt1-s\*stuff\*` back out. If so this IS an editor↔file divergence after
+      all — just created downstream, where no headless test in these repos can see it.
+
+      That reframes the fix: ejecting in the pipe-less case would make the editor **agree with
+      ParatextData** rather than reverse a decision for its own sake. **Confirming it is a C#
+      question** — a capture test in paranext-core recording what ParatextData writes for this shape
+      would settle it, and the approval gate explicitly permits capture tests that RECORD behavior.
 - [x] **M2** The milestone marker name is editable on screen and silently never persists.
       Fixed in `sv/fb5/milestone-edit` (merged to `sv/residual-backlog`), not by this round —
       the fixed-point signature folded a milestone's sid/eid/attributes but not its `marker`, so a
@@ -239,7 +327,10 @@ tip it was rebased onto).
 - [x] **U4** Adding attributes to a typed `\fig` loses its text content. — a keystroke reaching an
       opaque block's token-mode text replaced all of it; blocks stay read-only and the keystroke is
       refused.
-- [ ] **U5** Unknown blocks do not let you copy the marker name. **TESTED, SPLIT IN TWO** — wave 6.
+- [ ] **U5** Unknown blocks do not let you copy the marker name. **DEFERRED to later work by owner
+      decision (2026-08-20).** Both surviving halves need a real browser to confirm and neither
+      blocks this branch.
+      *Original triage (wave 6, TESTED, SPLIT IN TWO):*
       The register's own guess was wrong: the marker name IS real DOM text (the decorator writes it
       into its element), and a selection spanning the block carries the block's full USFM in both
       `text/plain` and the internal Lexical payload — now pinned in
@@ -298,8 +389,44 @@ tip it was rebased onto).
       drops every glyph on unwrap. `$insertNoteWithSelect` now places the note at that one boundary
       itself (`libs/shared-react/src/nodes/usj/note.utils.ts`). Pinned:
       `markerEdit/noteInsertion.test.tsx`, "note insertion at a closed char span's content end".
-- [ ] **N2** `\fp` does not render as a new line. *Not in this effort's record* — it is a known issue
-      in a July document (popover inserts a plain line break) that dropped out of scope.
+- [x] **N2** `\fp` does not render as a new line. **FIXED** — owner re-checked by hand and it no
+      longer reproduces (2026-08-20). It was never scoped in this effort (a July document recorded
+      the popover inserting a plain line break), so it was closed incidentally by the `\fp`
+      boundary/caret work rather than by a change aimed at it.
+
+- [x] **N5** A footnote inserted inside a character span inherits that span's style into the note's
+      own content. **REPORTED 2026-08-20 by the owner; REPRODUCED byte-for-byte, root-caused, and
+      FIXED.** The char stack handed to `$getTextOp` is now scoped to the active embed, so an
+      embed's `contents.ops` carry only spans opened inside it. Pinned by five cases in
+      `collab/editor-delta.adaptor.test.tsx`, including the two halves of the containment predicate
+      (a `\fv` opened *below the note's top level* is KEPT; outer spans, even two deep, are DROPPED)
+      and one asserting the two op producers now agree. End-to-end through the real insert →
+      popover flow: `\f + \nd\+fr1:8 \nd*\ft \f*` becomes `\f + \fr 1:8 \ft \f*`.
+
+      One detail the fix corrected: **both** content ops leaked, not just the first. The reported
+      transcript showed only `\nd` wrapping `\+fr` because a freshly inserted note's `\ft` is empty,
+      so its op comes from `$getEmptyCharOp` (a single node, no ambient stack). Give `\ft` content
+      and it leaked too.
+      From `\nd as|df\nd*`, Ctrl+T nests the note correctly inside the span — but the note's
+      generated children come out styled: the footnote editor opens on `\f + \nd\+fr1.8 \nd*\ft \f*`
+      instead of `\f + \fr 1.8 \ft \f*`.
+
+      **The children are not the problem.** The inserted tree, the serialized USJ, and
+      `$getParticularNodeOps(noteNode)` are all clean. The leak is one layer over, in the
+      whole-document change delta: `$handleTextNodes` (`plugins/usj/collab/editor-delta.adaptor.ts`)
+      builds each text op against `openCharNodes`, the ambient DFS stack for the entire document, so
+      the `\nd` open OUTSIDE the note rides into the note embed's own `contents.ops` as the outer
+      entry of a char stack — and the receive side materializes it as `\nd` wrapping a nested `\+fr`.
+      Only the FIRST content op is affected (`nd` is popped before `\ft` is reached), which is exactly
+      why the reported transcript shows `\nd\+fr1.8 \nd*` followed by a bare `\ft`.
+
+      **Why it only shows on insert:** two producers feed the footnote editor and they disagree.
+      Clicking an existing caller runs a fresh DFS with an empty char stack (clean); a freshly
+      inserted note takes its ops from the change delta (polluted). **The blast radius is wider than
+      the popover** — saving the polluted popover writes the `\nd` back into the real note, and any
+      collab peer receiving that insert delta materializes the same wrong note. Every note-insertion
+      route shares it (Ctrl+T, Ctrl+Shift+T, marker-menu insertion), because the fault is in
+      serialization, not insertion.
 - [x] **N3** `\p` is visible in the footnote editor. — fb-footnote-editor.
 - [x] **N4** Ctrl+T with the caret on a verse-number marker duplicates the verse digit into body text.
       **NOT-REPRODUCED** — green at both anchors. Pinned anyway because it rides the same insertion
@@ -345,12 +472,27 @@ tip it was rebased onto).
       `markerEdit/verseBridge.test.tsx`. A loaded bridge keeps its bytes in the glyph, the node, the
       serialized USJ and the emitted USX, and typing `-6` onto `\v 5` retags the verse. The
       note-reference leg was already pinned in shared-react's `node-react-utils.test.ts`.
-      **One divergence found and pinned:** with the bridge HALF typed (`\v 5-`) the screen and the
-      node both carry the trailing separator and the serializer does not —
-      `parseNumberFromMarkerText` truncates to the last complete token and then overrides the node's
-      faithful number, so a save mid-bridge silently drops a byte the screen is showing. The fix is
-      a decision about what a verse number may contain; the narrowest candidate is to let the token
-      end on a trailing `-`/`,`.
+      **One divergence found and pinned, since FIXED — and the fix went further than the ruling
+      asked.** With the bridge HALF typed (`\v 5-`) the screen and the node both carried the trailing
+      separator and the serializer did not: `parseNumberFromMarkerText` truncated to the last
+      complete token and then overrode the node's faithful number, so a save mid-bridge silently
+      dropped a byte the screen was showing. **Owner's ruling (2026-08-20): `\v 5-` is legal on
+      screen — a trailing punctuation character on a verse number is fine.**
+
+      That ruling was already satisfied when it was given. Two commits on this branch closed it:
+      `a32bcc6a` adopted this document's narrow `[-,]?` proposal, then `727f6a5c` **superseded** it
+      with the broader rule now in `node.utils.ts` — the number is the whole WORD the user typed,
+      valid or not (`/^([^  \\]+)/`, PT9's `GetNextWord`), which is the same scan Tier 1 already
+      applies to the glyph. That covers `5--`, `5-Da`, `5-,6` and `5*` as well as the one ruled
+      shape, so screen and file agree for every half-typed form rather than an enumerated few. The
+      divergence pin in `verseBridge.test.tsx` has been flipped to assert the byte survives on all
+      three legs (glyph, `VerseNode.__number`, and the `number="5-"` attribute in emitted USX), and
+      `node-utils.test.ts` pins that the number still ends at the first character that is not part of
+      it (`\v 7 5` → `7`, `\v 2\ Da` → `2`).
+
+      **Note for readers of the closeout handoff:** its "New defect found while pinning something
+      else" section still describes this as open and proposes the narrow regex. That section is
+      stale — this entry is the current record.
 - [x] **V4** testUSFM **rendering** check — landed in wave 6 as a rendering leg on the two corpus
       suites that already mount the editor (`corpusRendering.test-helpers.ts`): a node that reports
       text content must render it, at load and again after the dirty pass. Stated over
@@ -369,28 +511,33 @@ tip it was rebased onto).
 
 | | Count |
 | --- | --- |
-| Fixed or otherwise closed | 67 |
-| Open | 14 |
+| Fixed or otherwise closed | 77 |
+| Open | 6 |
 
-Counted from the list above at the end of the closeout round. The figures this table carried before
-(44 fixed, 32 open, 21 of the open never scoped) did not match the list even then — recount before
-quoting them.
+Recounted from the list above on **2026-08-20**, after the owner's hand-verification pass. Counting
+is mechanical — `grep -c '^- \[x\] \*\*'` and `'^- \[ \] \*\*'` — so recount rather than quoting a
+stale figure. (The closeout round's own table said 67/14; before that, 44/32.)
 
 "Fixed or otherwise closed" is not all repairs. It includes the NOT-REPRODUCED rows, which were never
 broken at either anchor and are pinned forward, and rows like V1 that were made moot rather than
-mended. What is left open, and why:
+mended. It also now includes rows the owner re-checked by hand and found working, several of which
+were closed incidentally and so carry no pin of their own — **C3, M1, W3, N2 and P2 are in that
+category**, and a regression in any of them would be caught only indirectly.
+
+What the owner's 2026-08-20 pass changed: **C1** (repro supplied, then fixed), **C3, C6, M1, W3, N2,
+P2, A2** (confirmed working), **V3** (ruled, and already fixed more broadly than the ruling asked),
+**P4** (host repair genuinely never landed — now fixed, along with a fifth apply surface with the
+same hole), **E3** and **U5** (deferred). Two new bugs were reported and are entered above:
+**M3** and **N5**.
+
+What is left open, and why:
 
 | | Why it is still open |
 | --- | --- |
-| **A2** | Owner confirms it no longer reproduces; closed as fixed at some earlier point, pinned forward. Left unticked only because no repro was ever captured. |
-| **C6** | The caret HOST landed; what stays open is whether a real browser paints a caret in it, which jsdom cannot answer. |
-| **E3** | Half of it does not exist; whether to build the provisional line is a product decision. |
-| **P4** | Diagnosed here; the repair belongs to the host. |
-| **U5** | Two real halves survive, both needing a real browser to confirm. |
-| **C1**, **M1**, **W3** | Triaged in the closeout round and do NOT reproduce; left open because the owner has not re-checked them by hand. |
-| **C3** | Does not reproduce as reported — measurement says it is inverted, and the defect that does exist is the same gap as C6. Worth merging into it. |
-| **P2** | Reproduces on one of two routes; which one fires is decided in the host. |
-| **N2**, **V2**, **V5**, **V6** | Out of scope by owner decision or handled elsewhere. |
+| **M3** | Reported 2026-08-20. Measured and root-caused; the fix reverses a deliberate "keep it literal" decision and needs the owner's ratification, plus a C# capture test to confirm what ParatextData writes. |
+| **E3** | Half of it does not exist; whether to build the provisional line is a product decision. **Deferred by owner decision.** |
+| **U5** | Two real halves survive, both needing a real browser to confirm. **Deferred by owner decision.** |
+| **V2**, **V5**, **V6** | Out of scope by owner decision or handled elsewhere. |
 
 **Never scoped in any plan, handoff, backlog, or follow-up round:**
 C1, K12, W3, W4, E3, P4, A1, A2, A6, M2, U5, S4, S5, S6, S7, N1, N2, N4, V1-V6.

@@ -342,9 +342,24 @@ function $handleTextNodes(
     text === EMPTY_CHAR_PLACEHOLDER_TEXT &&
     parentCharNode.getChildrenSize() === 1;
 
-  const textOp = $getTextOp(currentNode, openCharNodes);
-  textOp.insert = text;
   const activeEmbed = $getActiveEmbedContext(currentNode, openEmbeds);
+  // An embed's `contents` ops are a SELF-CONTAINED SUB-DOCUMENT: they are materialized on the
+  // receive side into a freshly built note/unknown, with no surrounding document to inherit from,
+  // and read back out by `$getParticularNodeOps(embedNode)`, whose DFS starts AT the embed and so
+  // has no ambient char stack at all. `openCharNodes` is the whole walk's stack, so inside an
+  // embed it still holds char spans opened OUTSIDE it — spans that are not part of the embed's
+  // content and have no representation in the sub-document. Scoping the stack to spans within the
+  // embed is what makes this producer agree with `$getParticularNodeOps`; without it a note
+  // inserted mid-span (`\nd as<note>df\nd*`) shipped `char: [{nd}, {fr}]` on its own first
+  // content op, and the apply side built the enclosing `\nd` INSIDE the note with a nested
+  // `\+fr` under it. `children` is the embed's entire subtree (`$dfs` from the embed node), not
+  // just its direct children, so a span opened at any depth inside the embed is kept.
+  const embedScopedCharNodes = activeEmbed
+    ? openCharNodes.filter((charNode) => activeEmbed.children.includes(charNode))
+    : openCharNodes;
+
+  const textOp = $getTextOp(currentNode, embedScopedCharNodes);
+  textOp.insert = text;
   if (activeEmbed) {
     if (!text || text === NBSP || isNodeAttributeText) return;
     activeEmbed.contentsOps?.push(textOp);

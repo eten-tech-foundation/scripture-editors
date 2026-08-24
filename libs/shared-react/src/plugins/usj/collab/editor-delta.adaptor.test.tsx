@@ -22,9 +22,10 @@ import {
 import { $createImmutableNoteCallerNode } from "../../../nodes/usj/ImmutableNoteCallerNode";
 import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode";
 import { baseTestEnvironment } from "../react-test.utils";
-import { LF } from "./delta-common.utils";
-import { getEditorDelta } from "./editor-delta.adaptor";
-import { $setState, $createTextNode, $getRoot } from "lexical";
+import { DeltaOp, isInsertEmbedOpOfType, LF } from "./delta-common.utils";
+import { $getParticularNodeOps, getEditorDelta } from "./editor-delta.adaptor";
+import { $setState, $createTextNode, $getRoot, LexicalNode } from "lexical";
+import { $dfs } from "@lexical/utils";
 import {
   $createAttributeRunNode,
   $createBookNode,
@@ -39,6 +40,7 @@ import {
   $createUnknownNode,
   $createCursorPlaceholderNode,
   $createVerseNode,
+  $isNoteNode,
   charIdState,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
@@ -1211,6 +1213,156 @@ describe("getEditorDelta", () => {
       { insert: { milestone: { style: "ts-s", sid: "TS1" } } },
       { insert: LF, attributes: { para: { style: "q1" } } },
     ]);
+  });
+
+  // An embed's `contents` ops are a self-contained sub-document, so char spans opened OUTSIDE the
+  // embed are not part of it. They used to ride in anyway: the walk's char stack is ambient, and
+  // a note inserted mid-span (`\nd as<note>df\nd*` — an ordinary Ctrl+T with the caret inside a
+  // styled word) shipped the enclosing `\nd` as the outer entry of its OWN content ops' char
+  // stack. The receive side then built that `\nd` INSIDE the note with a nested `\+fr` under it,
+  // so the footnote editor opened on `\f + \nd\+fr1:8 \nd*\ft \f*` instead of `\f + \fr 1:8 \ft \f*`.
+  //
+  // The property, stated without reference to that symptom: a note's contents ops name the note's
+  // OWN char spans and no others. `$getParticularNodeOps(noteNode)` — the other producer of the
+  // same ops, used by `getNoteOps` — starts its walk AT the note and so never had an outer stack
+  // to leak; these tests pin the two producers into agreement.
+  describe("embed contents ops carry only the embed's own char spans", () => {
+    /** `\nd as<note>df\nd*` — the reported gesture: a note inserted mid-content of a char span. */
+    function $noteInsideNdSpan(noteContent: () => LexicalNode[], marker = "f") {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}as`),
+            $createNoteNode(marker, GENERATOR_NOTE_CALLER).append(
+              $createMarkerNode(marker),
+              $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "preview"),
+              ...noteContent(),
+              $createMarkerNode(marker, "closing"),
+            ),
+            $createTextNode("df"),
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+      );
+    }
+
+    /** The `contents.ops` of the one note embed in `ops` (a `\x` cross-reference is one too). */
+    function embedContentsOps(ops: DeltaOp[]) {
+      const embed = ops.find((op) => isInsertEmbedOpOfType("note", op));
+      if (!embed) throw new Error("no note embed in ops");
+      return embed.insert.note?.contents?.ops;
+    }
+
+    it("drops a char span opened outside the note from a footnote's contents ops", async () => {
+      const ops = await getOpsFor(() =>
+        $noteInsideNdSpan(() => [
+          $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}1:8 `)),
+          $createCharNode("ft").append(
+            $createMarkerNode("ft"),
+            $createTextNode(`${NBSP}note text`),
+          ),
+        ]),
+      );
+
+      expect(embedContentsOps(ops)).toEqual([
+        { insert: "1:8 ", attributes: { char: { style: "fr" } } },
+        { insert: "note text", attributes: { char: { style: "ft" } } },
+      ]);
+    });
+
+    it("drops it from a cross-reference's contents ops too", async () => {
+      // The Ctrl+Shift+T shape. Same leak, same fix — the scoping is per embed, not per marker.
+      const ops = await getOpsFor(() =>
+        $noteInsideNdSpan(
+          () => [
+            $createCharNode("xo").append($createMarkerNode("xo"), $createTextNode(`${NBSP}1:8 `)),
+            $createCharNode("xt").append($createMarkerNode("xt"), $createTextNode(`${NBSP}see`)),
+          ],
+          "x",
+        ),
+      );
+
+      expect(embedContentsOps(ops)).toEqual([
+        { insert: "1:8 ", attributes: { char: { style: "xo" } } },
+        { insert: "see", attributes: { char: { style: "xt" } } },
+      ]);
+    });
+
+    it("drops EVERY outer span when the note sits inside nested char spans", async () => {
+      const ops = await getOpsFor(() => {
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}as`),
+              $createCharNode("add").append(
+                $createMarkerNode("add"),
+                $createNoteNode("f", GENERATOR_NOTE_CALLER).append(
+                  $createMarkerNode("f"),
+                  $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "preview"),
+                  $createCharNode("ft").append(
+                    $createMarkerNode("ft"),
+                    $createTextNode(`${NBSP}note text`),
+                  ),
+                  $createMarkerNode("f", "closing"),
+                ),
+                $createTextNode("df"),
+                $createMarkerNode("add", "closing"),
+              ),
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+      });
+
+      expect(embedContentsOps(ops)).toEqual([
+        { insert: "note text", attributes: { char: { style: "ft" } } },
+      ]);
+    });
+
+    it("KEEPS a char span opened inside the note below its top level", async () => {
+      // The other half of the containment test, and the one a too-narrow predicate would break:
+      // `\fv` is not a direct child of the note, it is nested inside `\ft`. It belongs to the
+      // note's own sub-document and must still stack — while the outer `\nd` must not.
+      const ops = await getOpsFor(() =>
+        $noteInsideNdSpan(() => [
+          $createCharNode("ft").append(
+            $createMarkerNode("ft"),
+            $createTextNode(`${NBSP}see `),
+            $createCharNode("fv").append($createMarkerNode("fv"), $createTextNode(`${NBSP}2`)),
+          ),
+        ]),
+      );
+
+      expect(embedContentsOps(ops)).toEqual([
+        { insert: "see ", attributes: { char: { style: "ft" } } },
+        { insert: "2", attributes: { char: [{ style: "ft" }, { style: "fv" }] } },
+      ]);
+    });
+
+    it("agrees with $getParticularNodeOps, the other producer of the same ops", async () => {
+      const { editor } = await testEnvironment(() =>
+        $noteInsideNdSpan(() => [
+          $createCharNode("fr").append($createMarkerNode("fr"), $createTextNode(`${NBSP}1:8 `)),
+          $createCharNode("ft").append(
+            $createMarkerNode("ft"),
+            $createTextNode(`${NBSP}note text`),
+          ),
+        ]),
+      );
+
+      const wholeDocument = embedContentsOps(getEditorDelta(editor.getEditorState()).ops);
+      const noteAlone = editor.getEditorState().read(() => {
+        const note = $dfs($getRoot())
+          .map(({ node }) => node)
+          .find($isNoteNode);
+        if (!note) throw new Error("no note node");
+        return embedContentsOps($getParticularNodeOps(note));
+      });
+
+      expect(wholeDocument).toEqual(noteAlone);
+    });
   });
 
   // Paired with the same tests in `./delta-apply-update.utils.test.tsx`.

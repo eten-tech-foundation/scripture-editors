@@ -342,6 +342,13 @@ Full analysis in `../plans/2026-08-19-co-caret.md`.
 
 ### V3 — a half-typed verse bridge is silently dropped on save
 
+> **RESOLVED — this section is superseded (2026-08-20).** The owner ruled that `\v 5-` is legal on
+> screen, and the branch had already gone further than the narrow proposal below: `727f6a5c` made a
+> verse or chapter number the whole WORD the user typed (PT9's `GetNextWord`), superseding
+> `a32bcc6a`'s `[-,]?` fix. The divergence pin now asserts the byte survives on all three legs. See
+> the V3 entry in `2026-08-19-reported-bug-register.md` for the current record; the analysis below is
+> kept for the mechanism it explains.
+
 Verse bridging works and is now pinned. But with a bridge HALF typed — `\v 5-`, mid-keystroke — the
 glyph and `VerseNode.__number` both carry the trailing separator and **the serializer does not**:
 `parseNumberFromMarkerText` matches the last COMPLETE verse-number token and then overrides the

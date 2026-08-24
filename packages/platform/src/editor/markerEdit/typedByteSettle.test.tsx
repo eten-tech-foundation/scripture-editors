@@ -387,6 +387,71 @@ describe("char glyph typed bytes", () => {
     });
   });
 
+  it("a letter typed INSIDE the opener's marker name settles without moving the caret", async () => {
+    // The settle is a background event the user did not ask for, so it may not relocate the caret
+    // out of the name the user is still editing. `\wj asdf\wj*` with the caret between the `w`
+    // and the `j`, then `s`: the name resolves to `wsj` and the closer follows it, but the caret
+    // belongs exactly where the user left it — `\ws|j` — not at the start of the content. The
+    // content landing is the OTHER gesture (a name FINISHED by a typed terminator), pinned in
+    // typedSeparatorSpace.test.tsx.
+    let opener!: TextNode;
+    const { editor } = await testEnvironmentWithCharSync(() => {
+      opener = $createMarkerNode("wj");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("x "),
+          $createCharNode("wj").append(
+            opener,
+            $createTextNode(`${NBSP}asdf`),
+            $createMarkerNode("wj", "closing"),
+          ),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("body"),
+        ),
+      );
+    });
+    // A user mid-word has the editor FOCUSED. Without that, Lexical's own no-op path through
+    // `updateDOMSelection` calls `rootElement.focus()` (the root is not the active element), and
+    // jsdom answers by collapsing the document selection to the editor start — a follow-on
+    // selection-only commit then re-derives the caret from it. That is the environment, not the
+    // settle: every MUTATING commit below already carries the right caret either way.
+    editor.getRootElement()?.focus();
+    // `\w|j` — inside the marker name, between its two characters.
+    await act(async () => editor.update(() => opener.select(2, 2)));
+    await typeText(editor, "s");
+
+    editor.getEditorState().read(() => {
+      expect(opener.getTextContent()).toBe("\\wsj");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.offset).toBe(3);
+    });
+
+    await advance(IDLE_SETTLE_DELAY_MS * 2);
+
+    editor.getEditorState().read(() => {
+      const span = $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .flatMap((para) => para.getChildren())
+        .find($isCharNode);
+      // The name resolved and the closer followed it — the settle did its job.
+      expect(requireDefined(span, "span missing").getMarker()).toBe("wsj");
+      expect(span?.getTextContent()).toBe(`\\wsj${NBSP}asdf\\wsj*`);
+      // ...and the caret is still inside the name, on the same side of the typed `s`.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const anchorNode = selection.anchor.getNode();
+      expect($isMarkerNode(anchorNode) && anchorNode.getTextContent()).toBe("\\wsj");
+      expect(selection.anchor.offset).toBe(3);
+    });
+  });
+
   it("a `|` typed inside the closer glyph resolves to the tokenizer's span split, caret kept after it", async () => {
     let closer!: TextNode;
     const { editor } = await testEnvironmentWithCharSync(() => {
@@ -436,6 +501,50 @@ describe("char glyph typed bytes", () => {
       if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
       expect(selection.anchor.getNode().is(second ?? undefined)).toBe(true);
       expect(selection.anchor.offset).toBe(2);
+    });
+  });
+});
+
+describe("para glyph typed bytes", () => {
+  it("a letter typed INSIDE the paragraph marker's name settles without moving the caret", async () => {
+    // The char twin's other arm: `$applyOpenerRename` renames the ParaNode in place here, and the
+    // same rule holds — a settle the user did not ask for may not lift the caret out of the name
+    // they are still typing.
+    let opener!: TextNode;
+    const { editor } = await testEnvironment(() => {
+      opener = $createMarkerNode("q2");
+      $getRoot().append(
+        $createParaNode("q2").append(
+          opener,
+          $createMarkerTrailingSeparator(),
+          $createTextNode("body text"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("second"),
+        ),
+      );
+    });
+    // Focused, as a user mid-word is — see the char twin for what jsdom does otherwise.
+    editor.getRootElement()?.focus();
+    // `\q|2` — between the name's two characters.
+    await act(async () => editor.update(() => opener.select(2, 2)));
+    await typeText(editor, "a");
+
+    await advance(IDLE_SETTLE_DELAY_MS * 2);
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      // The paragraph took the typed name.
+      expect(paras.some((para) => para.getMarker() === "qa2")).toBe(true);
+      expect(paras.some((para) => para.getMarker() === "q2")).toBe(false);
+      // The caret never left the name it was typed into.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const anchorNode = selection.anchor.getNode();
+      expect($isMarkerNode(anchorNode) && anchorNode.getTextContent()).toBe("\\qa2");
+      expect(selection.anchor.offset).toBe(3);
     });
   });
 });
