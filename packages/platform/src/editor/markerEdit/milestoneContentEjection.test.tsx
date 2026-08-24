@@ -35,8 +35,10 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isElementNode,
   $parseSerializedNode,
   $setState,
+  LexicalEditor,
   TextNode,
 } from "lexical";
 import { $dfs } from "@lexical/utils";
@@ -62,6 +64,50 @@ function $trailingSpace(): TextNode {
   const spaceNode = $createTextNode(NBSP);
   $setState(spaceNode, textTypeState, "marker-trailing-space");
   return spaceNode;
+}
+
+/** Mount an editor holding `content` as its first paragraph — the reload path, not the typing
+ * path: the bytes arrive as saved USJ rather than as keystrokes. */
+async function loadParas(content: MarkerContent[]) {
+  const { editor } = await testEnvironmentWithDisplaySyncs(() => {
+    const serialized = usjEditorAdaptor.serializeEditorState(
+      {
+        type: USJ_TYPE,
+        version: USJ_VERSION,
+        content: [
+          { type: "para", marker: "p", content },
+          { type: "para", marker: "p", content: ["second"] },
+        ],
+      },
+      viewOptions,
+    );
+    serialized.root.children.forEach((child) => $getRoot().append($parseSerializedNode(child)));
+  });
+  return editor;
+}
+
+/** Ask for the first paragraph's rebuild and report whether it SPLICED. A settled document is a
+ * fixed point exactly when this refuses. */
+async function rebuiltFirstPara(editor: LexicalEditor): Promise<boolean> {
+  const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
+  let rebuilt = true;
+  await act(async () =>
+    editor.update(
+      () => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        rebuilt = para ? $rebuildParas([para], context) : true;
+      },
+      { discrete: true },
+    ),
+  );
+  return rebuilt;
+}
+
+/** The first paragraph's USJ content — the file side of the screen-vs-file comparison. */
+function paraContent(editor: LexicalEditor) {
+  initializeDeserialize(undefined);
+  const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
+  return (usj?.content?.[0] as MarkerObject)?.content;
 }
 
 describe("a milestone ejects content it cannot hold", () => {
@@ -120,48 +166,6 @@ describe("a milestone ejects content it cannot hold", () => {
       });
     }
     return editor;
-  }
-
-  /** Mount an editor holding `content` as its first paragraph — the reload path, not the typing
-   * path: the bytes arrive as saved USJ rather than as keystrokes. */
-  async function loadParas(content: MarkerContent[]) {
-    const { editor } = await testEnvironmentWithDisplaySyncs(() => {
-      const serialized = usjEditorAdaptor.serializeEditorState(
-        {
-          type: USJ_TYPE,
-          version: USJ_VERSION,
-          content: [
-            { type: "para", marker: "p", content },
-            { type: "para", marker: "p", content: ["second"] },
-          ],
-        },
-        viewOptions,
-      );
-      serialized.root.children.forEach((child) => $getRoot().append($parseSerializedNode(child)));
-    });
-    return editor;
-  }
-
-  /** Ask for the first paragraph's rebuild and report whether it SPLICED. A settled document is a
-   * fixed point exactly when this refuses. */
-  function $rebuiltFirstPara(editor: Awaited<ReturnType<typeof loadParas>>): boolean {
-    const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
-    let rebuilt = true;
-    editor.update(
-      () => {
-        const para = $getRoot().getChildren().find($isParaNode);
-        rebuilt = para ? $rebuildParas([para], context) : true;
-      },
-      { discrete: true },
-    );
-    return rebuilt;
-  }
-
-  /** The first paragraph's USJ content — the file side of the screen-vs-file comparison. */
-  function paraContent(editor: Awaited<ReturnType<typeof typeAndSettle>>) {
-    initializeDeserialize(undefined);
-    const usj = editorUsjAdaptor.deserializeEditorState(editor.getEditorState(), viewOptions);
-    return (usj?.content?.[0] as MarkerObject)?.content;
   }
 
   it("moves nothing while the user is still typing", async () => {
@@ -225,7 +229,7 @@ describe("a milestone ejects content it cannot hold", () => {
     ];
     const editor = await loadParas(settled);
     expect(paraContent(editor)).toEqual(settled);
-    expect($rebuiltFirstPara(editor)).toBe(false);
+    expect(await rebuiltFirstPara(editor)).toBe(false);
     expect(paraContent(editor)).toEqual(settled);
   });
 
@@ -242,5 +246,118 @@ describe("a milestone ejects content it cannot hold", () => {
   it("leaves a well-formed milestone alone, attributes and all", async () => {
     const editor = await typeAndSettle(`\\qt1-s |who="TJ"\\*`);
     expect(paraContent(editor)).toEqual(["before ", { type: "ms", marker: "qt1-s", who: "TJ" }]);
+  });
+});
+
+/**
+ * The inverse gesture, and the reason it lives beside the ejection: an author who repairs the
+ * ejected bytes must get their milestone back.
+ *
+ * The two rules run in opposite directions over the same run, so the property that matters is not
+ * that either one fires but that the PAIR terminates. It does because absorption asks for
+ * something ejection can never produce: an attribute list that parses. Rebuild the ejected
+ * document and nothing moves; rebuild the repaired one and the list lands on the milestone, where
+ * a further rebuild leaves it.
+ */
+describe("a milestone re-absorbs an attribute list an author repaired", () => {
+  const CLOSER: MarkerContent = { type: "unmatched", marker: "*" };
+
+  it("folds the list back in when the author repairs it IN PLACE", async () => {
+    // The gesture the rule exists for. The ejected bytes are still on screen; the author types the
+    // missing value into them and moves on, and the milestone takes them back. Nothing about this
+    // is visible to the tokenizer alone — the repaired bytes are a plain text node with no
+    // backslash of its own, so unless the edit PENDS, caret departure settles nothing and the fold
+    // waits for a reload.
+    const editor = await loadParas(["before ", { type: "ms", marker: "qt1-s" }, `|who=""`, CLOSER]);
+    let repaired: TextNode | undefined;
+    editor.getEditorState().read(() => {
+      repaired = $getRoot()
+        .getAllTextNodes()
+        .find((node) => node.getTextContent() === `|who=""`);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    await act(async () => editor.update(() => repaired!.select(`|who="`.length, `|who="`.length)));
+    for (const character of "person") {
+      await act(async () =>
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText(character);
+        }),
+      );
+    }
+    // Depart, which is when a settle is allowed to move bytes.
+    await act(async () =>
+      editor.update(() => {
+        const second = $getRoot().getChildren()[1];
+        if ($isElementNode(second)) second.selectStart();
+      }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    });
+
+    expect(paraContent(editor)).toEqual([
+      "before ",
+      { type: "ms", marker: "qt1-s", who: "person" },
+    ]);
+  });
+
+  it("folds a repaired list back on the next rebuild, and leaves it there", async () => {
+    // The same repair arriving as saved bytes rather than as keystrokes — a reload of a document
+    // an author fixed and saved. One rebuild absorbs; the next has nothing left to do.
+    const editor = await loadParas([
+      "before ",
+      { type: "ms", marker: "qt1-s" },
+      `|who="person"`,
+      CLOSER,
+    ]);
+    expect(await rebuiltFirstPara(editor)).toBe(true);
+    expect(paraContent(editor)).toEqual([
+      "before ",
+      { type: "ms", marker: "qt1-s", who: "person" },
+    ]);
+    // And there it stays — the absorbed spelling is a fixed point, so a reload moves nothing.
+    expect(await rebuiltFirstPara(editor)).toBe(false);
+  });
+
+  it("MERGES onto attributes the milestone already carries, the repaired list winning", async () => {
+    const editor = await loadParas([
+      "before ",
+      { type: "ms", marker: "qt1-s", sid: "a" },
+      `|sid="b" who="c"`,
+      CLOSER,
+    ]);
+    expect(await rebuiltFirstPara(editor)).toBe(true);
+    expect(paraContent(editor)).toEqual([
+      "before ",
+      { type: "ms", marker: "qt1-s", sid: "b", who: "c" },
+    ]);
+    expect(await rebuiltFirstPara(editor)).toBe(false);
+  });
+
+  it("refuses a list that will not parse, so the two rules cannot trade the run forever", async () => {
+    // The other direction of the same property. `|who=""` is a list Paratext reads as text, so
+    // ejection put it out here in the first place; absorbing it back in would rebuild bytes that
+    // eject again, and the document would never come to rest. The rebuild refuses instead, twice
+    // over, and the bytes stay exactly where the ejection left them.
+    const ejected: MarkerContent[] = [
+      "before ",
+      { type: "ms", marker: "qt1-s" },
+      `|who=""`,
+      CLOSER,
+    ];
+    const editor = await loadParas(ejected);
+    expect(await rebuiltFirstPara(editor)).toBe(false);
+    expect(await rebuiltFirstPara(editor)).toBe(false);
+    expect(paraContent(editor)).toEqual(ejected);
+  });
+
+  it("leaves content that merely follows a milestone alone", async () => {
+    // No `|` run and no closer of its own: ordinary body text, which absorption must never touch.
+    const body: MarkerContent[] = ["before ", { type: "ms", marker: "qt1-s" }, "after"];
+    const editor = await loadParas(body);
+    expect(await rebuiltFirstPara(editor)).toBe(false);
+    expect(paraContent(editor)).toEqual(body);
   });
 });

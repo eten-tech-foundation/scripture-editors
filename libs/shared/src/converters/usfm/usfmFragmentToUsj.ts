@@ -512,6 +512,45 @@ export function milestoneEjectionPending(text: string): boolean {
 }
 
 /**
+ * An attribute list sitting AFTER a closed milestone that belongs back INSIDE it — the shape
+ * ejection leaves behind once the author repairs the bytes. `\qt1-s\*|who="person"\*` reads as
+ * the milestone the author meant, `\qt1-s |who="person"\*`.
+ *
+ * Two conditions, and both are load-bearing.
+ *
+ * The author's own trailing `\*` is what marks the run as a milestone's list rather than body
+ * text: content that merely begins with `|` has no closer after it, so this can never quietly eat
+ * ordinary bytes. Whitespace between the milestone's closer and the `|` is tolerated — it is the
+ * separator the author would have typed inside the milestone anyway.
+ *
+ * The list must PARSE, and that is what keeps absorption and ejection from chasing each other.
+ * Ejection puts an unparseable list OUTSIDE the milestone ({@link scanMilestone}); absorbing one
+ * back in would produce bytes that eject again, and the two would trade the same run forever.
+ * `|who=""` does not parse, so the ejected spelling stays ejected and the pair terminates.
+ *
+ * Returns the parsed list and where scanning resumes (past its `\*`), or undefined for every
+ * shape that is not this one.
+ */
+function scanAbsorbableAttributes(
+  fragment: string,
+  start: number,
+  name: string,
+): { attributes: { [attributeName: string]: string }; next: number } | undefined {
+  let index = start;
+  while (index < fragment.length && /[\s\u00A0\u200B]/.test(fragment[index])) index++;
+  if (fragment[index] !== "|") return undefined;
+  const closeIndex = fragment.indexOf("\\", index);
+  if (closeIndex === -1 || fragment.slice(closeIndex, closeIndex + 2) !== "\\*") return undefined;
+  const attributes = parseAttributeText(
+    fragment.slice(index + 1, closeIndex),
+    name,
+    milestoneDefaultAttribute(name),
+  );
+  if (!attributes) return undefined;
+  return { attributes, next: closeIndex + 2 };
+}
+
+/**
  * A milestone must be terminated by `\*` (PT9 `MilestoneEnded`); attributes may
  * follow a `|` between the marker and the `\*`.
  */
@@ -561,6 +600,18 @@ function scanMilestone(
         ejectedText: beforePipe.replace(/^[ \u00A0]/, ""),
       };
   } else if (between.trim() !== "") return undefined; // non-attribute content before \* — literal
+  // A repaired attribute list left sitting past the closer folds back in, its values overwriting
+  // any the milestone already carries: the list the author just fixed is the one they mean.
+  const absorbed = scanAbsorbableAttributes(fragment, closeIndex + 2, name);
+  if (absorbed)
+    return {
+      token: {
+        kind: "milestone",
+        marker: name,
+        attributes: { ...attributes, ...absorbed.attributes },
+      },
+      next: absorbed.next,
+    };
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }
 

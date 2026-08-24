@@ -110,3 +110,67 @@ describe("only an EJECTING milestone rebuild waits for the settle", () => {
     expect(milestoneEjectionPending(usfm)).toBe(true);
   });
 });
+
+/**
+ * The inverse rule: a FIXED-UP attribute list sitting after a milestone folds back INTO it.
+ *
+ * The ejection above is what an author sees after typing an attribute list Paratext cannot read —
+ * the milestone closes and the bytes land outside it. Correcting those bytes has to put them back,
+ * or the author is left staring at a repaired list the milestone will not take.
+ *
+ * The boundary is the author's own trailing `\*`. It is the byte that says "this list was meant to
+ * end a milestone", and requiring it is what keeps ordinary content safe: body text that merely
+ * begins with `|` has no closer after it and is never absorbed.
+ *
+ * The second requirement is that the list PARSES, and that is what keeps absorption and ejection
+ * from chasing each other forever. `|who=""` does not parse, so the ejected spelling stays
+ * ejected rather than being absorbed into a milestone whose bytes would only eject it again.
+ */
+describe("a milestone re-absorbs an attribute list that parses", () => {
+  function content(usfm: string) {
+    const [para] = usfmFragmentToUsjContent(usfm) as MarkerObject[];
+    return para.content;
+  }
+
+  it.each([
+    ["directly after the closer", `\\p \\qt1-s\\*|who="person"\\*text`],
+    ["past whitespace after the closer", `\\p \\qt1-s\\* |who="person"\\*text`],
+  ])("absorbs a list closed by its own `\\*`: %s", (_label, usfm) => {
+    expect(content(usfm)).toEqual([{ type: "ms", marker: "qt1-s", who: "person" }, "text"]);
+  });
+
+  it("leaves a list with NO closer alone — it is ordinary content", () => {
+    expect(content(`\\p \\qt1-s\\*|who="person"text`)).toEqual([
+      { type: "ms", marker: "qt1-s" },
+      `|who="person"text`,
+    ]);
+  });
+
+  it("MERGES onto attributes the milestone already has, the absorbed list winning", () => {
+    expect(content(`\\p \\qt1-s |sid="a"\\*|sid="b" who="c"\\*text`)).toEqual([
+      { type: "ms", marker: "qt1-s", sid: "b", who: "c" },
+      "text",
+    ]);
+  });
+
+  it("reads the absorbed spelling identically, so absorption is a fixed point", () => {
+    expect(content(`\\p \\qt1-s\\*|who="person"\\*text`)).toEqual(
+      content(`\\p \\qt1-s |who="person"\\*text`),
+    );
+  });
+
+  it("refuses a list that will not parse, which is what stops the oscillation", () => {
+    // Both directions, in one place, because it is the pair that terminates and neither half
+    // proves it alone. Ejection sends an unparseable list OUT of the milestone; absorption must
+    // not send it back IN, or the two would trade the same bytes forever. Refusing on the parse
+    // is what settles it — the ejected spelling reads as the ejected shape, unchanged.
+    const ejected = [
+      { type: "ms", marker: "qt1-s" },
+      `|who=""`,
+      { type: "unmatched", marker: "*" },
+      "text",
+    ];
+    expect(content(`\\p \\qt1-s |who=""\\*text`)).toEqual(ejected);
+    expect(content(`\\p \\qt1-s\\*|who=""\\*text`)).toEqual(ejected);
+  });
+});
