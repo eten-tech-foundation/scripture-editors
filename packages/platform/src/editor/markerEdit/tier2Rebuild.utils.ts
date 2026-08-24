@@ -1366,6 +1366,19 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   }
   const newNodes = unwrapped.children.map((child) => $parseSerializedNode(child));
 
+  // Second sentinel check, now on the SERIALIZED->PARSED tree (the mirror of `$rebuildParas`'
+  // recount): the tokenizer-level count above guards the MarkerContent, but the serialize/parse
+  // round trip is a separate place a U+FFFC placeholder can vanish. If the unwrapped content has
+  // fewer (or more) than the preserved-run count, `$replaceSentinels` would silently drop or
+  // mis-pair a preserved node. Abort untouched — before the category write below, which is also
+  // derived from this rebuild's output — instead.
+  if (countSentinelNodes(newNodes) !== out.sentinels.length) {
+    logger?.warn(
+      "[MarkerEdit] Note Tier 2 aborted: serialized sentinel/preserved-node count mismatch",
+    );
+    return false;
+  }
+
   // The category write happens whether or not the content splice below is refused: an EDITED
   // `\cat` value serializes to the same canonical bytes the live tree already displays (the
   // user's edit IS those bytes), so the structural comparison legitimately reports a fixed point

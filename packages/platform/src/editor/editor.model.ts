@@ -122,12 +122,15 @@ export interface EditorRef {
    * settles as if they were absent. Editor state, on-screen content, `onUsjChange`, and OT deltas
    * are untouched. One declaration at a time; calling again replaces it; `undefined` clears it.
    *
-   * The declaration is ADVISORY. It is re-verified against the live caret at every `getUsj()`, and
-   * ignored whenever it does not hold — the caret moved off the node, the bytes immediately before
-   * the caret are not exactly `run`, the node is gone, or the caller forgot to clear. A stale
-   * declaration therefore costs at most one save carrying a visible phantom marker; it can never
-   * silently drop content the user typed. Callers should still clear it as soon as the input is
-   * consumed or the surface closes.
+   * The declaration is ADVISORY. It is anchored to the text node the caret sits in when declared,
+   * and re-verified against the live caret at every `getUsj()`: it is ignored whenever it does not
+   * hold — the caret moved off the anchoring node, the bytes immediately before the caret are not
+   * exactly `run`, the node is gone, or the caller forgot to clear. The anchor is what stops an
+   * uncleared declaration from re-verifying against unrelated bytes elsewhere that merely end with
+   * the same run. A stale declaration therefore costs at most one save carrying a visible phantom
+   * marker; it can never silently drop content the user typed. Callers should still clear it as
+   * soon as the input is consumed or the surface closes. A `setUsj` document replacement clears
+   * it implicitly.
    */
   setTransientInput(input: TransientInput | undefined): void;
   /** Set the USJ Scripture data. */

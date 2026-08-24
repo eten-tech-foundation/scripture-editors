@@ -96,7 +96,11 @@ import {
   textTypeState,
   VerseNode,
 } from "shared";
-import { hasStandardViewWhitespace, ViewOptions } from "shared-react";
+import {
+  $selectionReachesIntoOpaqueBlock,
+  hasStandardViewWhitespace,
+  ViewOptions,
+} from "shared-react";
 
 /**
  * The command behind the public `EditorRef.commitPendingMarkerEdits()` method — `Editor.tsx`
@@ -338,6 +342,14 @@ function registerPasteNormalization(
         // `\fp` breaks like any other source's. Outside notes (and for single-line pastes)
         // the note gate declines and internal pastes keep their rich node semantics.
         // Hence no `payload.isInternal` guard here, unlike the two claims below.
+        //
+        // Decline outright when the selection reaches into an opaque block. This claim TIES
+        // with OpaqueBlockGuardPlugin's PASTE refusal — CRITICAL is Lexical's ceiling, so
+        // there is no rank above it and the winner between the two is registration order —
+        // and this handler REMOVES the selected range before deciding, so winning that tie
+        // destroyed content of a read-only block. Consulting the guard's own predicate first
+        // makes either registration order refuse.
+        if ($selectionReachesIntoOpaqueBlock()) return false;
         const payload = getPastePayload(event);
         if (!payload) return false;
         const pastedText = payload.text;

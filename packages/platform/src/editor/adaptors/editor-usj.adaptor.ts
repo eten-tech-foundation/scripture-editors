@@ -208,15 +208,17 @@ function createCharMarker(
 ): MarkerObject {
   const { type, marker: nodeMarker, unknownAttributes } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
-  // Remove NBSP at the start of the child text nodes. In standard view this separator is
-  // stripped earlier, before whitespace inversion, so a real leading NBSP in the data isn't
-  // misread as the separator here (see the `recurseNodes` TextNode branch).
-  if (!isStandardView(viewOptions))
-    content?.forEach((c, i) => {
-      if (typeof c === "string" && c.startsWith(NBSP)) {
-        content[i] = c.slice(1);
-      }
-    });
+  // Remove the structural NBSP separator at the span's START only. The forward adaptor
+  // (`createChar`) prepends it solely to the first child — never to text following a nested
+  // closer (the `ht` in `\wj li\+nd g\+nd*ht\wj*`) — so the strip is positional to match: a
+  // leading NBSP on any LATER string is authored data (`~`), and stripping it deleted one
+  // authored NBSP per round trip. In standard view this separator is stripped earlier, before
+  // whitespace inversion, so a real leading NBSP in the data isn't misread as the separator
+  // here (see the `recurseNodes` TextNode branch).
+  if (!isStandardView(viewOptions) && content) {
+    const [first] = content;
+    if (typeof first === "string" && first.startsWith(NBSP)) content[0] = first.slice(1);
+  }
   return removeUndefinedProperties({
     type,
     marker,
@@ -547,6 +549,13 @@ function recurseNodes(
           // Drop a bare caret host (EmptyVerseCaretGuardPlugin). A legitimate ZWSP inside real text
           // (Thai/Khmer line breaks) is not placeholder-only, so it still passes and is preserved.
           !isCursorPlaceholderOnly(serializedTextNode.text) &&
+          // A byte test, not (only) the separator state tag, and deliberately so: a lone-NBSP
+          // text node stands in for THREE presentation shapes — the tagged separators the
+          // forward adaptor builds, the empty-char placeholder, and an orphaned structural
+          // prefix a split or deletion strands in its own (untagged) node. The known cost is
+          // that a CONTENT string which is exactly one NBSP is dropped too (e.g. a
+          // paragraph-leading single " " rewritten to NBSP for standard view); fixing that
+          // needs a per-context story for the untagged shapes, not a tag test alone.
           serializedTextNode.text !== NBSP &&
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
           // Char-span attribute display runs (bare `|…`, no NBSP prefix — see

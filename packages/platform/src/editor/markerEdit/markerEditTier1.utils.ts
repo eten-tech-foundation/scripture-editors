@@ -624,9 +624,13 @@ function leadingAttributeGlyphRegexes(marker: string): {
     markerRest: new RegExp(`^(\\\\${marker}[ \u00A0]+([^ \u00A0\\\\]+))(\\\\[\\s\\S]*)$`),
     // The marker with its value not yet typed (mid-edit).
     midEdit: new RegExp(`^\\\\${marker}[ \u00A0]*$`),
-    // Value word followed by a terminating separator (the chapter arm's shape: no rest capture,
-    // trailing bytes beyond the separator left to the caller).
-    valueTerminated: new RegExp(`^\\\\${marker}[ \u00A0]+([^ \u00A0\\\\]+)[ \u00A0]`),
+    // Value word followed by NOTHING but a terminating separator run (the chapter arm's shape).
+    // End-anchored on purpose: bytes past the separator (`\c 1 \ca 5\ca*`) mean the glyph holds
+    // more than a retagged number, and the immediate canonical rewrite would DELETE them \u2014 no
+    // pend, no settle, no undo entry. Those shapes stay literal instead and settle through the
+    // chapter-scoped rebuild on caret departure, whose tokenizer re-homes them (attrCapture
+    // folds `\ca`/`\cp` onto the chapter).
+    valueTerminated: new RegExp(`^\\\\${marker}[ \u00A0]+([^ \u00A0\\\\]+)[ \u00A0]+$`),
   };
 }
 

@@ -82,13 +82,16 @@ import {
   $isNoteNode,
   $isParaNode,
   $isUnknownNode,
+  $isVerseNode,
   ChapterNode,
   closingMarkerText,
   MarkerLookup,
   MarkerNode,
+  isSerializedVerseNode,
   NoteNode,
   openingMarkerText,
   ParaNode,
+  SerializedVerseNode,
   UnknownNode,
   usfmFragmentToUsjContent,
 } from "shared";
@@ -569,6 +572,21 @@ export interface LastKnownCaret {
 }
 
 /**
+ * A `TransientInput` declaration ANCHORED to the text node the caret sat in when it was declared —
+ * captured by `EditorRef.setTransientInput`, never supplied by the declaring surface. The anchor is
+ * what gives a declaration an owner: `{kind, run}` alone carries no identity, so a declaration a
+ * surface forgot to clear could re-verify at ANY later caret whose preceding bytes happened to end
+ * with the same run — ordinary typed prose included — and the excision then reached the saved
+ * file. `nodeKey: undefined` means no caret was resolvable when the declaration was made (a
+ * contract-legal shape — a surface may declare before the run's bytes exist); such a declaration
+ * keeps the pre-anchor byte-check-only verification.
+ */
+export interface AnchoredTransientInput {
+  readonly input: TransientInput;
+  readonly nodeKey: NodeKey | undefined;
+}
+
+/**
  * Resolve a declaration against the live caret, or `undefined` when it does not hold. Every check
  * is a fail-safe: an unverifiable declaration must degrade to "settle normally", because the cost
  * of ignoring a live declaration is one visible phantom marker while the cost of honoring a stale
@@ -597,10 +615,10 @@ export interface LastKnownCaret {
  * silently dropped content.
  */
 function $verifiedTransientLiteral(
-  input: TransientInput | undefined,
+  anchored: AnchoredTransientInput | undefined,
   lastKnownCaret: LastKnownCaret | undefined,
 ): TransientLiteral | undefined {
-  if (!input || input.run.length === 0) return undefined;
+  if (!anchored || anchored.input.run.length === 0) return undefined;
   const selection = $getSelection();
   let node: LexicalNode | null;
   let caretOffset: number;
@@ -615,8 +633,15 @@ function $verifiedTransientLiteral(
     return undefined;
   }
   if (!$isTextNode(node) || !node.isAttached()) return undefined;
-  if (!node.getTextContent().slice(0, caretOffset).endsWith(input.run)) return undefined;
-  return { node, caretOffset, run: input.run };
+  // When an anchor was captured, the caret must still be in the node the declaration was made
+  // against. Without this, a declaration left behind by a surface that forgot to clear re-armed
+  // at any later caret whose preceding text merely ENDED with the same bytes — and `run` is
+  // unconstrained, so ordinary prose qualified and the excision reached the saved file. An
+  // UN-anchored declaration (no caret was resolvable when it was made — a contract-legal shape,
+  // since the run may be declared before its bytes exist) keeps the byte check alone.
+  if (anchored.nodeKey !== undefined && node.getKey() !== anchored.nodeKey) return undefined;
+  if (!node.getTextContent().slice(0, caretOffset).endsWith(anchored.input.run)) return undefined;
+  return { node, caretOffset, run: anchored.input.run };
 }
 
 /**
@@ -759,7 +784,46 @@ function $settledParaNodes(
     return undefined;
   }
   replaceSerializedSentinels(rebuilt, runs);
+  // Sid carry-over, mirroring `$rebuildParas`: a freshly re-tokenized verse never has a sid —
+  // the tokenizer cannot derive one from visible bytes — so without this step a `getUsj()`
+  // taken while a paragraph was pending stripped `sid` from every verse in it, while
+  // `commitPendingMarkerEdits()` then `getUsj()` kept them: the two paths disagreed on document
+  // content, which is exactly what this mirror exists to prevent. Pair the old and new verses
+  // positionally in document order and copy the old sid wherever the verse NUMBER is unchanged.
+  // A preserved (sentinel) verse re-serializes with its own sid, so the copy is a no-op for it,
+  // and a renumbered verse gets no sid synthesized — both matching the mutating side.
+  const oldVerseSids = $collectLiveVerseSids(paras);
+  const newVerses = collectSerializedVerses(rebuilt);
+  for (let i = 0; i < oldVerseSids.length && i < newVerses.length; i++) {
+    if (oldVerseSids[i].sid !== undefined && newVerses[i].number === oldVerseSids[i].number)
+      newVerses[i].sid = oldVerseSids[i].sid;
+  }
   return rebuilt;
+}
+
+/**
+ * Live-side verse (number, sid) pairs in document order — this settle's half of the snapshot
+ * `$rebuildParas` takes before its own splice for the sid carry-over.
+ */
+function $collectLiveVerseSids(nodes: LexicalNode[]): { number: string; sid?: string }[] {
+  const out: { number: string; sid?: string }[] = [];
+  const visit = (node: LexicalNode): void => {
+    if ($isVerseNode(node)) out.push({ number: node.getNumber(), sid: node.getSid() });
+    else if ($isElementNode(node)) node.getChildren().forEach(visit);
+  };
+  nodes.forEach(visit);
+  return out;
+}
+
+/** Serialized verse nodes in document order — the JSON-side half of the same pairing. */
+function collectSerializedVerses(nodes: SerializedLexicalNode[]): SerializedVerseNode[] {
+  const out: SerializedVerseNode[] = [];
+  for (const node of nodes) {
+    if (isSerializedVerseNode(node)) out.push(node);
+    const children = serializedChildren(node);
+    if (children) out.push(...collectSerializedVerses(children));
+  }
+  return out;
 }
 
 /**
@@ -1134,7 +1198,7 @@ export function $settledUsj(
   serializedState: SerializedEditorState,
   pendedKeys: ReadonlySet<NodeKey>,
   context: Tier2Context,
-  transientInput?: TransientInput,
+  transientInput?: AnchoredTransientInput,
   lastKnownCaret?: LastKnownCaret,
 ): Usj | undefined {
   const transient = $verifiedTransientLiteral(transientInput, lastKnownCaret);

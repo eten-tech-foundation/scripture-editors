@@ -31,7 +31,7 @@ import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { $getEditor, $getSelection, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
 import { $isMarkerNode, $isParaNode, LoggerBasic, NoteNode, ParaNode, StyleInfo } from "shared";
-import { UsjNodeOptions, ViewOptions } from "shared-react";
+import { showParaMarkerPrefix, UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
 
 /** PT9 marker characters typed after the `\` trigger (MarkerDropdownControl.cs:216-219). */
@@ -324,7 +324,7 @@ export function $applyMarkerMenuSelection(
 export function $splitParagraphWithMarker(marker: string, viewOptions?: ViewOptions): void {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
-  const showPrefix = viewOptions?.showParaMarkerPrefixes !== false;
+  const showPrefix = showParaMarkerPrefix(viewOptions);
 
   if ($splitParagraphAtCharStack()) {
     const after = $getSelection();

@@ -1,6 +1,7 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $getNearestNodeFromDOMNode,
   $getSelection,
   $isRangeSelection,
   COMMAND_PRIORITY_CRITICAL,
@@ -94,7 +95,22 @@ export function OpaqueBlockGuardPlugin(): null {
         COMMAND_PRIORITY_CRITICAL,
       ),
       editor.registerCommand(CUT_COMMAND, $refuseEditInsideOpaqueBlock, COMMAND_PRIORITY_CRITICAL),
-      editor.registerCommand(DROP_COMMAND, $refuseEditInsideOpaqueBlock, COMMAND_PRIORITY_HIGH),
+      // DROP is judged by the drop TARGET, not the live selection: Lexical dispatches
+      // DROP_COMMAND straight from the DOM handler with no selection update, so at drop time
+      // `$getSelection()` still holds whatever was selected when the drag STARTED. Testing that
+      // inverted both promises above — dragging a caption OUT of a figure was refused (source
+      // inside), while dragging outside text INTO a caption was allowed (source outside).
+      editor.registerCommand(
+        DROP_COMMAND,
+        (event) => {
+          if (!(event instanceof Event) || !(event.target instanceof Node)) return false;
+          const targetNode = $getNearestNodeFromDOMNode(event.target);
+          if (!targetNode || !$opaqueBlockAncestor(targetNode)) return false;
+          event.preventDefault();
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
       editor.registerCommand(
         DELETE_CHARACTER_COMMAND,
         $refuseEditInsideOpaqueBlock,
@@ -160,8 +176,12 @@ export function $opaqueBlockAncestor(node: LexicalNode): LexicalNode | undefined
  *
  * A range whose ends are BOTH outside is not this guard's business even when it contains a
  * construct whole: that is a region replacement, answered by the structural-deletion rules.
+ *
+ * Exported for actors that TIE with this plugin's refusals at Lexical's ceiling priority
+ * (CRITICAL has no rank above it, so the winner is registration order): the marker engine's
+ * in-note paste claim consults this before claiming, so either registration order refuses.
  */
-function $selectionReachesIntoOpaqueBlock(): boolean {
+export function $selectionReachesIntoOpaqueBlock(): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
   return (

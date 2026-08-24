@@ -95,8 +95,10 @@ function withoutBasicToken(description?: string): string | undefined {
  * style to retag/split into. Offering it in the paragraph menu let it be picked from the Enter
  * split menu, where `$splitParagraphWithMarker("c")` produced a malformed `<para marker="c">`.
  */
-function includeMarker(marker: string): boolean {
-  return !marker.startsWith("zpa") && marker !== "c" && isUsjMarkerSupported(marker);
+function includeMarker(marker: string, extraValidMarkers?: readonly string[]): boolean {
+  return (
+    !marker.startsWith("zpa") && marker !== "c" && isUsjMarkerSupported(marker, extraValidMarkers)
+  );
 }
 
 function toStackEntry(styleInfo: StyleInfo, marker: string): ParaStackEntry | undefined {
@@ -169,11 +171,17 @@ function compareItems(a: MarkerMenuItem, b: MarkerMenuItem): number {
  * passes against the replayed stack — PT9's `addTag: false` call
  * (TagValidator.cs:18-57), so one candidate's probe cannot affect the next.
  */
-function paragraphItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[] {
+function paragraphItems(
+  styleInfo: StyleInfo,
+  context: MarkerMenuContext,
+  extraValidMarkers?: readonly string[],
+): MarkerMenuItem[] {
   if (context.noteMarker) return [];
   const stack = buildParaStack(styleInfo, context.previousParaMarkers);
   return Object.values(styleInfo.markers)
-    .filter((entry) => entry.styleType === "paragraph" && includeMarker(entry.marker))
+    .filter(
+      (entry) => entry.styleType === "paragraph" && includeMarker(entry.marker, extraValidMarkers),
+    )
     .filter((entry) => {
       const tag = toStackEntry(styleInfo, entry.marker);
       return tag !== undefined && isParagraphTagValid(stack, tag);
@@ -187,9 +195,15 @@ function paragraphItems(styleInfo: StyleInfo, context: MarkerMenuContext): Marke
  * (MarkerItemSource.cs:109-147). Requires `paraMarker` outside of notes
  * (else empty list, per `:123-124`).
  */
-function characterItemsRaw(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[] {
+function characterItemsRaw(
+  styleInfo: StyleInfo,
+  context: MarkerMenuContext,
+  extraValidMarkers?: readonly string[],
+): MarkerMenuItem[] {
   const { noteMarker, paraMarker } = context;
-  const entries = Object.values(styleInfo.markers).filter((entry) => includeMarker(entry.marker));
+  const entries = Object.values(styleInfo.markers).filter((entry) =>
+    includeMarker(entry.marker, extraValidMarkers),
+  );
 
   if (noteMarker) {
     // In-note (:114-119): only character styles whose occursUnder includes the note marker.
@@ -247,10 +261,14 @@ function compareBasicFirst(a: MarkerMenuItem, b: MarkerMenuItem): number {
   return a.isBasic ? -1 : 1;
 }
 
-function characterItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[] {
+function characterItems(
+  styleInfo: StyleInfo,
+  context: MarkerMenuContext,
+  extraValidMarkers?: readonly string[],
+): MarkerMenuItem[] {
   return [
     ...closeTagItems(styleInfo, context.openCharMarkers),
-    ...characterItemsRaw(styleInfo, context),
+    ...characterItemsRaw(styleInfo, context, extraValidMarkers),
   ].sort(compareBasicFirst);
 }
 
@@ -265,10 +283,11 @@ function characterItems(styleInfo: StyleInfo, context: MarkerMenuContext): Marke
 export function getMarkerMenuItems(
   styleInfo: StyleInfo,
   context: MarkerMenuContext,
+  extraValidMarkers?: readonly string[],
 ): MarkerMenuItem[] {
-  if (context.source === "paragraph") return paragraphItems(styleInfo, context);
-  const items = characterItems(styleInfo, context);
-  return items.length > 0 ? items : paragraphItems(styleInfo, context);
+  if (context.source === "paragraph") return paragraphItems(styleInfo, context, extraValidMarkers);
+  const items = characterItems(styleInfo, context, extraValidMarkers);
+  return items.length > 0 ? items : paragraphItems(styleInfo, context, extraValidMarkers);
 }
 
 /**
@@ -283,8 +302,9 @@ export function getMarkerMenuItems(
 export function getEnterMenuItems(
   styleInfo: StyleInfo,
   context: MarkerMenuContext,
+  extraValidMarkers?: readonly string[],
 ): MarkerMenuItem[] {
-  const items = paragraphItems(styleInfo, context);
+  const items = paragraphItems(styleInfo, context, extraValidMarkers);
   const stack = buildParaStack(styleInfo, context.previousParaMarkers);
   const ipTag = toStackEntry(styleInfo, "ip");
   // SmartEnter defaults to `\ip` (introduction prose) ONLY inside the book introduction — before any

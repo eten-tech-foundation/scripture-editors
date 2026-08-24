@@ -38,7 +38,11 @@ export interface ParaStackEntry {
 }
 
 function getEntry(styleInfo: StyleInfo, marker: string): MarkerStyleInfo | undefined {
-  return styleInfo.markers[marker.replace(/^\+/, "")];
+  const name = marker.replace(/^\+/, "");
+  // Own-property guard: `markers` is a plain object, so a bare index resolves Object.prototype
+  // members (`constructor`, `toString`, `valueOf`, …) as if they were stylesheet entries — a
+  // marker named after one would never be flagged unknown.
+  return Object.hasOwn(styleInfo.markers, name) ? styleInfo.markers[name] : undefined;
 }
 
 /** What opening `tag` would do to a validity stack, when it is valid there at all. */

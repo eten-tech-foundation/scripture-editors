@@ -260,8 +260,12 @@ export function isSerializedImmutableNoteCallerNode(
   return node?.type === ImmutableNoteCallerNode.getType();
 }
 
+// `getEditorState().read`, NOT `editor.read`, in this and the two getters below: all three are
+// handed to the caller-click callback as lazy thunks, and `editor.read()` force-flushes any
+// in-flight update when invoked mid-dispatch — the frozen-state hazard the project rule exists
+// to prevent.
 function getNoteCaller(editor: LexicalEditor, noteNodeKey: NodeKey): string {
-  return editor.read(() => {
+  return editor.getEditorState().read(() => {
     const noteNode = $getNodeByKey<NoteNode>(noteNodeKey);
     if (!$isNoteNode(noteNode))
       throw new Error(`getNoteCaller: Note node not found: ${noteNodeKey}`);
@@ -294,7 +298,7 @@ function getNoteOps(
   editor: LexicalEditor,
   noteNodeKey: NodeKey,
 ): DeltaOpInsertNoteEmbed[] | undefined {
-  return editor.read(() => {
+  return editor.getEditorState().read(() => {
     const noteNode = $getNodeByKey<NoteNode>(noteNodeKey);
     if (!$isNoteNode(noteNode)) throw new Error(`getNoteOps: Note node not found: ${noteNodeKey}`);
 
@@ -308,7 +312,7 @@ function getNoteOps(
  * pane). `undefined` when the note is no longer attached.
  */
 function getNoteIndex(editor: LexicalEditor, noteNodeKey: NodeKey): number | undefined {
-  return editor.read(() => {
+  return editor.getEditorState().read(() => {
     let index = 0;
     for (const { node } of $dfs()) {
       if (!$isNoteNode(node)) continue;

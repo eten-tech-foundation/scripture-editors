@@ -80,7 +80,14 @@ export function canonicalAttributeText(
     ([name, value]) => value !== undefined && !ATTRIBUTE_EXCLUDED_KEYS.has(name),
   );
   if (entries.length === 0) return "";
-  if (entries.length === 1 && entries[0][0] === defaultAttributeName) return `|${entries[0][1]}`;
+  // The bare-value collapse requires a NON-EMPTY value: a lone `|` is a byte sequence the
+  // tokenizer refuses outright (`parseAttributeText`, PT9 parity), so collapsing an empty
+  // default value displayed a run whose settle re-read it as plain content — the attribute
+  // name vanished from the file and a stray `|` landed in the scripture text. The explicit
+  // `name=""` form keeps the name on screen, and a refused re-tokenize then degrades to
+  // visible literal bytes instead of silently corrupting.
+  if (entries.length === 1 && entries[0][0] === defaultAttributeName && entries[0][1] !== "")
+    return `|${entries[0][1]}`;
   return `|${entries.map(([name, value]) => `${name}="${value}"`).join(" ")}`;
 }
 

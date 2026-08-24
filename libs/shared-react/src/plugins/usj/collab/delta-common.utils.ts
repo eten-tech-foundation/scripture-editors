@@ -581,11 +581,6 @@ export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
  *   exclusion for the identical bytes.
  */
 function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSystem): number {
-  // A bare cursor host (EmptyVerseCaretGuardPlugin) is a transient, collab-invisible node: its
-  // insertion is never emitted, so it must contribute nothing to OT positions or the local doc
-  // would drift one position ahead of every peer while a host rests.
-  if ($isCursorPlaceholderOnlyText(node)) return 0;
-
   // Embeds are checked FIRST: an editable VerseNode is a TextNode subclass but counts as one
   // opaque OT unit (its glyph text is engine-owned display, excluded from content ops), the same
   // as it counts in the doc delta and in `$applyUpdate`'s traversals. See {@link $isOTTextNode}.
@@ -594,7 +589,16 @@ function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSyst
   if ($isTextNode(node)) {
     if (
       coordinates === "delta-doc" &&
-      ($isOwnParaPrefixGlyph(node) ||
+      // A bare cursor host (EmptyVerseCaretGuardPlugin) is a transient, collab-invisible node:
+      // its insertion is never emitted, so it contributes nothing to DOC-DELTA positions or the
+      // local doc would drift one position ahead of every peer while a host rests. In `"apply"`
+      // coordinates it MUST count, per the rule in the doc comment above: none of
+      // `$applyUpdate`'s traversals skip a placeholder (each classifies with `$isOTTextNode`
+      // and adds raw `getTextContentSize()`), so excluding it here left a replace-embed retain
+      // one short whenever a host rested before the target — a footnote-popover save then
+      // deleted the unit BEFORE the note instead of the note itself.
+      ($isCursorPlaceholderOnlyText(node) ||
+        $isOwnParaPrefixGlyph(node) ||
         $getState(node, textTypeState) === "marker-trailing-space" ||
         // An attribute value keyed by its own state, not by ancestry: a CHAR span's run is a direct
         // TextNode child of the span, never wrapped (`displayRunRegistry.ts`'s char descriptor

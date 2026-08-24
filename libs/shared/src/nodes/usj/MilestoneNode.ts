@@ -89,13 +89,18 @@ export class MilestoneNode extends DecoratorNode<string> {
   __unknownAttributes?: UnknownAttributes;
   __attributeOrder?: string[];
 
+  // `attributeOrder` rides AFTER `key`, never ahead of it: a node's key is the last argument
+  // every Lexical node constructor took before this field existed, and slotting the new field
+  // ahead of it would silently reinterpret an existing 5-argument call's NodeKey as the order
+  // list (TypeScript consumers get a compile error; JavaScript consumers get corruption). Same
+  // rule as MarkerNode's constructor.
   constructor(
     marker = "",
     sid?: string,
     eid?: string,
     unknownAttributes?: UnknownAttributes,
-    attributeOrder?: string[],
     key?: NodeKey,
+    attributeOrder?: string[],
   ) {
     super(key);
     this.__marker = marker;
@@ -111,7 +116,7 @@ export class MilestoneNode extends DecoratorNode<string> {
 
   static override clone(node: MilestoneNode): MilestoneNode {
     const { __marker, __sid, __eid, __unknownAttributes, __attributeOrder, __key } = node;
-    return new MilestoneNode(__marker, __sid, __eid, __unknownAttributes, __attributeOrder, __key);
+    return new MilestoneNode(__marker, __sid, __eid, __unknownAttributes, __key, __attributeOrder);
   }
 
   static override importJSON(serializedNode: SerializedMilestoneNode): MilestoneNode {
@@ -266,7 +271,7 @@ export function $createMilestoneNode(
   attributeOrder?: string[],
 ): MilestoneNode {
   return $applyNodeReplacement(
-    new MilestoneNode(marker, sid, eid, unknownAttributes, attributeOrder),
+    new MilestoneNode(marker, sid, eid, unknownAttributes, undefined, attributeOrder),
   );
 }
 

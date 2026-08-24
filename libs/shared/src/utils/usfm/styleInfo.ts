@@ -10,7 +10,6 @@
  * - lineSpacing: PT9 quirk — 1 renders as line-height 1.5, 2 as 2, else nothing
  */
 import getMarker from "./getMarker.js";
-import { usfmMarkers } from "./usfmMarkers.js";
 import { CategoryType, Marker, MarkerType } from "./usfmTypes.js";
 
 /**
@@ -99,10 +98,16 @@ export function createMarkerLookup(styleInfo?: StyleInfo): MarkerLookup {
   const cache = new Map<string, Marker | undefined>();
   return (marker: string): Marker | undefined => {
     if (cache.has(marker)) return cache.get(marker);
-    const entry = styleInfo.markers[marker];
+    // Own-property guard: `markers` is a plain object off the wire, so a bare index resolves
+    // Object.prototype members (`constructor`, `toString`, …) as if they were stylesheet
+    // entries — handing back a Marker built from a Function.
+    const entry = Object.hasOwn(styleInfo.markers, marker) ? styleInfo.markers[marker] : undefined;
     const result: Marker | undefined = entry
       ? {
-          category: usfmMarkers[marker]?.category ?? CategoryType.Uncategorized,
+          // Through `getMarker`, not the raw generated table: `usfmMarkersOverwrites` supplies
+          // markers the generated data lacks (`w`, `rb`, `jmp`), and reading the table directly
+          // demoted exactly those to Uncategorized whenever a project StyleInfo was active.
+          category: getMarker(marker)?.category ?? CategoryType.Uncategorized,
           type: STYLE_TYPE_TO_MARKER_TYPE[entry.styleType] ?? MarkerType.Unknown,
           description: entry.description ?? "",
           hasEndMarker: Boolean(entry.endMarker),

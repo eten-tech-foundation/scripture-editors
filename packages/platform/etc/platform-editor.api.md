@@ -239,10 +239,10 @@ export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-
 export const getDefaultViewOptions: () => ViewOptions;
 
 // @public
-export function getEnterMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[];
+export function getEnterMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext, extraValidMarkers?: readonly string[]): MarkerMenuItem[];
 
 // @public
-export function getMarkerMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext): MarkerMenuItem[];
+export function getMarkerMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext, extraValidMarkers?: readonly string[]): MarkerMenuItem[];
 
 // @public
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined;
@@ -445,6 +445,7 @@ export interface OTEmbedTypes {
 
 // @public
 export interface OTMilestoneEmbed extends OTParaAttribute {
+    attributeOrder?: string[];
     eid?: string;
     sid?: string;
     status?: "start" | "end";

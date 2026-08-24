@@ -171,6 +171,53 @@ describe("settled getUsj — uniform settling", () => {
     // The commit is what actually changes the DOCUMENT: the marker field moves for real.
     expect(lexical.getEditorState().read($livePara1Marker)).not.toBe(beforeMarker);
   });
+
+  it("keeps a verse's sid while its paragraph is pending (sid carry-over)", async () => {
+    // A freshly re-tokenized verse never has a sid — the tokenizer cannot derive one from
+    // visible bytes — so the settled read needs the same positional sid carry-over the mutating
+    // rebuild performs. Without it, getUsj() while pending stripped every sid in the scope
+    // while commitPendingMarkerEdits() then getUsj() kept them: the two paths disagreed on
+    // document content, which is exactly what the read-only mirror exists to prevent.
+    const sidUsj: Usj = {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+        { type: "chapter", marker: "c", number: "1" },
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1", sid: "GEN 1:1" },
+            "in the beginning",
+          ],
+        },
+        { type: "para", marker: "p", content: ["depart here"] },
+      ],
+    };
+    const { ref, lexical } = await mountStandardViewEditor(sidUsj);
+    await act(async () => {
+      lexical.update(() => {
+        const para = $getRoot().getChildren().find($isParaNode);
+        if (!para) throw new Error("expected a ParaNode");
+        const glyph = para.getFirstChild();
+        if (!glyph || !$isTextNode(glyph)) throw new Error("expected a prefix glyph");
+        glyph.setTextContent("\\q1");
+        glyph.select(3, 3);
+      });
+      await Promise.resolve();
+    });
+    const settled = ref.current?.getUsj();
+    const para = settled?.content?.find(
+      (item): item is MarkerObject =>
+        typeof item === "object" && item.type === "para" && item.marker === "q1",
+    );
+    expect(para).toBeDefined();
+    const verse = para?.content?.find(
+      (item): item is MarkerObject => typeof item === "object" && item.type === "verse",
+    );
+    expect(verse?.sid).toBe("GEN 1:1");
+  });
 });
 
 /** One pending-edit shape: how to create it, from a document the harness loads. */

@@ -64,6 +64,7 @@
  *   about it — the marker-edit engine owns healing and settling.
  */
 
+import { $isImmutableUnmatchedNode } from "../features/ImmutableUnmatchedNode.js";
 import { $isCanonicalMarkerNode, $isMarkerNode } from "../features/MarkerNode.js";
 import { MARKER_TRAILING_SPACE_TEXT_TYPE, textTypeState } from "../collab/delta.state.js";
 import { $isCharNode } from "./CharNode.js";
@@ -102,6 +103,11 @@ export function $isGlyphTextNode(node: LexicalNode | null | undefined): boolean 
   // A marker glyph (`\add`, `\add*`, a paragraph's `\p` prefix) and an editable verse marker
   // (`\v` + NBSP + number + space) both render their own state as text.
   if ($isMarkerNode(node) || $isVerseNode(node)) return true;
+  // An unmatched-closer glyph (`\f*` with no opener) is likewise a picture of its own
+  // `__marker` state. It is a TextNode subclass, so without this arm the caret is never
+  // normalized out of it and an insert can split the glyph (`\f` + inserted note + a stranded
+  // `*`).
+  if ($isImmutableUnmatchedNode(node)) return true;
   // The attribute display run (`|gloss="x"`) renders the span's attributes; the marker-trailing
   // separator renders the prefix layout. Both are tagged rather than typed, so they are read off
   // the tag the engine writes when it builds them.
@@ -141,15 +147,18 @@ export function $isPointInMarkerGlyphText(node: LexicalNode, offset: number): bo
 }
 
 /**
- * Whether a collapsed-or-not range selection's anchor sits inside marker glyph text — the guard
- * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker. The
- * trailing edge of a canonical closer does NOT count (see {@link $isPointInMarkerGlyphText}).
+ * Whether a range selection's caret end sits inside marker glyph text — the guard
+ * `MarkerEditPlugin` and `UsjNodesMenuPlugin` use to swallow Enter presses inside a marker. Read
+ * from the FOCUS point (the live cursor end, correct even for a backward range — the project's
+ * standing rule for "the node the caret is in"); for the common collapsed caret the two points
+ * coincide. The trailing edge of a canonical closer does NOT count (see
+ * {@link $isPointInMarkerGlyphText}).
  * Read-only: call inside `editor.getEditorState().read(...)` or an update.
  */
 export function $isSelectionInMarkerNode(): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
-  return $isPointInMarkerGlyphText(selection.anchor.getNode(), selection.anchor.offset);
+  return $isPointInMarkerGlyphText(selection.focus.getNode(), selection.focus.offset);
 }
 
 /** The glyph text node a point is expressed against, if it is expressed against one. */

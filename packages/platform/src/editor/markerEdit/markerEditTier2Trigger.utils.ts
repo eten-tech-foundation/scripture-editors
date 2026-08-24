@@ -260,7 +260,11 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
       // $rebuildParas already produced this exact literal text once this commit and, being
       // deterministic, would only reproduce it again (e.g. an unterminated milestone run
       // that stays literal per the degradation property) — settle rather than
-      // retrigger forever.
+      // retrigger forever. Known gap: the set is keyed by TEXT, so this arm also swallows a
+      // DIFFERENT node carrying the same bytes (a paste can insert two identical literals in
+      // one commit), which then ends up neither rebuilt nor pended; pending it here instead
+      // destabilizes the fixed-point damping (re-settles of damped literals are not idempotent
+      // today), so the narrower behavior stands until that is resolved.
       return;
     }
     context.rebuildAttempted.add(text);
@@ -353,6 +357,18 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // checks in this scan); a canonical run has nothing to settle, and a diverged one is
       // only reachable mid-edit, i.e. caret-held.
       if ($getState(node, textTypeState) === "attribute") return;
+      // A plain TextNode inside an editable CHAPTER is the chapter's own `\c N` glyph (or stray
+      // mid-edit text beside it) — the mirror of the live transform's chapter arm
+      // ($textNodeTier2Transform). Canonical glyph bytes have nothing pending, and they always
+      // contain `\`, so without this arm the literal-shapes check below would re-pend every
+      // restored chapter's glyph on undo/redo and permanently defeat the pended-keys-empty fast
+      // path. Anything non-canonical re-pends for departure's $rebuildChapter, like the live arm.
+      const chapterParent = node.getParent();
+      if ($isChapterNode(chapterParent)) {
+        if (node.getTextContent() !== getVisibleOpenMarkerText("c", chapterParent.getNumber()))
+          context.pendingKeys.add(node.getKey());
+        return;
+      }
       const text = node.getTextContent();
       // Four literal shapes pend, mirroring the transform's TextNode branches: backslash runs
       // (terminated or not), pipe bytes in a closed char span (the pipe branch), `//` optbreak
@@ -360,8 +376,9 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // verse-attribute-site branch). Undoing an optbreak settle restores the literal `//`, and
       // undoing a settled fold restores the empty source span's typed value — both are the same
       // divergence class and must re-pend so the next departure re-settles them. No
-      // literal-only-block guard is needed here: the scan never descends into books/chapters/
-      // unknowns (handled below), so a `//` there is never visited.
+      // literal-only-block guard is needed here: the scan never descends into books or
+      // unknowns (handled below), so a `//` there is never visited, and chapter interiors are
+      // claimed by the chapter arm above.
       if (
         text.includes("\\") ||
         (text.includes("|") && $isInClosedCharSpan(node)) ||

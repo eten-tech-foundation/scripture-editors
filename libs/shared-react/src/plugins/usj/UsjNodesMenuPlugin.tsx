@@ -6,6 +6,7 @@ import { mergeRegister } from "@lexical/utils";
 import {
   $getSelection,
   $isRangeSelection,
+  $onUpdate,
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
   INSERT_PARAGRAPH_COMMAND,
@@ -354,20 +355,29 @@ function EditableMarkerMenu({
               }
               commitTypedQuery(typedBeforeTrigger, menuState.items, false);
               // Reopen through the same path the `\` trigger itself uses, so the new session's
-              // ranking, search bar and zero-match rules are identical to any other session's.
-              const reopenContext = harness.getContext();
-              filterRef.current = { query: "", options: [] };
-              sessionCounterRef.current += 1;
-              setMenuState(
-                reopenContext
-                  ? {
-                      trigger: "backslash",
-                      hasTextSelection: reopenContext.hasTextSelection,
-                      items: harness.getItems(reopenContext),
-                      session: sessionCounterRef.current,
-                    }
-                  : undefined,
-              );
+              // ranking, search bar and zero-match rules are identical to any other session's —
+              // but only AFTER the commit above has actually landed. This handler runs inside
+              // the update that dispatched KEY_DOWN, so the `editor.update` the commit performs
+              // is QUEUED rather than run inline, and reading the context on the next statement
+              // saw the PRE-commit state: a committed note leaves the caret inside the new
+              // footnote, and the reopened palette must filter on that note's marker instead of
+              // listing the whole outside-note set. `$onUpdate` runs once the batch that
+              // includes the queued commit has committed.
+              $onUpdate(() => {
+                const reopenContext = harness.getContext();
+                filterRef.current = { query: "", options: [] };
+                sessionCounterRef.current += 1;
+                setMenuState(
+                  reopenContext
+                    ? {
+                        trigger: "backslash",
+                        hasTextSelection: reopenContext.hasTextSelection,
+                        items: harness.getItems(reopenContext),
+                        session: sessionCounterRef.current,
+                      }
+                    : undefined,
+                );
+              });
               return true;
             }
             // Otherwise Space is the `\` palette's COMMIT key ("commit what was typed"); every

@@ -5,7 +5,8 @@ All notable changes to `@eten-tech-foundation/platform-editor` are recorded here
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Entries under **Unreleased** describe changes that are committed but not yet published. Move them
-under a version heading when `Publish Scribe Package` runs for that version.
+under a version heading when that version of this package is published. (No workflow automates
+this package's publish today — `Publish Scribe Package` publishes only `packages/scribe`.)
 
 ## [Unreleased]
 

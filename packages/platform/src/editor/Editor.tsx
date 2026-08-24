@@ -8,7 +8,7 @@ import {
   isCharacterMarkerSupported,
   isUsjMarkerSupported,
 } from "./adaptors/usj-marker-action.utils";
-import { EditorOptions, EditorProps, EditorRef, TransientInput } from "./editor.model";
+import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import {
@@ -28,7 +28,11 @@ import { $applyParaMarker } from "./markerEdit/applyParaMarker.utils";
 import { EscapeKeyPlugin } from "./EscapeKeyPlugin";
 import { COMMIT_PENDING_MARKERS_COMMAND, MarkerEditPlugin } from "./markerEdit/MarkerEditPlugin";
 import { MarkerValidationPlugin } from "./markerEdit/MarkerValidationPlugin";
-import { $settledUsj, LastKnownCaret } from "./markerEdit/virtualSettle.utils";
+import {
+  $settledUsj,
+  AnchoredTransientInput,
+  LastKnownCaret,
+} from "./markerEdit/virtualSettle.utils";
 import { ParaMarkerPrefixGuardPlugin } from "./ParaMarkerPrefixGuardPlugin";
 import { ScriptureReferencePlugin } from "./ScriptureReferencePlugin";
 import TreeViewPlugin from "./TreeViewPlugin";
@@ -174,11 +178,12 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const toolbarEndRef = useRef<HTMLDivElement>(null);
   const editedUsjRef = useRef(defaultUsj);
   const expandedNoteKeyRef = useRef<string>(undefined);
-  // In-progress input an in-editor command surface has claimed (see `EditorRef.setTransientInput`).
+  // In-progress input an in-editor command surface has claimed (see `EditorRef.setTransientInput`),
+  // anchored to the text node the caret sat in when it was declared (see AnchoredTransientInput).
   // A per-instance ref, not an editor-scoped side channel: writer and reader are both in this
   // package, so threading it explicitly into the settle keeps that computation a pure function of
   // its arguments and keeps two Editor instances (main and footnote popover) independent for free.
-  const transientInputRef = useRef<TransientInput | undefined>(undefined);
+  const transientInputRef = useRef<AnchoredTransientInput | undefined>(undefined);
   // Last collapsed text-caret the editor OBSERVED (node key + offset), overwritten only when a
   // commit's live selection actually is one — a null-selection commit (the cross-frame blur this
   // exists for) leaves the last real caret in place. Tracked the same way MarkerEditPlugin's own
@@ -273,8 +278,18 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       // The context object is always one this same harness produced via `getContext()` above
       // (never externally supplied), so it really is a full `MarkerMenuContext` at runtime -
       // the cast bridges shared-react's structural `MarkerMenuContextLike` back to it.
-      getItems: (context) => getMarkerMenuItems(menuStyleInfo, context as MarkerMenuContext),
-      getEnterItems: (context) => getEnterMenuItems(menuStyleInfo, context as MarkerMenuContext),
+      getItems: (context) =>
+        getMarkerMenuItems(
+          menuStyleInfo,
+          context as MarkerMenuContext,
+          nodeOptions.extraValidMarkers,
+        ),
+      getEnterItems: (context) =>
+        getEnterMenuItems(
+          menuStyleInfo,
+          context as MarkerMenuContext,
+          nodeOptions.extraValidMarkers,
+        ),
       apply: (item, opts) => {
         const editorApi = editorApiRef.current;
         if (!editorApi) return;
@@ -285,7 +300,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         editorApiRef.current?.commitTypedCloser(typedMarker);
       },
     };
-  }, [viewOptions, styleInfo, ref]);
+  }, [viewOptions, styleInfo, ref, nodeOptions.extraValidMarkers]);
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
@@ -387,11 +402,31 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       );
     },
     setTransientInput(input) {
-      transientInputRef.current = input;
+      if (!input) {
+        transientInputRef.current = undefined;
+        return;
+      }
+      // Anchor the declaration to the caret's text node NOW: `{kind, run}` alone carries no
+      // identity, so a declaration a surface forgot to clear could later re-verify against
+      // unrelated bytes that merely end with the same run — ordinary typed prose included —
+      // and the excision would reach the saved file. Resolved from the live collapsed
+      // selection, falling back to the last observed caret (the same cross-frame-blur race the
+      // settle's own fallback covers); unresolvable stays unanchored, which keeps the
+      // byte-check-only verification a declaration always had.
+      const liveKey = editorRef.current?.getEditorState().read(() => {
+        const selection = $getSelection();
+        return $isRangeSelection(selection) && selection.isCollapsed()
+          ? selection.focus.key
+          : undefined;
+      });
+      transientInputRef.current = { input, nodeKey: liveKey ?? lastKnownCaretRef.current?.key };
     },
     setUsj(incomingUsj) {
       if (!deepEqual(editedUsjRef.current, incomingUsj)) {
         editedUsjRef.current = incomingUsj;
+        // A replaced document invalidates any in-progress declaration: its anchor node key
+        // belongs to the outgoing tree, and the surface that declared it is now stale too.
+        transientInputRef.current = undefined;
         // This can happen when using `applyUpdate` since `usj` won't change.
         const shouldForceReload = deepEqual(usj, incomingUsj);
         setUsj(incomingUsj);
@@ -598,7 +633,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       if (!scrRef) throw new Error("Cannot insert marker without a scripture reference (scrRef)");
       if (!editorRef.current) return undefined;
 
-      if (!isUsjMarkerSupported(marker)) throw new Error(`Unsupported marker '${marker}'`);
+      if (!isUsjMarkerSupported(marker, nodeOptions.extraValidMarkers))
+        throw new Error(`Unsupported marker '${marker}'`);
 
       const markerAction = getUsjMarkerAction(
         marker,
@@ -632,7 +668,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         );
       if (!editorRef.current) return undefined;
 
-      if (item.kind !== "closeTag" && !isUsjMarkerSupported(item.marker))
+      if (
+        item.kind !== "closeTag" &&
+        !isUsjMarkerSupported(item.marker, nodeOptions.extraValidMarkers)
+      )
         throw new Error(`Unsupported marker '${item.marker}'`);
 
       // The update callback runs synchronously; captures the created note's TRUE key (if the
@@ -901,13 +940,22 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <ContextMenuPlugin options={contextMenuOptions} />
           <EmptyVerseCaretGuardPlugin />
           <EscapeKeyPlugin />
+          {/* Both take `stableLogger`, never the raw `logger` prop: their registration effects
+              depend on it, so a host handing over a fresh-but-equivalent logger object each
+              render would re-register their command listeners at the END of Lexical's
+              listener set — flipping who wins same-priority ties (the opaque-block paste
+              refusal among them) nondeterministically. */}
           <MarkerEditPlugin
             viewOptions={viewOptions}
             getMarker={markerLookup}
-            logger={logger}
+            logger={stableLogger}
             markerSettleDelayMs={markerSettleDelayMs}
           />
-          <MarkerValidationPlugin styleInfo={styleInfo} viewOptions={viewOptions} logger={logger} />
+          <MarkerValidationPlugin
+            styleInfo={styleInfo}
+            viewOptions={viewOptions}
+            logger={stableLogger}
+          />
           <NoteNodePlugin
             expandedNoteKeyRef={expandedNoteKeyRef}
             nodeOptions={nodeOptions}

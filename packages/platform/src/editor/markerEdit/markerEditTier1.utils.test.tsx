@@ -561,6 +561,32 @@ describe("Tier 1 verse/chapter number sync", () => {
     });
   });
 
+  it("keeps typed bytes AFTER the chapter number instead of deleting them", async () => {
+    // The retag regex is end-anchored: `\c 1 \ca 5\ca*` holds more than a retagged number, and
+    // the immediate canonical rewrite used to reduce the glyph to `\c 1 ` — silently dropping
+    // the typed `\ca 5\ca*` with no pend, no settle, and no undo entry. The shape now stays
+    // literal (the chapter-interior pend arm routes it to the chapter-scoped departure rebuild).
+    let chapter: ChapterNode;
+    const { editor } = await testEnvironment(() => {
+      chapter = $createChapterNode("1");
+      $getRoot().append(
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP)),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        const text = chapter.getFirstChild();
+        if ($isTextNode(text)) text.setTextContent("\\c 1 \\ca 5\\ca*");
+        chapter.markDirty();
+      }),
+    );
+    editor.getEditorState().read(() => {
+      expect(chapter.getNumber()).toBe("1");
+      expect(chapter.getFirstChild()?.getTextContent()).toBe("\\c 1 \\ca 5\\ca*");
+    });
+  });
+
   it("removes the chapter node when its marker text is fully deleted", async () => {
     let chapter: ChapterNode;
     const { editor } = await testEnvironment(() => {

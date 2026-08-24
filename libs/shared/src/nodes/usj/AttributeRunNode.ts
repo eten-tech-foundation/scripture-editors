@@ -93,8 +93,9 @@ export class AttributeRunNode extends ElementNode {
     return $createAttributeRunNode(serializedNode.runKind).updateFromJSON(serializedNode);
   }
 
-  // No HTML shape ever round-trips: `exportDOM` below always returns a null element (the wrapper
-  // contributes no bytes of its own), so there is nothing for a paste to hand back for conversion.
+  // No HTML shape ever round-trips: `exportDOM` below contributes no wrapper element of its own
+  // (a DocumentFragment leaves no markup behind), so there is nothing for a paste to hand back
+  // for conversion.
   // Declared explicitly (rather than left unimplemented) so Lexical's dev-mode registration check
   // — which otherwise warns that a custom `exportDOM` needs a matching `importDOM` — recognizes the
   // omission as deliberate.
@@ -149,7 +150,12 @@ export class AttributeRunNode extends ElementNode {
   }
 
   override exportDOM(): DOMExportOutput {
-    return { element: null };
+    // A DocumentFragment rather than null: @lexical/html's $appendNodesToHTML treats a null
+    // element as "skip this subtree" and never walks the children, so the run's glyphs AND its
+    // value text (the "2" of `\va 2\va*`) vanished from the text/html clipboard flavor while
+    // getTextContent() kept them on text/plain — and most rich paste targets prefer HTML. The
+    // fragment exports the children while still contributing no wrapper markup of its own.
+    return { element: document.createDocumentFragment() };
   }
 
   override exportJSON(): SerializedAttributeRunNode {

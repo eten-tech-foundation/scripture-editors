@@ -436,7 +436,11 @@ function parseAttributeText(
   defaultAttributeName = DEFAULT_MARKER_ATTRIBUTES[marker],
 ): { [attributeName: string]: string } | undefined {
   const regularizedText = attributeText.replace(ATTRIBUTE_LINE_BREAK_RUN_REGEX, " ");
-  const attributes: { [attributeName: string]: string } = {};
+  // Null-prototype accumulator: on a plain `{}`, `attributes["__proto__"] = value` hits
+  // Object.prototype's accessor and is a silent no-op, so an attribute literally named
+  // `__proto__` would parse successfully and lose its pair. An own property on a null-prototype
+  // object survives spread and JSON like any other key.
+  const attributes: { [attributeName: string]: string } = Object.create(null);
   const pairs = [...regularizedText.matchAll(ATTRIBUTE_PAIR_REGEX)];
   if (pairs.length > 0) {
     // The pairs must account for the WHOLE list, with nothing but whitespace between and after

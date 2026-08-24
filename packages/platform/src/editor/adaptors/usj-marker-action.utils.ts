@@ -159,13 +159,28 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
   },
 };
 
-/** Returns whether the given USFM marker is supported by {@link getUsjMarkerAction}. */
-export function isUsjMarkerSupported(marker: string): boolean {
+/**
+ * Returns whether the given USFM marker is supported by {@link getUsjMarkerAction}.
+ *
+ * Honors `extraValidMarkers` exactly as the adaptor does on load (`UsjNodeOptions` documents the
+ * option as applying to char, para, and note markers alike): a marker the project configures as
+ * valid gets its spans built and accepted by the replace path, so it must be offerable in the
+ * `\` palette and insertable too — an extras-blind check filtered it out of the palette while a
+ * host-built item for it THREW at the insert gates.
+ *
+ * @param marker - The USFM marker to check.
+ * @param extraValidMarkers - Extra markers this project treats as valid.
+ * @returns `true` if the marker is supported.
+ */
+export function isUsjMarkerSupported(
+  marker: string,
+  extraValidMarkers?: readonly string[],
+): boolean {
   return (
-    NoteNode.isValidMarker(marker) ||
+    NoteNode.isValidMarker(marker, extraValidMarkers) ||
     !!markerActions[marker] ||
-    ParaNode.isValidMarker(marker) ||
-    CharNode.isValidMarker(marker)
+    ParaNode.isValidMarker(marker, extraValidMarkers) ||
+    CharNode.isValidMarker(marker, extraValidMarkers)
   );
 }
 
@@ -560,7 +575,21 @@ function $applyNonNestInsideChar(
   renderGlyphs: boolean,
 ): void {
   let liftTarget: LexicalNode = newSpan;
-  if (selection.isCollapsed() || !$isTextNode(anchorNode)) {
+  if (selection.anchor.type === "element" && $isCharNode(anchorNode)) {
+    // An ELEMENT point ON the char span itself (a click on a decorator glyph in visible marker
+    // mode resolves here): its offset is a CHILD INDEX, not a text offset. Treating it as a
+    // text position fell through to `insertBefore` on the span, which lands the new span in the
+    // PARAGRAPH — before the whole enclosing span — and the close-and-reopen below then
+    // silently no-ops (the lift's `while ($isCharNode(parent))` never enters). Insert at the
+    // named child boundary INSIDE the span instead, so the lift performs PT9's
+    // close-all-and-reopen as usual.
+    const children = anchorNode.getChildren();
+    const before = children[selection.anchor.offset - 1];
+    const after = children[selection.anchor.offset];
+    if (before) before.insertAfter(newSpan);
+    else if (after) after.insertBefore(newSpan);
+    else anchorNode.append(newSpan);
+  } else if (selection.isCollapsed() || !$isTextNode(anchorNode)) {
     // Caret: place the (empty) new span at the caret inside the innermost span.
     const offset = selection.anchor.offset;
     if ($isTextNode(anchorNode) && offset > 0 && offset < anchorNode.getTextContentSize()) {

@@ -14,6 +14,7 @@
 
 import {
   $createTextNode,
+  $getCharacterOffsets,
   $getSelection,
   $getState,
   $isElementNode,
@@ -155,9 +156,16 @@ export function $removeCharFormattingFromSelection(): boolean {
  * Mutating (splits the boundary text nodes): call inside `editor.update()`.
  */
 function $coveredTextNodes(selection: RangeSelection): TextNode[] {
+  // Through Lexical's own `$getCharacterOffsets`, never raw `.offset`: an ELEMENT point's
+  // offset is a CHILD INDEX (the shape `$placeCaretAtBoundary` produces whenever the boundary
+  // child is not a TextNode), and using it as a character offset left the first `offset`
+  // characters of the boundary node formatted — or, with the offsets crossed, skipped the node
+  // entirely while the caller still claimed the keystroke as handled. The helper clamps an
+  // element point to the real character extent.
+  const [anchorOffset, focusOffset] = $getCharacterOffsets(selection);
   const [startOffset, endOffset] = selection.isBackward()
-    ? [selection.focus.offset, selection.anchor.offset]
-    : [selection.anchor.offset, selection.focus.offset];
+    ? [focusOffset, anchorOffset]
+    : [anchorOffset, focusOffset];
   const nodes = selection.getNodes();
   const covered: TextNode[] = [];
   nodes.forEach((node, index) => {

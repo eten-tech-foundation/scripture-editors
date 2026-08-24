@@ -277,11 +277,16 @@ describe("AttributeRunNode", () => {
   });
 
   describe("exportDOM()", () => {
-    it("returns a null element (the wrapper contributes no bytes of its own)", () => {
+    it("returns a DocumentFragment (no wrapper markup, but children still export)", () => {
+      // Not null: @lexical/html's $appendNodesToHTML treats a null element as "skip this
+      // subtree" and never walks the children, so the run's glyphs AND its value text vanished
+      // from the text/html clipboard flavor while text/plain kept them. A fragment contributes
+      // no wrapper markup of its own while letting the children export.
       const { editor } = createBasicTestEnvironment([AttributeRunNode]);
       editor.update(() => {
         const node = $createAttributeRunNode("va");
-        expect(node.exportDOM().element).toBeNull();
+        const { element } = node.exportDOM();
+        expect(element).toBeInstanceOf(DocumentFragment);
       });
     });
   });

@@ -39,6 +39,7 @@ import {
   ParaNode,
   textTypeState,
 } from "shared";
+import { showParaMarkerPrefix } from "shared-react";
 
 export function $createMarkerPrefix(marker: string) {
   // The separator's shape (token mode, textType tag) and the reasons for it live with
@@ -304,7 +305,7 @@ export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEdit
   // user deleted its marker. Every branch below either heals a prefix or reacts to a missing one
   // (inject, merge into the previous paragraph, reset-with-prefix — each re-materializing the
   // bytes the option promises are never built), so the whole transform stands down.
-  if (context.viewOptions.showParaMarkerPrefixes === false) return;
+  if (!showParaMarkerPrefix(context.viewOptions)) return;
 
   // Branch order is load-bearing. Heal-first is the termination anchor: injecting a prefix
   // (below) re-dirties the paragraph and re-enters this transform, and that re-entry must land

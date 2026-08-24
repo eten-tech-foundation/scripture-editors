@@ -533,6 +533,9 @@ function $getMilestoneOp(
   if (currentNode.__eid) {
     milestone.eid = currentNode.__eid;
   }
+  if (currentNode.__attributeOrder) {
+    milestone.attributeOrder = currentNode.__attributeOrder;
+  }
   $assignUnknownAttributes(milestone, currentNode);
   return { insert: { milestone } };
 }

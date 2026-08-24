@@ -15,6 +15,7 @@ import {
   NoteCallerOnClick,
 } from "./ImmutableNoteCallerNode";
 import { $isImmutableVerseNode } from "./ImmutableVerseNode";
+import { $isSomeVerseNode } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import { $dfs } from "@lexical/utils";
 import {
@@ -39,9 +40,9 @@ import {
   $getNoteCallerPreviewText,
   $isCharNode,
   $isImmutableTypedTextNode,
+  $isImmutableUnmatchedNode,
   $isMarkerNode,
   $isNoteNode,
-  $isVerseNode,
   $moveSelectionToEnd,
   $normalizeSelectionOutOfGlyphText,
   CharNode,
@@ -524,10 +525,17 @@ export function $stripSelectionToQuotation(selection: RangeSelection): string {
   for (const node of nodes) {
     if ($isNoteNode(node) || $isImmutableNoteCallerNode(node) || $isInsideNote(node)) continue;
     if ($isMarkerNode(node)) continue;
+    // A stray closer's glyph bytes (`\nd*`) are display text, not quotation content.
+    // ImmutableUnmatchedNode is a TextNode subclass, so without this skip it falls through to
+    // the TextNode branch below and its bytes land verbatim in the quotation.
+    if ($isImmutableUnmatchedNode(node)) continue;
 
-    // Check VerseNode before TextNode: in editable markerMode a VerseNode IS a TextNode
-    // subclass, so a TextNode-first check would emit its raw glyph text instead of `\+fv`.
-    if ($isVerseNode(node)) {
+    // Check verse nodes before TextNode, via the union: in editable markerMode a VerseNode IS a
+    // TextNode subclass, so a TextNode-first check would emit its raw glyph text instead of
+    // `\+fv` — and in visible/hidden marker mode the verse is an ImmutableVerseNode (a
+    // DecoratorNode), which a bare $isVerseNode check misses entirely, silently dropping the
+    // verse number from the quotation.
+    if ($isSomeVerseNode(node)) {
       result += `\\+fv ${node.getNumber()}\\+fv*`;
       continue;
     }

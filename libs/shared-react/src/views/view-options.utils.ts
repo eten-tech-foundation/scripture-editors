@@ -101,6 +101,19 @@ export interface ViewOptions {
   showParaMarkerPrefixes?: boolean;
 }
 
+/**
+ * Whether `viewOptions` renders paragraph marker prefixes at all — the single spelling of the
+ * `showParaMarkerPrefixes !== false` default. The adaptor (which builds the glyph), the
+ * marker-edit transforms (which police or heal it), and the prefix-deletion guard (which reacts
+ * to its absence) must all answer this identically: a surface that never builds the prefix must
+ * never treat its absence as user intent to change the paragraph.
+ *
+ * @public
+ */
+export function showParaMarkerPrefix(viewOptions: ViewOptions | undefined): boolean {
+  return viewOptions?.showParaMarkerPrefixes !== false;
+}
+
 let defaultViewMode: ViewMode;
 let defaultViewOptions: ViewOptions;
 

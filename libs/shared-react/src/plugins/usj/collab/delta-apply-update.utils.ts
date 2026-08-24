@@ -1819,11 +1819,11 @@ function $createVerse(verseData: OTVerseEmbed | null, viewOptions: ViewOptions) 
 function $createMilestone(msData: OTMilestoneEmbed | null) {
   if (!msData) return;
 
-  const { style, sid, eid } = msData;
+  const { style, sid, eid, attributeOrder } = msData;
   if (!style) return;
 
   const unknownAttributes = getUnknownAttributes(msData, OT_MILESTONE_PROPS);
-  return $createMilestoneNode(style, sid, eid, unknownAttributes);
+  return $createMilestoneNode(style, sid, eid, unknownAttributes, attributeOrder);
 }
 
 function $createNote(

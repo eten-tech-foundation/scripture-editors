@@ -51,6 +51,13 @@ describe("canonicalAttributeText", () => {
   it("keeps byte-exact values including trailing whitespace (ParatextData keeps it)", () => {
     expect(canonicalAttributeText({ lemma: "stuff " }, "lemma")).toBe("|stuff ");
   });
+  it("never bare-collapses an EMPTY default value — a lone `|` is a byte form the tokenizer refuses", () => {
+    // The bare form would display `|`, which parseAttributeText rejects outright (PT9 parity), so
+    // a settle re-read it as plain content: the attribute name vanished and a stray `|` landed in
+    // the scripture text. The explicit form keeps the name on screen and degrades visibly instead.
+    expect(canonicalAttributeText({ lemma: "" }, "lemma")).toBe('|lemma=""');
+    expect(canonicalAttributeText({ sid: "" }, "sid")).toBe('|sid=""');
+  });
 });
 
 describe("milestoneAttributes", () => {

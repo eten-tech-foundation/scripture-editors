@@ -146,6 +146,7 @@ import {
   hasStandardViewWhitespace,
   isCollapsedNoteMode,
   isSomeSerializedVerseNode,
+  showParaMarkerPrefix,
 } from "shared-react";
 import { usjTextToDisplay } from "../markerEdit/whitespaceDisplay.utils";
 
@@ -484,7 +485,7 @@ function createPara(
   // note it edits in a marker-less para it never saves) opt out of the prefix entirely. Opting
   // out here rather than hiding the glyph downstream is what keeps the caret out of it: bytes
   // that are never built cannot be traversed.
-  if (_viewOptions?.showParaMarkerPrefixes !== false) {
+  if (showParaMarkerPrefix(_viewOptions)) {
     if (_viewOptions?.markerMode === "editable")
       // The SERIALIZED twin of $createMarkerTrailingSeparator (node.utils.ts) — same tag, same
       // token mode, and the doc there explains why. This is the only place the serialized form is

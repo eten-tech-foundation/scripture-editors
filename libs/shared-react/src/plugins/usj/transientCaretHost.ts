@@ -1,6 +1,7 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import {
+  $addUpdateTag,
   $getNodeByKey,
   $getSelection,
   $isRangeSelection,
@@ -116,6 +117,11 @@ export function useTransientCaretHost($caretHostAnchor: CaretHostAnchor): CaretH
       const boundary = target.getIndexWithinParent() + 1;
       const existing = $caretHostAtBoundary(parent, boundary);
       if (existing) {
+        // Track the adopted host too: every cleanup path (the stale-host pass below, blur,
+        // unmount) acts solely on hostKeyRef, so a host reused from another instance — or one
+        // this instance forgot after $stripPlaceholderOnEdit cleared the ref — would otherwise
+        // never be removed when the caret leaves it.
+        hostKeyRef.current = existing.getKey();
         occupiedKey = existing.getKey();
       } else {
         const host = $createCursorPlaceholderNode();
@@ -136,28 +142,27 @@ export function useTransientCaretHost($caretHostAnchor: CaretHostAnchor): CaretH
 
   useEffect(() => {
     // Repair the caret's resting place and/or drop a stale host it has left. Runs from
-    // SELECTION_CHANGE (a command, the sanctioned place to mutate) and reads first so it only opens
-    // an update when something must change. It converges: after the repair the caret sits in a host
-    // past the anchor, so the next SELECTION_CHANGE finds nothing to repair and no stale host.
+    // SELECTION_CHANGE (a command, the sanctioned place to mutate), which Lexical dispatches
+    // from WITHIN the update that applies the new selection — so `$getSelection()` must be read
+    // DIRECTLY here, where it resolves against the pending state. Wrapping the reads in
+    // `editor.getEditorState().read(...)` evaluated the PREVIOUS commit: the anchor was the
+    // caret's old position, so no host was created where the caret just arrived, and on the
+    // next move the stale-host pass treated the still-current host as abandoned and yanked the
+    // caret back to the previous boundary. A nested `editor.update(...)` is queued rather than
+    // run inline while an update is active, so the repair also runs directly, tagging the
+    // active update instead. It converges: after the repair the caret sits in a host past the
+    // anchor, so the next SELECTION_CHANGE finds nothing to repair and no stale host.
     const $syncCaretHost = (): void => {
-      let target: LexicalNode | undefined;
-      let hasWork = false;
-
-      editor.getEditorState().read(() => {
-        target = $caretHostAnchor();
-        const selection = $getSelection();
-        const anchorKey =
-          $isRangeSelection(selection) && selection.isCollapsed()
-            ? selection.anchor.key
-            : undefined;
-        const staleKey = hostKeyRef.current;
-        // Either a position to repair, or a tracked host the caret is no longer resting in.
-        hasWork = !!target || (!!staleKey && staleKey !== anchorKey);
-      });
-
+      const target = $caretHostAnchor();
+      const selection = $getSelection();
+      const anchorKey =
+        $isRangeSelection(selection) && selection.isCollapsed() ? selection.anchor.key : undefined;
+      const staleKey = hostKeyRef.current;
+      // Either a position to repair, or a tracked host the caret is no longer resting in.
+      const hasWork = !!target || (!!staleKey && staleKey !== anchorKey);
       if (!hasWork) return;
-
-      editor.update(() => $repairCaret(target), { tag: CURSOR_CHANGE_TAG });
+      $addUpdateTag(CURSOR_CHANGE_TAG);
+      $repairCaret(target);
     };
 
     /**
