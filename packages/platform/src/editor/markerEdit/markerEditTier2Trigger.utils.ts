@@ -63,8 +63,16 @@ import {
   milestoneEjectionPending,
 } from "shared";
 
-/** A backslash sequence completed by a space/NBSP separator or a `*` closer. */
-const TERMINATED_MARKER_IN_TEXT_REGEX = /\\\+?[\w-]+(?:\*|[ \u00A0])/;
+/**
+ * A backslash sequence completed by a space/NBSP separator or a `*` closer.
+ *
+ * The closer has TWO spellings and both terminate: `\nd*` attaches the `*` to the marker name,
+ * while a milestone's closer is the standalone `\*` (`\qt1-s\*`). Reading only the attached
+ * spelling left a bare milestone with no terminator the immediate arm could see, so the one
+ * construct whose complete form needs no separator and carries no attached closer was the one
+ * that never applied where it stood — it waited for a settle the user had to earn by leaving.
+ */
+const TERMINATED_MARKER_IN_TEXT_REGEX = /\\\+?[\w-]+(?:\\?\*|[ \u00A0])/;
 
 /**
  * Whether `node` sits inside a char span that already carries its closing glyph. USFM attributes

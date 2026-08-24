@@ -484,10 +484,17 @@ export function milestoneDefaultAttribute(name: string): string {
  * unmatched.
  *
  * Answered by running the real tokenizer rather than re-deriving the conditions, so it cannot drift
- * from {@link scanMilestone}: the ejected shape is a milestone whose next sibling is the unmatched
- * closing marker left over from it. Callers use this to defer such a rebuild to the settle instead
- * of applying it mid-keystroke, because ejection MOVES bytes and doing that under the caret
- * rearranges the line the user is still typing on.
+ * from {@link scanMilestone}. Callers use this to defer such a rebuild to the settle instead of
+ * applying it mid-keystroke, because ejection MOVES bytes and doing that under the caret rearranges
+ * the line the user is still typing on. Only ejection earns that deferral: a well-formed milestone
+ * rearranges nothing and applies where it stands, the instant its `\*` is typed.
+ *
+ * The ejected shape is BOTH halves together — content immediately after the milestone AND the
+ * author's own `\*` stranded past that content as an unmatched closing marker. Asking only for
+ * the first half counts ordinary body text following a well-formed milestone, which is the common
+ * case and not an ejection at all; the leftover unmatched `\*` is the observable that tells the
+ * two apart. The content run may tokenize into several items (an ejected list containing `//`
+ * splits around an optbreak), so the closer is looked for anywhere past it rather than adjacent.
  */
 export function milestoneEjectionPending(text: string): boolean {
   const content = usfmFragmentToUsjContent(text)[0];
@@ -495,10 +502,12 @@ export function milestoneEjectionPending(text: string): boolean {
   if (!items) return false;
   return items.some((item, index) => {
     if (typeof item !== "object" || item.type !== "ms") return false;
-    return items.slice(index + 1).some((later) => {
-      if (typeof later === "string") return true;
-      return later.type === "unmatched" && later.marker === "*";
-    });
+    if (typeof items[index + 1] !== "string") return false;
+    return items
+      .slice(index + 2)
+      .some(
+        (later) => typeof later !== "string" && later.type === "unmatched" && later.marker === "*",
+      );
   });
 }
 

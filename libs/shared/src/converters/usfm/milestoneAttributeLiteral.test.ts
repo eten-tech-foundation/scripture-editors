@@ -1,4 +1,4 @@
-import { usfmFragmentToUsjContent } from "./usfmFragmentToUsj.js";
+import { milestoneEjectionPending, usfmFragmentToUsjContent } from "./usfmFragmentToUsj.js";
 import type { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 
 /**
@@ -78,5 +78,35 @@ describe("a milestone with an unparseable attribute list ends before the bytes",
     // The ratified reading for a `|` typed into a milestone glyph: the tokenizer drops it and the
     // settle resolves to that, rather than preserving a byte the file cannot represent.
     expect(content(`\\p \\qt-s |\\*text`)).toEqual([{ type: "ms", marker: "qt-s" }, "text"]);
+  });
+});
+
+/**
+ * The pend predicate answers the EJECTION SIGNATURE, not "something follows the milestone".
+ *
+ * Ejection moves bytes, so the rebuild that performs it waits for the caret to depart rather than
+ * rearranging the line mid-keystroke. Everything else about a milestone applies where it stands:
+ * the moment the author closes `\qt1-s\*` they should see a milestone, even though ordinary body
+ * text follows it — which is the common case, not an ejection.
+ *
+ * The two halves together are what distinguish them: an ejection leaves content immediately after
+ * the milestone AND the author's own `\*` stranded past that content as an unmatched closing
+ * marker. A well-formed milestone with body text after it has the first half and never the second.
+ */
+describe("only an EJECTING milestone rebuild waits for the settle", () => {
+  it.each([
+    ["a bare milestone with body text after it", `\\p before \\qt1-s\\*after`],
+    ["an attributed milestone with body text after it", `\\p before \\qt1-s |stuff\\*after`],
+    ["a milestone at the end of its paragraph", `\\p before \\qt1-s\\*`],
+  ])("applies at once: %s", (_label, usfm) => {
+    expect(milestoneEjectionPending(usfm)).toBe(false);
+  });
+
+  it.each([
+    ["content typed into the milestone", `\\p before \\qt1-s things|sid="asdf"\\*after`],
+    ["an attribute list that will not parse", `\\p before \\qt1-s |who=""\\*after`],
+    ["the already-settled spelling of the same", `\\p before \\qt1-s\\*|who=""\\*after`],
+  ])("waits for the settle: %s", (_label, usfm) => {
+    expect(milestoneEjectionPending(usfm)).toBe(true);
   });
 });
