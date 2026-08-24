@@ -368,7 +368,7 @@ describe("$settledUsj — paragraph scopes", () => {
       // survives untouched, exactly like a real char span's own structural NBSP would (as opposed
       // to a literal typed space landing in that position, which is a DIFFERENT, non-fixed-point
       // shape — see settledGetUsj.test.tsx's own "half-typed attribute run appended" corpus entry
-      // and $charOwnChildSignatureText's doc comment, tier2Rebuild.utils.ts).
+      // and charOwnChildSignatureText's doc comment, settleShared.utils.ts).
       const ndChar = $createCharNode("nd");
       ndChar.append(
         $createMarkerNode("nd"),
@@ -775,8 +775,8 @@ describe("$settledUsj — expanded note scopes", () => {
       // overwriting the whole node, so this separator survives untouched, exactly like a real char
       // span's own structural NBSP would (as opposed to a literal typed space landing in that
       // position, which is a DIFFERENT, non-fixed-point shape — see settledGetUsj.test.tsx's own
-      // "half-typed attribute run appended" corpus entry and $charOwnChildSignatureText's doc
-      // comment, tier2Rebuild.utils.ts).
+      // "half-typed attribute run appended" corpus entry and charOwnChildSignatureText's doc
+      // comment, settleShared.utils.ts).
       const ndChar = $createCharNode("nd");
       ndChar.append(
         $createMarkerNode("nd"),

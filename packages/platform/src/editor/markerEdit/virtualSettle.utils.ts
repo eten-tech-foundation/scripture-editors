@@ -33,6 +33,11 @@ import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { TransientInput } from "../editor.model";
 import { $unknownSplitRejoinScope, BARE_OPENER_REGEX } from "./markerEditTier1.utils";
 import {
+  $serializeExpandedNoteContent,
+  ATOMIC_SENTINEL,
+  charOwnChildSignatureText,
+} from "./settleShared.utils";
+import {
   $buildChapterFragment,
   $buildNoteFragment,
   $buildParaFragment,
@@ -41,7 +46,6 @@ import {
   $isReTokenizableMilestone,
   $settleScopeForNode,
   $signatureOf,
-  ATOMIC_SENTINEL,
   countSentinels,
   extractLeadingCategoryFold,
   FragmentAccumulator,
@@ -80,17 +84,14 @@ import {
   $isUnknownNode,
   ChapterNode,
   closingMarkerText,
-  getEditableCallerText,
   MarkerLookup,
   MarkerNode,
-  NBSP,
   NoteNode,
   openingMarkerText,
   ParaNode,
   UnknownNode,
   usfmFragmentToUsjContent,
 } from "shared";
-import { ViewOptions } from "shared-react";
 
 /** Where a live node's serialized counterpart sits: the JSON node itself, plus the children array
  * holding it (the array a splice must target — its index is re-read at splice time, since earlier
@@ -177,26 +178,6 @@ function serializedSignatureOf(nodes: SerializedLexicalNode[], getMarkerFn: Mark
   const out: string[] = [];
   appendSerializedSignature(nodes, out, getMarkerFn);
   return out.join("");
-}
-
-/**
- * A direct "text"-typed child of a "char" node, for signature purposes — the JSON-side mirror of
- * `tier2Rebuild.utils.ts`'s `$charOwnChildSignatureText`. See that function's doc comment for the
- * full mechanics: two SEPARATE structural-NBSP shapes `editor-usj.adaptor.ts` treats differently
- * (a MIXED node — structural NBSP prepended onto real content — has just its leading NBSP sliced
- * off; a PURE spacer node — nothing but that one NBSP, built for element-first content — is instead
- * dropped wholesale by extraction, but must stay UNSTRIPPED here so the signature can still tell
- * "a separator is present" apart from "no separator at all"), and why the check additionally
- * excludes a leading NBSP immediately followed by `ATOMIC_SENTINEL`: this runs BEFORE
- * `replaceSerializedSentinels` splices anything (both call sites' own doc comments), so a fresh
- * rebuild's would-be pure-spacer node is still fused, in the SAME string, with the raw placeholder
- * character standing in for whatever preserved node follows — stripping by length alone would
- * misread that as the mixed case the moment content follows the placeholder inline.
- */
-function charOwnChildSignatureText(text: string): string {
-  const isMixedRealContent =
-    text.length > 1 && text.startsWith(NBSP) && text.charAt(1) !== ATOMIC_SENTINEL;
-  return isMixedRealContent ? text.slice(1) : text;
 }
 
 /**
@@ -827,10 +808,10 @@ function $settledNoteContent(
     return undefined;
   }
   // Mirrors `$rebuildNoteContent` exactly from here: unwrap the tokenizer's default `\p` at the
-  // USJ level, fold a leading `\cat` span onto the category, then serialize the WHOLE note so
-  // `createNote` rebuilds the folded category's canonical display run in the same pass — and
-  // unwrap the serialized note's shell (opening glyph(s), caller, trailing closing glyph(s))
-  // to recover the content children.
+  // USJ level, fold a leading `\cat` span onto the category, then re-serialize the note through
+  // the shared `$serializeExpandedNoteContent` (settleShared.utils.ts) — literally the same
+  // serialize-and-unwrap the mutating rebuild runs, so the two can never recover different content
+  // children from the same note.
   const [tokenizedWrapper] = content;
   if (
     content.length !== 1 ||
@@ -843,49 +824,16 @@ function $settledNoteContent(
   const noteContent = tokenizedWrapper.content ?? [];
   const foldedCategory = extractLeadingCategoryFold(noteContent);
   const categoryChanged = note.getCategory() !== foldedCategory;
-  const noteViewOptions: ViewOptions = { ...viewOptions, noteMode: "expanded" };
-  const topLevel = usjEditorAdaptor.serializeEditorState(
-    {
-      type: USJ_TYPE,
-      version: USJ_VERSION,
-      content: [
-        {
-          ...note.getUnknownAttributes(),
-          type: "note",
-          marker: note.getMarker(),
-          caller: note.getCaller(),
-          ...(foldedCategory !== undefined && { category: foldedCategory }),
-          content: noteContent,
-        },
-      ],
-    },
-    noteViewOptions,
-  ).root.children;
-  const wrapperChildren = topLevel.length === 1 ? serializedChildren(topLevel[0]) : undefined;
-  if (!wrapperChildren) {
-    logger?.warn("[MarkerEdit] Settled note USJ skipped: unexpected serialized shape");
+  const unwrapped = $serializeExpandedNoteContent(note, noteContent, foldedCategory, viewOptions);
+  if (unwrapped.failure !== undefined) {
+    // An "empty" unwrap is silent here, matching this module's other content-less skips.
+    if (unwrapped.failure === "shape")
+      logger?.warn("[MarkerEdit] Settled note USJ skipped: unexpected serialized shape");
+    else if (unwrapped.failure === "caller")
+      logger?.warn("[MarkerEdit] Settled note USJ skipped: serialized note lacks the caller");
     return undefined;
   }
-  let contentStart = 0;
-  while (contentStart < wrapperChildren.length) {
-    const node = wrapperChildren[contentStart] as { type?: string; markerSyntax?: string };
-    if (node.type !== "marker" || node.markerSyntax !== "opening") break;
-    contentStart++;
-  }
-  const serializedCaller = wrapperChildren[contentStart] as { text?: string } | undefined;
-  if (serializedCaller?.text !== getEditableCallerText(note.getCaller())) {
-    logger?.warn("[MarkerEdit] Settled note USJ skipped: serialized note lacks the caller");
-    return undefined;
-  }
-  contentStart++;
-  let contentEnd = wrapperChildren.length;
-  while (contentEnd > contentStart) {
-    const node = wrapperChildren[contentEnd - 1] as { type?: string; markerSyntax?: string };
-    if (node.type !== "marker" || node.markerSyntax !== "closing") break;
-    contentEnd--;
-  }
-  const rebuilt = wrapperChildren.slice(contentStart, contentEnd);
-  if (rebuilt.length === 0) return undefined;
+  const rebuilt = unwrapped.children;
   if (countSerializedSentinels(rebuilt) !== out.sentinels.length) {
     logger?.warn(
       "[MarkerEdit] Settled note USJ skipped: serialized sentinel/preserved-node count mismatch",
