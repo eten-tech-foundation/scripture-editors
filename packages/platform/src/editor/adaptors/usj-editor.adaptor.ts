@@ -179,6 +179,12 @@ let addMissingComments: AddMissingComments | undefined;
 /** Logger instance. */
 let _logger: LoggerBasic | undefined;
 
+/**
+ * Configures the module-scoped collaborators every later {@link serializeEditorState} call reads
+ * — node options (custom note callers, extra valid markers, comment wiring) and the logger — and
+ * clears the pending comment-id list. This module is deliberately stateful: call this once per
+ * document load before serializing (test suites call it per test for isolation).
+ */
 export function initialize(
   nodeOptions: UsjNodeOptions | undefined,
   logger: LoggerBasic | undefined,
@@ -188,11 +194,28 @@ export function initialize(
   setLogger(logger);
 }
 
+/**
+ * Resets the generated note-caller counter (the cycling `a`…`zz` display callers behind `+`) to
+ * `callerCountValue`. Call alongside {@link initialize} on a fresh document load so generated
+ * callers restart for the new document instead of continuing the previous one's sequence.
+ */
 export function reset(callerCountValue = 0) {
-  //Reset the caller count used for note callers.
   callerData.count = callerCountValue;
 }
 
+/**
+ * The FORWARD adaptor: builds the serialized Lexical editor state that displays `usj` under
+ * `viewOptions` (the default view options when omitted) — the document's data plus the view's
+ * display scaffolding (marker glyphs and their NBSP separators, attribute display runs, note
+ * layout, the standard-view whitespace mapping). An empty or absent document becomes a single
+ * empty implied paragraph.
+ *
+ * Invariant: `deserializeSerializedEditorState` (editor-usj.adaptor.ts) must invert this EXACTLY
+ * — usj → serialize → deserialize is the identity in every supported view configuration — which
+ * is the round-trip guarantee the corpus suites pin (adaptors/corpus/).
+ *
+ * Reads module state set by {@link initialize}/{@link reset}; call those first on a fresh load.
+ */
 export function serializeEditorState(
   usj: Usj | undefined,
   viewOptions?: ViewOptions,

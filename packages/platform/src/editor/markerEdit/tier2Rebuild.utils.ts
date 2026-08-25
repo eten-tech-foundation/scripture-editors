@@ -73,12 +73,27 @@ import {
 } from "shared";
 import { $isImmutableNoteCallerNode, hasStandardViewWhitespace, ViewOptions } from "shared-react";
 
+/**
+ * Everything a Tier-2 rebuild needs that is not the nodes themselves: the active view options
+ * (which decide the display scaffolding a rebuild re-materializes) and the `getMarker` seam (the
+ * stylesheet lookup driving sentinel classification and kind checks — a project `StyleInfo` when
+ * one is active, the bundled table otherwise). The engine's transforms extend this as
+ * `MarkerEditContext` (markerEditTier1.utils.ts); read-only consumers (the settle mirror, test
+ * harnesses) build it directly.
+ */
 export interface Tier2Context {
   viewOptions: ViewOptions;
   getMarker: MarkerLookup;
   logger?: LoggerBasic;
 }
 
+/**
+ * One contiguous byte range `[start, end)` of a fragment's text and the node key it came from —
+ * the map that lets a rebuild carry the caret across re-tokenization by BYTE position
+ * (`$selectAtFragmentByteAnchor`) and lets the read-only mirror attribute settled bytes back to
+ * serialized nodes. `isSentinel` marks the one-byte U+FFFC stand-ins for atomically-preserved
+ * nodes.
+ */
 export interface FragmentSpan {
   key: string;
   start: number;
@@ -86,6 +101,13 @@ export interface FragmentSpan {
   isSentinel: boolean;
 }
 
+/**
+ * A settle scope's displayed bytes flattened for the tokenizer: the fragment `text` (with each
+ * atomically-preserved node as a one-byte U+FFFC placeholder), the {@link FragmentSpan} map back
+ * to the contributing nodes, and the preserved node runs to re-insert where each placeholder
+ * lands. Built by the fragment builders (`$buildParaFragment` and kin); consumed by the rebuild's
+ * tokenize-and-splice and by caret restoration.
+ */
 export interface FragmentAccumulator {
   text: string;
   spans: FragmentSpan[];
@@ -379,10 +401,15 @@ export function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup)
   return false;
 }
 
-// Delimiters (never present in scripture text) that wrap a structural element's
-// signature span so a structural change is always visible in the signature string.
-// Exported for the read-only settle's own serialized-side mirror (virtualSettle.utils.ts).
+/**
+ * Delimiter (never present in scripture text) opening a structural element's span inside a
+ * signature string ({@link $signatureOf}), so a structural change is always visible in the
+ * signature even when the flattened text is unchanged. Exported for the read-only settle's
+ * serialized-side signature mirror (virtualSettle.utils.ts), which must compose signatures
+ * byte-identically or the two fixed-point refusal checks would disagree.
+ */
 export const SIGNATURE_OPEN = String.fromCharCode(1);
+/** Closing counterpart of {@link SIGNATURE_OPEN}. */
 export const SIGNATURE_CLOSE = String.fromCharCode(2);
 
 /**
@@ -1420,6 +1447,26 @@ function $restoreSelectionInNoteContent(
   $selectAtFragmentByteAnchor({ text: out.text, spans: out.spans }, anchor, newNodes);
 }
 
+/**
+ * The mutating Tier-2 settle for a paragraph scope: serializes the displayed bytes of `paras`
+ * (one settle scope — usually a single paragraph) into fragment text, re-tokenizes that text
+ * through the USFM fragment tokenizer, and splices the resulting nodes in place — the settle IS
+ * re-tokenization, never a hand-patched tree. Restores the caret afterwards by byte anchor, so a
+ * settle under a live caret leaves it at the same displayed byte.
+ *
+ * Returns `true` when the document changed. `false` is a REFUSAL and a true no-op: serialized
+ * signatures are compared BEFORE any mutation, so a scope already at its tokenized fixed point
+ * changes nothing — which is also the acceptance for settled output (re-load it and every scope
+ * must refuse; see settledGetUsj.test-helpers.tsx's `expectTier2FixedPoint`).
+ *
+ * Invariant: the read-only settle mirror (`$settledUsj`, virtualSettle.utils.ts) recomputes this
+ * function's outcome over serialized JSON without mutating the editor, and the two must agree on
+ * the resulting USJ byte-for-byte (pinned by settledGetUsj.test.tsx and
+ * settleDifferential.test.tsx).
+ *
+ * Mutating: call inside `editor.update()` (dispatched from the Tier-2 trigger transform, the
+ * caret-departure and commit paths in MarkerEditPlugin.tsx, and `$requestTier2ForNode`).
+ */
 export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean {
   if (paras.length === 0) return false;
   const { viewOptions, getMarker: getMarkerFn, logger } = context;

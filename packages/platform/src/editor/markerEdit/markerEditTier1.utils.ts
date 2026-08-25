@@ -72,6 +72,13 @@ import {
   VerseNode,
 } from "shared";
 
+/**
+ * The engine's mutable per-editor state, threaded through every marker-edit transform and command
+ * handler: `Tier2Context` (view options + stylesheet lookup) plus cross-commit bookkeeping — the
+ * pend set the read-only settle consumes, the split/deletion arming flags, and the
+ * identical-literal damping set. One instance per mounted `MarkerEditPlugin`; per-commit fields
+ * are reset by the plugin's update listener where their docs say so.
+ */
 export interface MarkerEditContext extends Tier2Context {
   pendingKeys: Set<NodeKey>;
   splitExpected: { current: boolean };
@@ -469,6 +476,17 @@ function $markerGlyphCaretHeld(glyph: MarkerNode): boolean {
   return false;
 }
 
+/**
+ * Tier-1 transform for a marker GLYPH (`MarkerNode`): canonical bytes clear the node's pend;
+ * divergent bytes either HEAL back to canonical — machine drift, a byte change with no caret at
+ * the glyph and no pend-ledger entry, a shape no user gesture produces (glyphDriftHeal.test.tsx)
+ * — or pend/resolve as the user's in-place rename, routing anything Tier 1 cannot express to
+ * Tier 2 (`$requestTier2ForNode`). Upholds the Tier-1 contract that structural node state and
+ * visible marker bytes agree at rest.
+ *
+ * Mutating: call inside `editor.update()` (registered by `MarkerEditPlugin` as the `MarkerNode`
+ * transform).
+ */
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   if ($isCanonicalMarkerNode(node)) {
@@ -675,6 +693,18 @@ function $insertRestAfterVerse(
   if (caretOffsetInRest !== undefined) restNode.select(caretOffsetInRest, caretOffsetInRest);
 }
 
+/**
+ * Tier-1 transform for a verse glyph's own text: canonical `\v N` bytes clear the pend; a number
+ * mid-edit pends (the STORED number stays the serialization fallback until the edit resolves); a
+ * completed retag moves the verse's number state to the typed word (PT9 GetNextWord — whole word,
+ * valid or not) and re-homes any trailing non-whitespace bytes as content after the verse; a
+ * broken `\v` prefix hands the whole token to Tier 2 to re-tokenize as text. Whitespace-only
+ * divergence beside the number is left alone — the separator runs are structural, and rewriting
+ * them discarded a typed space silently ("no silent no-ops").
+ *
+ * Mutating: call inside `editor.update()` (registered by `MarkerEditPlugin` as the `VerseNode`
+ * transform).
+ */
 export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   const expected = getVisibleOpenMarkerText("v", node.getNumber());
@@ -806,9 +836,17 @@ export function $noteCallerTextTransform(node: TextNode, context: MarkerEditCont
   return true;
 }
 
-// Unlike its sibling node-transform functions, a chapter marker never enters the pending/deferred
-// machinery MarkerEditContext tracks (deleting it removes the node outright; retagging its number
-// is a same-tick rewrite) — so it takes no context parameter, and its call site passes only `node`.
+/**
+ * Tier-1 transform for an editable chapter: an emptied chapter removes itself (deleting the
+ * chapter marker deletes it), and a terminated `\c N` retype moves the chapter's number state to
+ * the typed value in the same tick; anything else is left literal, with serialization falling
+ * back to the stored number. Unlike its sibling node transforms, a chapter marker never enters
+ * the pending/deferred machinery `MarkerEditContext` tracks (deletion removes the node outright;
+ * a number retag is a same-tick rewrite) — so it takes no context parameter.
+ *
+ * Mutating: call inside `editor.update()` (registered by `MarkerEditPlugin` as the `ChapterNode`
+ * transform).
+ */
 export function $chapterNodeTransform(node: ChapterNode): void {
   if (node.getChildrenSize() === 0) {
     node.remove(); // deleting the chapter marker deletes it

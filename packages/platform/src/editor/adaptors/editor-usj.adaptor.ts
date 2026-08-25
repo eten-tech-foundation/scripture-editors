@@ -85,6 +85,7 @@ interface EditorUsjAdaptor {
 /** Logger instance */
 let _logger: LoggerBasic;
 
+/** Configures the module-scoped logger later deserialize calls report through. */
 export function initialize(logger: LoggerBasic | undefined) {
   if (logger) _logger = logger;
 }
@@ -105,6 +106,10 @@ function isStandardView(viewOptions: ViewOptions | undefined): boolean {
   return hasStandardViewWhitespace(viewOptions);
 }
 
+/**
+ * The REVERSE adaptor over a live `EditorState`: serializes it and delegates to
+ * {@link deserializeSerializedEditorState}. An empty editor state short-circuits to `EMPTY_USJ`.
+ */
 export function deserializeEditorState(
   editorState: EditorState,
   viewOptions?: ViewOptions,
@@ -114,6 +119,18 @@ export function deserializeEditorState(
   return deserializeSerializedEditorState(editorState.toJSON(), viewOptions);
 }
 
+/**
+ * The REVERSE adaptor: reads the DOCUMENT back out of a serialized editor state that was built
+ * for `viewOptions`, stripping everything the forward adaptor added for display (marker glyphs
+ * and their NBSP separators, display runs, note-layout scaffolding) and inverting the
+ * standard-view whitespace mapping — so only DATA reaches the returned USJ (emitted at
+ * `USJ_VERSION`).
+ *
+ * Invariant: must invert `serializeEditorState` (usj-editor.adaptor.ts) exactly — the round-trip
+ * identity the corpus suites pin (adaptors/corpus/). Its output over a settled state is what
+ * `getUsj()` hands the host, so any display byte that leaks through here reaches the saved file
+ * and any data byte dropped here is silent data loss.
+ */
 export function deserializeSerializedEditorState(
   serializedEditorState: SerializedEditorState,
   viewOptions?: ViewOptions,

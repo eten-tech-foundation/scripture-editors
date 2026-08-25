@@ -119,6 +119,23 @@ function $inLiteralOnlyBlock(node: LexicalNode): boolean {
   return false;
 }
 
+/**
+ * The engine's plain-`TextNode` transform — the TRIGGER that decides what a text edit means for
+ * the settle. Exactly one of: clear the node's pend (bytes at rest/canonical), record a pend for
+ * caret-departure settling (a chapter's own glyph text, display-run values, attribute bytes,
+ * incomplete or caret-held literals), or request an immediate Tier-2 rebuild for a literal the
+ * user just TERMINATED (a separator or `*` closer landed — {@link TERMINATED_MARKER_IN_TEXT_REGEX})
+ * with no caret still composing it. Literal-only blocks (book/unknown constructs) never
+ * re-tokenize from here, and glyph nodes never arrive (exact-type dispatch routes `MarkerNode`
+ * subclasses to their own transforms).
+ *
+ * The trigger-level guarantee is "no silent no-ops": every divergent byte either resolves through
+ * a rebuild or stays visibly pending in `context.pendingKeys` — it is never dropped, and the
+ * read-only settle sees exactly the pends this transform records.
+ *
+ * Mutating: call inside `editor.update()` (registered by `MarkerEditPlugin` as the exact-type
+ * `TextNode` transform).
+ */
 export function $textNodeTier2Transform(node: TextNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   const textType = $getState(node, textTypeState);

@@ -41,9 +41,17 @@ import {
 } from "shared";
 import { showParaMarkerPrefix } from "shared-react";
 
+/**
+ * The two display nodes every editable paragraph's prefix is built from — the opening glyph
+ * (`\marker`) and its structural NBSP separator — in splice-ready order. The single builder for
+ * that shape: every place that materializes a paragraph prefix (load, retag, heal, inject) must
+ * produce these exact nodes or the deletion/heal transforms would see a hand-rolled prefix as
+ * divergence. The separator's shape (token mode, textType tag) and the reasons for it live with
+ * `$createMarkerTrailingSeparator`.
+ *
+ * Mutating helper (creates detached nodes): call inside `editor.update()`.
+ */
 export function $createMarkerPrefix(marker: string) {
-  // The separator's shape (token mode, textType tag) and the reasons for it live with
-  // $createMarkerTrailingSeparator.
   return [$createMarkerNode(marker), $createMarkerTrailingSeparator()];
 }
 
@@ -80,6 +88,15 @@ function $isCaretAtParaStart(para: ParaNode): boolean {
   return first !== null && anchor.key === first.getKey() && anchor.offset === 0;
 }
 
+/**
+ * Splices the `[glyph, separator]` prefix ({@link $createMarkerPrefix}) into the front of a
+ * prefix-less paragraph, then keeps the caret meaningful: a caret that sat at the paragraph's
+ * START (the `insertParagraph()` split shape) moves to the content side of the new prefix, while
+ * a caret anywhere else stays exactly where the user's edit put it.
+ *
+ * Mutating: call inside `editor.update()` (dispatched from the Enter-split and paste paths and
+ * the deletion transform's heal branch).
+ */
 export function $injectMarkerPrefix(para: ParaNode): void {
   // The caret follows the injection only when it sat at the paragraph's start (the Enter-split
   // shape): the splice lands the prefix UNDER such a caret, which would otherwise be left on the
@@ -298,6 +315,19 @@ export function $prepareReplaceSelection(context: MarkerEditContext): void {
   selection.removeText();
 }
 
+/**
+ * The engine's `ParaNode` transform, policing what deleting paragraph-prefix bytes MEANS: heal a
+ * partially-damaged prefix back to canonical, merge a paragraph whose whole prefix was deleted
+ * into the previous paragraph (deleting the marker joins the paragraphs — the PT9 outcome), or
+ * reap a paragraph whose ENTIRE visible representation the user's deletion covered (armed via
+ * `MarkerEditContext.wholeParaDeleteExpected`; emptiness alone never reaps, because rebuilds
+ * legitimately empty a paragraph transiently). Stands down entirely for surfaces that render no
+ * paragraph prefixes (`showParaMarkerPrefixes: false`) — there a prefix-less paragraph is
+ * canonical, not damage.
+ *
+ * Mutating: call inside `editor.update()` (registered by `MarkerEditPlugin` as the `ParaNode`
+ * transform).
+ */
 export function $paraMarkerDeletionTransform(para: ParaNode, context: MarkerEditContext): void {
   // Surfaces that opted out of paragraph marker prefixes (`showParaMarkerPrefixes: false`, e.g.
   // a footnote-editor popover whose lone paragraph is scaffolding) render no glyph for this
@@ -523,6 +553,17 @@ export function $noteDeletionTransform(note: NoteNode, context: MarkerEditContex
   context.logger?.debug(`[MarkerEdit] removed collapsed note with damaged glyph pair`);
 }
 
+/**
+ * The engine's `CharNode` transform for glyph deletions on a char span: deleting the OPENING
+ * glyph unwraps the span (its content stays as plain text — deleting the marker deletes only the
+ * marker); deleting a closer the span genuinely NEEDS (it is not marked `closed="false"`, the
+ * shape ParatextData emits for every legitimately-unclosed span) routes the span through Tier 2,
+ * where the tokenizer decides the new span extent. An empty span is not this transform's
+ * business (`CharNodePlugin` removes empty spans).
+ *
+ * Mutating: call inside `editor.update()` (registered by `MarkerEditPlugin` as the `CharNode`
+ * transform).
+ */
 export function $charNodeDeletionTransform(char: CharNode, context: MarkerEditContext): void {
   if (char.isEmpty()) return; // CharNodePlugin removes empty spans
   const first = char.getFirstChild();
