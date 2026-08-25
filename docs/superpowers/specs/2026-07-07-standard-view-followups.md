@@ -118,13 +118,21 @@ handoff reader's audit trail; no action.
 - **Focused palette keyboard is forwarding-driven, not true DOM focus — DOCUMENTED-BEHAVIOR.**
   Lexical re-focuses its root element on every DOM-selection reconcile, so the overlay input cannot
   hold true focus while the document has a live selection; keyboard usability is delivered via
-  capture-phase forwarding (filter/arrows/Enter/Escape) for selection-wrap and Enter sessions. On
-  ACTIVE palettes driven externally, the COMMIT path resolves from the host's
-  `filterPaletteItems`-filtered list + store index while the visible list/highlight is cmdk's own
-  (fuzzy) filtering of the controlled input value — the two orderings can diverge, so the
-  committed item can DIFFER from the one that looks selected (not merely a cosmetic highlight
-  offset; final whole-branch review sharpened this). Recorded: fixwave round 3 cluster 2. Medium
-  to make the input truly focusable cross-frame or to unify the two filters.
+  capture-phase forwarding (filter/arrows/Enter/Escape) for selection-wrap and Enter sessions.
+  Recorded: fixwave round 3 cluster 2.
+- **Committed item could differ from the highlighted one — CLOSED (filters unified).** The two
+  answers were computed by different algorithms: the host's commit resolved from its
+  `filterPaletteItems`-filtered list plus the store index, while the visible list and highlight came
+  from cmdk's own fuzzy filtering of the controlled input value, so the orderings could diverge and
+  the palette could commit something other than what looked selected. Both sides now run the same
+  `filterPaletteItems` over the same items, mode and search fields (cmdk's own filtering is off —
+  `shouldFilter={false}`), and clamp the same driving index. The AGREEMENT itself is pinned end to
+  end, across both palette modes, in paranext-core's
+  `src/renderer/components/overlays/overlay-command-palette.commit-equivalence.test.tsx` — falsified
+  against a component that ignores `searchFields` and a host commit that ignores the stored index.
+  One deliberate exception is pinned there too: a commit steps past a DISABLED highlighted item
+  rather than resolving it. Making the input truly focusable cross-frame is a separate, still-open
+  option (see the item above), not a prerequisite.
 - **Mixed-modality filter drift — OPEN.** Locally typed palette chars are unknown to the session
   filter string; the next forwarded key resets the input to the stale session string. Candidate:
   document, or sync-on-commit. Recorded: fixwave round 3 review "Minor (FOLLOW-UPS)". Small.
