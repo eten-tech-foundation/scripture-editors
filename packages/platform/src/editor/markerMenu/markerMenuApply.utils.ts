@@ -19,6 +19,7 @@
  */
 import { $insertNoteForMarker, getUsjMarkerAction } from "../adaptors/usj-marker-action.utils";
 import { $applyParaMarker } from "../markerEdit/applyParaMarker.utils";
+import { LITERAL_TRIGGER_PREFIX_REGEX } from "../markerEdit/markerName.pattern";
 import { $splitParagraphAtCharStack } from "../markerEdit/charFormatting.utils";
 import { $handleEnterInNote } from "../markerEdit/markerEditNote.utils";
 import {
@@ -34,9 +35,6 @@ import { $getEditor, $getSelection, $isRangeSelection, $isTextNode } from "lexic
 import { $isMarkerNode, $isParaNode, LoggerBasic, NoteNode, ParaNode, StyleInfo } from "shared";
 import { showParaMarkerPrefix, UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
-
-/** PT9 marker characters typed after the `\` trigger (MarkerDropdownControl.cs:216-219). */
-const LITERAL_TRIGGER_PREFIX_REGEX = /\\[a-z0-9+*]*$/i;
 
 /**
  * Deletes the literal `\marker` trigger text (a backslash plus any USFM marker characters typed

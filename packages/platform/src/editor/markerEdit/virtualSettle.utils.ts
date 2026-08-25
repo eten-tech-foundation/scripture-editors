@@ -31,7 +31,8 @@
 import { deserializeSerializedEditorState } from "../adaptors/editor-usj.adaptor";
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { TransientInput } from "../editor.model";
-import { $unknownSplitRejoinScope, BARE_OPENER_REGEX } from "./markerEditTier1.utils";
+import { BARE_OPENER_REGEX } from "./markerName.pattern";
+import { $unknownSplitRejoinScope } from "./markerEditTier1.utils";
 import { $serializeExpandedNoteContent, ATOMIC_SENTINEL } from "./settleShared.utils";
 import {
   $buildChapterFragment,

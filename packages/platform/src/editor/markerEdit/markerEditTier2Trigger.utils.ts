@@ -25,6 +25,7 @@
  * for the same caret-departure settle.
  */
 
+import { TERMINATED_MARKER_IN_TEXT_REGEX } from "./markerName.pattern";
 import { $requestTier2ForNode, $settleScopeForNode } from "./tier2Rebuild.utils";
 import { $noteCallerTextTransform, MarkerEditContext } from "./markerEditTier1.utils";
 import {
@@ -62,9 +63,6 @@ import {
   textTypeState,
   milestoneEjectionPending,
 } from "shared";
-
-/** A backslash sequence completed by a space/NBSP separator or a `*` closer. */
-const TERMINATED_MARKER_IN_TEXT_REGEX = /\\\+?[\w-]+(?:\*|[ \u00A0])/;
 
 /**
  * Whether `node` sits inside a char span that already carries its closing glyph. USFM attributes

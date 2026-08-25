@@ -17,6 +17,7 @@ import {
   RangeSelection,
   TextNode,
 } from "lexical";
+import { LINE_LEADING_MARKER_REGEX } from "./markerName.pattern";
 import {
   $createCharNode,
   $createMarkerNode,
@@ -74,14 +75,6 @@ export function $handleEnterInNote(): NoteEnterOutcome {
 }
 
 /**
- * A pasted line's leading `\marker ` token, when it names a marker the effective stylesheet
- * types as PARAGRAPH. Only the marker-name shape USFM paragraph markers actually take
- * (lowercase letters then digits) is considered; `\c`/`\v` are excluded — sheets type `\c` as
- * "paragraph" but it is a structural marker, not a paragraph style to convert.
- */
-const LINE_LEADING_MARKER_REGEX = /^\\([a-z][a-z0-9]*)( |$)/;
-
-/**
  * Strips the leading paragraph-kind marker from one pasted line. Inside a note a paragraph
  * marker has no meaning — the pasted line break itself becomes the note's own paragraph form
  * (the `\fp` break) — so `\q1 something` contributes just `something`. Scoping: ONLY markers
@@ -93,6 +86,8 @@ function stripLeadingParagraphMarker(line: string, getMarker: MarkerLookup | und
   const match = LINE_LEADING_MARKER_REGEX.exec(line);
   if (!match) return line;
   const name = match[1];
+  // Excluded even though sheets type `\c` as "paragraph": chapter/verse markers are structural,
+  // not paragraph styles to convert.
   if (name === "c" || name === "v") return line;
   if (getMarker(name)?.type !== MarkerType.Paragraph) return line;
   return line.slice(match[0].length);

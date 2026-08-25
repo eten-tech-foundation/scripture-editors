@@ -11,6 +11,7 @@
  */
 
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
+import { UNTERMINATED_MARKER_TAIL } from "./markerName.pattern";
 import {
   $serializeExpandedNoteContent,
   ATOMIC_SENTINEL,
@@ -101,11 +102,6 @@ function pushText(out: FragmentAccumulator, node: LexicalNode, text: string): vo
   });
   out.text += text;
 }
-
-/** Fragment tail that is an unterminated marker token (`\wj`, `\+`, or a bare `\`): the
- * tokenizer's name scan stops only at `\`, `|`, whitespace, or `*`, so ANY other character —
- * the U+FFFC placeholder included — would extend the marker name. */
-const UNTERMINATED_MARKER_TAIL = /\\\+?[\w-]*$/;
 
 function pushSentinel(out: FragmentAccumulator, nodes: LexicalNode[]): void {
   // A placeholder glued to an unterminated marker token would be absorbed into the marker NAME

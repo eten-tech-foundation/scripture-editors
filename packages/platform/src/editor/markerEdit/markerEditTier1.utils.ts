@@ -5,6 +5,13 @@
  */
 
 import {
+  BARE_OPENER_REGEX,
+  CLOSER_FORM_REGEX,
+  OPENER_NAME_REGEX,
+  OPENER_NAME_SPAN_REGEX,
+  TERMINATED_OPENER_REGEX,
+} from "./markerName.pattern";
+import {
   $idleSettleWouldDiscardCaretHeldBytes,
   $rebuildParas,
   $requestTier2ForNode,
@@ -109,14 +116,6 @@ export interface MarkerEditContext extends Tier2Context {
   rebuildAttempted: Set<string>;
 }
 
-const TERMINATED_OPENER_REGEX = /^\\(\+?[\w-]+)[ \u00A0]$/;
-// Exported for the read-only settle's own mirror of $applyOpenerRename's note-glyph-rename
-// decision surface (virtualSettle.utils.ts's `$noteGlyphRenameTarget`), which must recognize a
-// bare pending opener rename using the identical shape this file's own transform/resolve loop
-// uses \u2014 a second, independently-derived regex could silently drift out of sync with this one.
-export const BARE_OPENER_REGEX = /^\\(\+?[\w-]+)$/;
-const CLOSER_FORM_REGEX = /^\\\+?[\w-]*\*$/;
-
 // Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
 // only stylesheet-family milestone names (`\qt#-s/-e`, `\ts-s/-e`) plus annotation comment
 // markers — see its doc comment for why bare `ts`/`t-s`/`t-e` and the z-prefix wildcard are
@@ -145,13 +144,6 @@ function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
   if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }
-
-/** An opening glyph's leading marker name, by the tokenizer's own name-scan rule: the scan ends
- * at whitespace (or at the end of the bytes), so `\wj things` names `wj` exactly as the tokenizer
- * reads it, while `\wjthings` names the whole unknown run. Shapes the scan does not terminate
- * cleanly (a closer form, an attribute delimiter) deliberately do not match — see
- * {@link openerBytesEndTheSplit}. */
-const OPENER_NAME_REGEX = /^\\(\+?[\w-]+)(?:[ \u00A0]|$)/;
 
 /**
  * Whether an OPENING glyph's current — possibly mid-edit — bytes have stopped meaning a BLOCK
@@ -253,7 +245,7 @@ function $clampSelectionToLength(node: MarkerNode, newLength: number): void {
  * opener-shaped at all.
  */
 function markerNameSpan(text: string): { start: number; end: number } | undefined {
-  const match = /^\\(\+?)([\w-]+)/.exec(text);
+  const match = OPENER_NAME_SPAN_REGEX.exec(text);
   if (!match) return undefined;
   const start = 1 + match[1].length;
   return { start, end: start + match[2].length };
