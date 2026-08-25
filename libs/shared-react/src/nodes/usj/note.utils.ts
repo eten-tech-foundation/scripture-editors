@@ -49,6 +49,7 @@ import {
   closingMarkerText,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   getEditableCallerText,
+  getNoteKind,
   ImmutableTypedTextNode,
   LoggerBasic,
   MarkerNode,
@@ -123,10 +124,11 @@ export function $insertNote(
   );
   if (children === undefined) return undefined;
 
-  const isCrossReference = marker.startsWith("x") || marker === "ex";
+  // PT9's caller-family rule (see `getNoteKind`): custom note markers deliberately take the
+  // cross-reference default, not the footnote one.
   const resolvedCaller =
     caller ??
-    (isCrossReference
+    (getNoteKind(marker) === "crossref"
       ? (nodeOptions.defaultCrossRefCaller ?? "-")
       : (nodeOptions.defaultFootnoteCaller ?? "+"));
 

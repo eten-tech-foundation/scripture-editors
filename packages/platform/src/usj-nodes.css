@@ -2350,7 +2350,7 @@
     "w" "x" "y" "z";
 }
 
-/* Cross-reference (x, ex) auto-generated callers use their own sequence, so they don't also
+/* Cross-reference auto-generated callers use their own sequence, so they don't also
    increment the footnote counter above. */
 @counter-style cross-ref-callers {
   system: cyclic;
@@ -2367,28 +2367,41 @@
   counter-reset: none;
 }
 
-.note.usfm_f .immutable-note-caller[data-caller="+"],
-.note.usfm_fe .immutable-note-caller[data-caller="+"],
-.note.usfm_ef .immutable-note-caller[data-caller="+"],
-.note.usfm_efe .immutable-note-caller[data-caller="+"] {
+/* Which `+`-caller sequence a note uses follows PT9's Standard view rule (Paratext repo
+   ParatextInternalShared/ScriptureViews/Standard.xslt lines 446-449): footnote iff the note style
+   starts with `f` or `ef`; every other note style — x, ex, and any custom note marker — uses the
+   cross-reference sequence. The editor stamps that classification on every rendered note as
+   `data-note-kind` (NoteNode createDOM/exportDOM), so these rules select on the family rather
+   than enumerating marker classes. */
+.note[data-note-kind="footnote"] .immutable-note-caller[data-caller="+"] {
   counter-increment: caller;
 }
 
-.note.collapsed.usfm_f .immutable-note-caller[data-caller="+"] > button::before,
-.note.collapsed.usfm_fe .immutable-note-caller[data-caller="+"] > button::before,
-.note.collapsed.usfm_ef .immutable-note-caller[data-caller="+"] > button::before,
-.note.collapsed.usfm_efe .immutable-note-caller[data-caller="+"] > button::before {
+.note.collapsed[data-note-kind="footnote"]
+  .immutable-note-caller[data-caller="+"]
+  > button::before {
   content: counter(caller, note-callers);
 }
 
-.note.usfm_x .immutable-note-caller[data-caller="+"],
-.note.usfm_ex .immutable-note-caller[data-caller="+"] {
+.note[data-note-kind="crossref"] .immutable-note-caller[data-caller="+"] {
   counter-increment: crossref;
 }
 
-.note.collapsed.usfm_x .immutable-note-caller[data-caller="+"] > button::before,
-.note.collapsed.usfm_ex .immutable-note-caller[data-caller="+"] > button::before {
+.note.collapsed[data-note-kind="crossref"]
+  .immutable-note-caller[data-caller="+"]
+  > button::before {
   content: counter(crossref, cross-ref-callers);
+}
+
+/* Transitional fallback: an editor build that predates the `data-note-kind` stamping renders
+   notes without the attribute; treat those as footnotes (the pre-stamping numbering behavior).
+   Remove once no consumer pairs this stylesheet with a pre-stamping editor. */
+.note:not([data-note-kind]) .immutable-note-caller[data-caller="+"] {
+  counter-increment: caller;
+}
+
+.note.collapsed:not([data-note-kind]) .immutable-note-caller[data-caller="+"] > button::before {
+  content: counter(caller, note-callers);
 }
 
 .formatted-font.text-spacing[contenteditable="false"]
