@@ -1,5 +1,5 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { mergeRegister } from "@lexical/utils";
+import { $findMatchingParent, mergeRegister } from "@lexical/utils";
 import {
   $getNearestNodeFromDOMNode,
   $getSelection,
@@ -161,9 +161,12 @@ function isEditingKey(event: KeyboardEvent): boolean {
  * lands, this predicate is where it comes back out.
  */
 export function $opaqueBlockAncestor(node: LexicalNode): LexicalNode | undefined {
-  for (let current: LexicalNode | null = node; current; current = current.getParent())
-    if ($isUnknownNode(current) || $isImmutableTableNode(current)) return current;
-  return undefined;
+  return (
+    $findMatchingParent(
+      node,
+      (current) => $isUnknownNode(current) || $isImmutableTableNode(current),
+    ) ?? undefined
+  );
 }
 
 /**

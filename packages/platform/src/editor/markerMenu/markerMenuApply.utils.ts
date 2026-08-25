@@ -29,7 +29,8 @@ import {
 import { MarkerMenuItem } from "./markerItemSource";
 import { $isAtParagraphContentStart } from "./markerMenuContext.utils";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { $getEditor, $getSelection, $isRangeSelection, $isTextNode, LexicalNode } from "lexical";
+import { $findMatchingParent } from "@lexical/utils";
+import { $getEditor, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import { $isMarkerNode, $isParaNode, LoggerBasic, NoteNode, ParaNode, StyleInfo } from "shared";
 import { showParaMarkerPrefix, UsjNodeOptions, ViewOptions } from "shared-react";
 import { MutableRefObject } from "react";
@@ -59,16 +60,6 @@ function $removeLiteralTriggerPrefix(): void {
   if (!match) return;
 
   anchorNode.spliceText(offset - match[0].length, match[0].length, "", true);
-}
-
-/** Nearest `ParaNode` ancestor of `node` (including `node` itself), or `undefined`. */
-function $findNearestParaNode(node: LexicalNode): ParaNode | undefined {
-  let current: LexicalNode | null = node;
-  while (current) {
-    if ($isParaNode(current)) return current;
-    current = current.getParent();
-  }
-  return undefined;
 }
 
 /**
@@ -113,7 +104,7 @@ function $applyParagraphSelection(
   if (!$isRangeSelection(selection)) return;
 
   const anchorNode = selection.anchor.getNode();
-  const para = $findNearestParaNode(anchorNode);
+  const para = $findMatchingParent(anchorNode, $isParaNode);
   if (
     trigger === "backslash" &&
     para &&
@@ -329,7 +320,7 @@ export function $splitParagraphWithMarker(marker: string, viewOptions?: ViewOpti
   if ($splitParagraphAtCharStack()) {
     const after = $getSelection();
     if (!$isRangeSelection(after)) return;
-    const newPara = $findNearestParaNode(after.anchor.getNode());
+    const newPara = $findMatchingParent(after.anchor.getNode(), $isParaNode);
     if (!newPara) return;
     newPara.setMarker(marker);
     if (showPrefix) $injectMarkerPrefix(newPara);

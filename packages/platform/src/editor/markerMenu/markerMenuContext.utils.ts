@@ -15,6 +15,7 @@
  * `OnSelectionChangePlugin`.
  */
 import { MarkerMenuContext } from "./markerItemSource";
+import { $findMatchingParent } from "@lexical/utils";
 import { $getRoot, $getSelection, $isElementNode, $isRangeSelection, LexicalNode } from "lexical";
 import {
   $findFirstAncestorNoteNode,
@@ -40,19 +41,6 @@ import {
 export type MarkerMenuContextSnapshot = MarkerMenuContext & {
   anchorRect?: { x: number; y: number; width: number; height: number };
 };
-
-/** Nearest ancestor (including `node` itself) satisfying `predicate`, or `undefined`. */
-function $findNearestAncestor<T extends LexicalNode>(
-  node: LexicalNode,
-  predicate: (candidate: LexicalNode) => candidate is T,
-): T | undefined {
-  let current: LexicalNode | null = node;
-  while (current) {
-    if (predicate(current)) return current;
-    current = current.getParent();
-  }
-  return undefined;
-}
 
 /** `CharNode` ancestors of `node` (inclusive), innermost first. */
 function $collectOpenCharMarkers(node: LexicalNode): string[] {
@@ -195,7 +183,7 @@ export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
   const offset = selection.anchor.offset;
   const hasTextSelection = !selection.isCollapsed();
 
-  const para = $findNearestAncestor(anchorNode, $isParaNode);
+  const para = $findMatchingParent(anchorNode, $isParaNode);
   // A collapsed caret with NO paragraph around it at all is the book/header region — `\id` is a
   // BookNode at document root, not a `ParaNode`. There is no paragraph there to take a character
   // style, so the paragraph list is what the region can actually accept. A text selection stays

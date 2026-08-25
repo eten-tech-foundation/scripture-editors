@@ -39,6 +39,7 @@ import { canonicalAttributeText } from "./attributeDisplay.utils.js";
 import { textTypeState } from "../collab/delta.state.js";
 import { defaultMarkerAttribute } from "../../converters/usfm/usfmFragmentToUsj.js";
 import { NBSP } from "./node-constants.js";
+import { $findMatchingParent } from "@lexical/utils";
 import { $createTextNode, $getState, $isElementNode, $isTextNode, LexicalNode } from "lexical";
 
 /** How a lift treats the gap it opens in a character-style stack. */
@@ -74,18 +75,17 @@ export interface CharStackLiftOptions {
  * Read-only: safe inside `editor.update()` or either read form.
  */
 export function $innermostCharAncestor(node: LexicalNode): CharNode | undefined {
-  let current: LexicalNode | null = node;
-  while (current) {
-    if ($isCharNode(current)) return current;
-    current = current.getParent();
-  }
-  return undefined;
+  return $findMatchingParent(node, $isCharNode) ?? undefined;
 }
 
 /**
  * Where a lifted node comes to rest: the nearest non-char ancestor of `node` — the note or
  * paragraph a bare marker would land in. Returns `node`'s own parent when `node` is not inside a
  * char span at all.
+ *
+ * Deliberately NOT delegated to `$findMatchingParent`: for a root-level char span the resting
+ * place is the RootNode itself, which `$findMatchingParent` never yields (it stops before testing
+ * the root).
  *
  * Read-only: safe inside `editor.update()` or either read form.
  */

@@ -1,6 +1,6 @@
 import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { $unwrapNode } from "@lexical/utils";
+import { $findMatchingParent, $unwrapNode } from "@lexical/utils";
 import {
   $copyNode,
   $createNodeSelection,
@@ -1065,12 +1065,14 @@ function $getMatchingCharNode(node: LexicalNode, marker: string | undefined): Ch
  * @returns `true` if a `NoteNode` encloses `node`.
  */
 function $isInsideNote(node: LexicalNode): boolean {
-  let currentNode: LexicalNode | null = node;
-  while (currentNode && !$isSomeParaNode(currentNode)) {
-    if ($isNoteNode(currentNode)) return true;
-    currentNode = currentNode.getParent();
-  }
-  return false;
+  // Bounded at the nearest paragraph (`node` itself included): the shared walk matches the
+  // boundary alongside the target, so "inside a note" is "the first note-or-paragraph ancestor is
+  // a note" — a note ABOVE the enclosing paragraph does not count.
+  const match = $findMatchingParent(
+    node,
+    (current) => $isNoteNode(current) || $isSomeParaNode(current),
+  );
+  return $isNoteNode(match);
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { OTEmbedTypes, validOTEmbedTypes } from "./rich-text-ot.model";
-import { $dfs, DFSNode } from "@lexical/utils";
+import { $dfs, $findMatchingParent, DFSNode } from "@lexical/utils";
 import {
   $getNodeByKey,
   $getState,
@@ -547,9 +547,9 @@ export function $isOwnParaPrefixGlyph(node: LexicalNode): boolean {
  * has an attribute-tagged sibling to key off of).
  */
 export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
-  for (let parent = node.getParent(); parent; parent = parent.getParent())
-    if ($isAttributeRunNode(parent)) return true;
-  return false;
+  // The walk starts at the PARENT deliberately: an AttributeRunNode is not "inside" itself.
+  const parent = node.getParent();
+  return parent !== null && $findMatchingParent(parent, $isAttributeRunNode) !== null;
 }
 
 /**

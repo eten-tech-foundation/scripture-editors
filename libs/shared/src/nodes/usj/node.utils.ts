@@ -1,6 +1,7 @@
 /** Utility functions for editor nodes */
 
 import { MARKER_OBJECT_PROPS, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { $findMatchingParent } from "@lexical/utils";
 import {
   $createTextNode,
   $getCommonAncestor,
@@ -211,20 +212,13 @@ export function $findThisChapter(node: LexicalNode | null | undefined) {
 }
 
 /**
- * Traverses up the node tree from startNode to find the first ancestor NoteNode.
+ * Traverses up the node tree from startNode (itself included) to find the first ancestor NoteNode.
+ * A named convenience over `$findMatchingParent` — the one shared ancestor-walk.
  * @param startNode - The node to start the upward search from.
  * @returns The first ancestor NoteNode found, or `undefined` if none exists before the root.
  */
 export function $findFirstAncestorNoteNode(startNode: LexicalNode): NoteNode | undefined {
-  let currentNode: LexicalNode | null = startNode;
-
-  while (currentNode !== null) {
-    if ($isNoteNode(currentNode)) return currentNode;
-    currentNode = currentNode.getParent();
-  }
-
-  // Reached the root without finding a NoteNode
-  return undefined;
+  return $findMatchingParent(startNode, $isNoteNode) ?? undefined;
 }
 
 /**
@@ -301,6 +295,10 @@ export function $isSomeParaNode(node: LexicalNode | null | undefined): node is S
 
 /**
  * Check if a node is a descendant of a potential ancestor node.
+ *
+ * Deliberately NOT delegated to `$findMatchingParent`: this walk excludes the starting node (a
+ * node is not its own descendant) and must be able to match the RootNode's key, which
+ * `$findMatchingParent` never tests.
  *
  * @param node - The node to check.
  * @param ancestorKey - The key of the potential ancestor node.

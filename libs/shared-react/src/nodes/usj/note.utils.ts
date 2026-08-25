@@ -17,7 +17,7 @@ import {
 import { $isImmutableVerseNode } from "./ImmutableVerseNode";
 import { $isSomeVerseNode } from "./node-react.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
-import { $dfs } from "@lexical/utils";
+import { $dfs, $findMatchingParent } from "@lexical/utils";
 import {
   $createTextNode,
   $getCharacterOffsets,
@@ -487,12 +487,10 @@ function $addSpaceNodes(
  * excluded by walking its ancestor chain.
  */
 function $isInsideNote(node: LexicalNode): boolean {
-  let parent = node.getParent();
-  while (parent) {
-    if ($isNoteNode(parent)) return true;
-    parent = parent.getParent();
-  }
-  return false;
+  // The walk starts at the PARENT deliberately: the NoteNode entry itself is handled by the
+  // caller, and a note is not "inside" itself.
+  const parent = node.getParent();
+  return parent !== null && $findMatchingParent(parent, $isNoteNode) !== null;
 }
 
 /**
