@@ -260,11 +260,15 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
       // $rebuildParas already produced this exact literal text once this commit and, being
       // deterministic, would only reproduce it again (e.g. an unterminated milestone run
       // that stays literal per the degradation property) — settle rather than
-      // retrigger forever. Known gap: the set is keyed by TEXT, so this arm also swallows a
-      // DIFFERENT node carrying the same bytes (a paste can insert two identical literals in
-      // one commit), which then ends up neither rebuilt nor pended; pending it here instead
-      // destabilizes the fixed-point damping (re-settles of damped literals are not idempotent
-      // today), so the narrower behavior stands until that is resolved.
+      // retrigger forever. The set is keyed by TEXT, so this arm also catches a DIFFERENT
+      // node carrying the same bytes (a paste can insert two identical literals in one
+      // commit); PEND it so the departure/idle settle still attempts its rebuild — for the
+      // damped reproduce-forever case that later attempt refuses at the fixed point, which is
+      // a true no-op (the refusal compares signatures on the serialized rebuild and
+      // materializes no nodes — see `$rebuildParas`), so pending never destabilizes the
+      // damping; for the identical-second-paragraph case it performs the rebuild the guard
+      // would otherwise have swallowed.
+      context.pendingKeys.add(node.getKey());
       return;
     }
     context.rebuildAttempted.add(text);

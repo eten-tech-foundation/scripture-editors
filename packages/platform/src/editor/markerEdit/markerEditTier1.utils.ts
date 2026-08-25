@@ -1116,10 +1116,11 @@ function $exceptKeysAround(exceptKey: NodeKey | undefined): Set<NodeKey> {
  * `editor.update()` — never synchronously from an update/mutation listener.
  *
  * @returns Whether anything actually MUTATED the editor state. A pass that only consumed
- *   keys and REFUSED every routed rebuild (fixed points) changes nothing visible — but each
- *   refused `$rebuildParas` probe still created parse orphans that count as dirty leaves, so
- *   the deferred-resolution caller uses this to merge the visually-no-op commit into the
- *   current history entry instead of letting it push a phantom undo step.
+ *   keys and REFUSED every routed rebuild (fixed points) mutates nothing at all — a refused
+ *   probe compares signatures on the SERIALIZED rebuild and materializes no live nodes, so
+ *   the containing update is a genuine no-op commit. The deferred-resolution caller uses this
+ *   to merge a mutating settle into the current history entry instead of letting it push a
+ *   phantom undo step.
  */
 export function $resolvePendingMarkers(
   context: MarkerEditContext,

@@ -705,6 +705,107 @@ describe("Tier 2 literal-text triggers", () => {
       expect(nd.getTextContent()).toContain("//");
     });
   });
+
+  it("settles BOTH of two identical literals landing in one commit (second pends, not swallowed)", async () => {
+    // The rebuild-damping guard is keyed by literal TEXT, so the SECOND node carrying the same
+    // bytes in one commit (a paste inserting the same line twice) hits the damped arm after the
+    // first one's rebuild consumed the key. Pre-fix it was neither rebuilt nor pended — the
+    // second paragraph's literal never settled. Now the damped arm pends it, and the
+    // caret-departure settle performs the rebuild the guard skipped.
+    let other!: TextNode;
+    const { editor } = await testEnvironment(() => {
+      other = $createTextNode(`${NBSP}elsewhere`);
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}alpha`)),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(`${NBSP}beta`)),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        for (const node of $getRoot().getAllTextNodes()) {
+          const text = node.getTextContent();
+          if (text === `${NBSP}alpha` || text === `${NBSP}beta`)
+            node.setTextContent(`${NBSP}hello \\nd Lord\\nd* world`);
+        }
+      }),
+    );
+    // Caret departure into the third paragraph settles the pended twin.
+    await act(async () => editor.update(() => other.select(2, 2)));
+    await act(async () => {
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    });
+    editor.getEditorState().read(() => {
+      const ndChars: CharNode[] = [];
+      const visit = (node: LexicalNode): void => {
+        if ($isCharNode(node) && node.getMarker() === "nd") ndChars.push(node);
+        if ($isElementNode(node)) node.getChildren().forEach(visit);
+      };
+      visit($getRoot());
+      expect(ndChars).toHaveLength(2);
+    });
+    expect(JSON.stringify(editor.getEditorState().toJSON())).not.toContain("\\\\nd ");
+  });
+
+  it("a damped literal's re-settle refuses as a TRUE no-op (no extra commit)", async () => {
+    // Two identical REFUSING literals (an unterminated milestone run — genuine
+    // literal-degradation) land in one commit: the first requests its rebuild and refuses at
+    // the fixed point; the second hits the damped arm and pends. The pend's later resolve
+    // refuses again — and that refusal must produce NO commit at all. The refusal compares
+    // signatures on the SERIALIZED rebuild without materializing nodes; when it instead parsed
+    // first, the orphans counted as dirty leaves and turned the refusal into a real commit,
+    // whose reconciliation round trip could displace the caret out from under an active gesture
+    // (typed bytes then landed outside the span the caret was in).
+    // The literal sits directly after the `\p ` glyph (whose own text supplies the separator
+    // space), so its content re-tokenizes to exactly itself — a genuine fixed point. An extra
+    // whitespace node would normalize away and make the rebuild a real splice instead.
+    const literal = `body \\ts-s |sid="x"`;
+    let other!: TextNode;
+    const { editor } = await testEnvironment(() => {
+      other = $createTextNode("elsewhere");
+      $getRoot().append(
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode("alpha")),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode("beta")),
+        $createParaNode("p").append($createMarkerNode("p"), other),
+      );
+    });
+    let commits = 0;
+    const unregister = editor.registerUpdateListener(() => {
+      commits += 1;
+    });
+    await act(async () =>
+      editor.update(() => {
+        for (const node of $getRoot().getAllTextNodes()) {
+          const text = node.getTextContent();
+          if (text === "alpha" || text === "beta") node.setTextContent(literal);
+        }
+      }),
+    );
+    // Caret departure into the third paragraph resolves the pended twin — a refusal.
+    await act(async () => editor.update(() => other.select(2, 2)));
+    await act(async () => {
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+      await new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    });
+    unregister();
+    // Exactly the two user commits (the literal edit, the caret move): the pended twin's
+    // resolve refused without mutating, so no settle commit and no follow-on
+    // selection-normalization commit ever happened.
+    expect(commits).toBe(2);
+    editor.getEditorState().read(() => {
+      const text = $getRoot().getTextContent();
+      expect(text.split('\\ts-s |sid="x"')).toHaveLength(3); // both literals intact
+      expect($getRoot().getChildren().filter($isParaNode)).toHaveLength(3);
+      // The refusal also left the caret exactly where the user put it.
+      const selection = $getSelection();
+      expect($isRangeSelection(selection)).toBe(true);
+      if ($isRangeSelection(selection)) {
+        expect(selection.anchor.key).toBe(other.getLatest().getKey());
+        expect(selection.anchor.offset).toBe(2);
+      }
+    });
+  });
 });
 
 describe("$textNodeTier2Transform on attribute-run text", () => {

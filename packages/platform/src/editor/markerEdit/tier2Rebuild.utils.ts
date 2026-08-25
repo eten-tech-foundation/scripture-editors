@@ -34,6 +34,7 @@ import {
   $parseSerializedNode,
   ElementNode,
   LexicalNode,
+  SerializedLexicalNode,
   TextNode,
 } from "lexical";
 import {
@@ -52,9 +53,11 @@ import {
   $isMarkerTrailingSeparator,
   $milestoneAttributeRunPieces,
   $verseAttributeRunPieces,
+  closingMarkerText,
   getEditableCallerText,
   getMarker as bundledGetMarker,
   isMilestoneHeuristicName,
+  openingMarkerText,
   ChapterNode,
   ImpliedParaNode,
   LoggerBasic,
@@ -538,6 +541,271 @@ export function $signatureOf(nodes: LexicalNode[], getMarkerFn: MarkerLookup): s
   const out: string[] = [];
   $appendSignature(nodes, out, getMarkerFn);
   return out.join("");
+}
+
+/** A serialized element's children, or `undefined` for a leaf. */
+export function serializedChildren(
+  node: SerializedLexicalNode,
+): SerializedLexicalNode[] | undefined {
+  const { children } = node as { children?: SerializedLexicalNode[] };
+  return Array.isArray(children) ? children : undefined;
+}
+
+/** A serialized TextNode's text, or `undefined` for anything else. */
+export function serializedText(node: SerializedLexicalNode): string | undefined {
+  const { text } = node as { text?: string };
+  return typeof text === "string" ? text : undefined;
+}
+
+/** A serialized node's own `type` tag, or `""` for a shape with none. */
+export function serializedType(node: SerializedLexicalNode): string {
+  return (node as { type?: string }).type ?? "";
+}
+
+/** A serialized MarkerNode's canonical glyph text, re-derived from `marker`/`markerSyntax`/
+ * `nested` — the exact mirror of `MarkerNode.ts`'s own (unexported) `getMarkerText`. */
+export function serializedMarkerGlyphText(
+  marker: string,
+  markerSyntax: string | undefined,
+  nested: boolean | undefined,
+): string {
+  if (markerSyntax === "closing") return closingMarkerText(marker, nested);
+  if (markerSyntax === "selfClosing") return closingMarkerText("");
+  return openingMarkerText(marker, nested);
+}
+
+/**
+ * The children of an `attribute-run` wrapper sibling at `nodes[index]`, or `undefined` when that
+ * slot is not one. `usjEditorAdaptor.serializeEditorState` (usj-editor.adaptor.ts, editable mode)
+ * always wraps a fresh verse's `\va`/`\vp` triplet or a milestone's display run this way
+ * (`addVerseAttributeRun`/`addMilestoneAttributeRun`) — `rebuilt` below is exactly that adaptor's
+ * own canonical output, so a loose, unwrapped run never appears in it.
+ */
+export function serializedRunWrapperChildren(
+  nodes: SerializedLexicalNode[],
+  index: number,
+): SerializedLexicalNode[] | undefined {
+  const sibling = nodes[index];
+  if (!sibling || serializedType(sibling) !== "attribute-run") return undefined;
+  return serializedChildren(sibling) ?? [];
+}
+
+/**
+ * JSON-serialized mirror of `$appendSignature`/`$signatureOf` above, for a FRESHLY-SERIALIZED
+ * rebuild tree — never arbitrary live-tree debris, since that is the only tree this ever runs
+ * over. This is the JSON side of the ONE fixed-point comparison BOTH settles make against
+ * `$signatureOf` of the live scope, and both make it for their own load-bearing reason:
+ *
+ * - The MUTATING settle (`$rebuildParas` and its note/chapter siblings below) computes it on the
+ *   serialized rebuild BEFORE `$parseSerializedNode`, so a refusal materializes NO live nodes.
+ *   That is what makes a refused re-settle a true no-op: parse orphans count as dirty leaves,
+ *   which turn a refusal into a real commit — reconciliation, a DOM selection round trip, and a
+ *   follow-on caret-normalization commit that can displace the caret out from under an active
+ *   gesture (observed: a caret parked in span content yanked to the paragraph glyph, so the next
+ *   keystrokes landed outside the span).
+ * - The READ-ONLY settle cannot parse at all (Lexical forbids creating nodes inside a `read()`),
+ *   and without the refusal a rebuild the mutating settle would refuse as a no-op (its own
+ *   displayed bytes are already what re-tokenizing them produces, once normalized — e.g. a
+ *   structural NBSP separator and a user's own typed space both collapse to the same plain
+ *   space) would get spliced into its OUTPUT, silently replacing the user's own
+ *   currently-displayed bytes with a DIFFERENT-looking (though equivalent-by-signature) rebuild.
+ *
+ * One computation feeding both is also what keeps the two settles' refusal decisions from ever
+ * drifting apart — a drift here is a fixed-point disagreement, i.e. the editor refusing to
+ * converge.
+ *
+ * Never needs `$isRebuildSentinel`'s node-kind classification — NOT because a sentinel-class kind
+ * (a note, an opaque block, a non-re-tokenizable milestone, a char span with unrecoverable
+ * attributes) can never appear FRESH here: it can. An unknown marker typed inside note content,
+ * for instance, tokenizes into a genuinely fresh "char" entry carrying `unknownAttributes`, which
+ * this function's own "char" branch below walks structurally rather than collapsing to one
+ * opaque character the way `$appendSignature` collapses its LIVE counterpart. The mirror stays
+ * safe anyway: a freshly-emitted sentinel-class node is, by definition, content that was NOT
+ * already sitting in the OLD live tree in that same opaque form, so `$signatureOf` of the old
+ * content can never equal what this function produces for it — the comparison this function feeds
+ * comes out UNEQUAL either way, which is exactly what correctly drives a splice instead of a
+ * mistaken no-op refusal. A matching signature is the only outcome that would need this function
+ * to classify a node identically to `$appendSignature`, and a fresh sentinel-class node can never
+ * produce one against content that didn't already contain it.
+ */
+export function serializedSignatureOf(
+  nodes: SerializedLexicalNode[],
+  getMarkerFn: MarkerLookup,
+): string {
+  const out: string[] = [];
+  appendSerializedSignature(nodes, out, getMarkerFn);
+  return out.join("");
+}
+
+/**
+ * `insideCharChildren` is true only while appending a "char" node's OWN direct children (set by
+ * this function's own "char" branch below) — the JSON-side mirror of `$appendSignature`'s own
+ * `insideCharChildren` parameter above, including how it resets for anything nested one level
+ * deeper that is not itself another "char" node.
+ */
+function appendSerializedSignature(
+  children: SerializedLexicalNode[],
+  out: string[],
+  getMarkerFn: MarkerLookup,
+  insideCharChildren = false,
+): void {
+  for (let index = 0; index < children.length; index++) {
+    const node = children[index];
+    const type = serializedType(node);
+    if (type === "ms") {
+      // Mirrors `$appendSignature`'s milestone branch: fold sid/eid/unknownAttributes in
+      // alongside the recursed run, since the run's OWN text alone cannot distinguish a
+      // re-tokenization from a stale display cache. Every fresh "ms" entry here IS
+      // re-tokenizable by construction (see this function's own doc comment), so the
+      // `$isReTokenizableMilestone` check is a defensive mirror, not a load-bearing gate.
+      const milestone = node as {
+        marker?: string;
+        sid?: string;
+        eid?: string;
+        unknownAttributes?: unknown;
+        attributeOrder?: unknown;
+      };
+      const runChildren = serializedRunWrapperChildren(children, index + 1);
+      if (runChildren && $isReTokenizableMilestone(milestone.marker ?? "", getMarkerFn)) {
+        out.push(
+          SIGNATURE_OPEN,
+          "ms",
+          // `marker` mirrored from `$appendSignature`'s fold: a glyph RENAME leaves the displayed
+          // bytes identical on both sides, so only the milestone's own stale `marker` reveals the
+          // rebuild is not a no-op — and `marker` is exactly what the save leg serializes.
+          // `attributeOrder` mirrored from `$appendSignature`'s fold: an attribute REORDER
+          // (values unchanged) is a real document change — serialized key order follows it.
+          JSON.stringify({
+            marker: milestone.marker ?? "",
+            sid: milestone.sid ?? null,
+            eid: milestone.eid ?? null,
+            unknownAttributes: milestone.unknownAttributes ?? null,
+            attributeOrder: milestone.attributeOrder ?? null,
+          }),
+        );
+        appendSerializedSignature(runChildren, out, getMarkerFn);
+        out.push(SIGNATURE_CLOSE);
+        index += 1;
+      } else {
+        out.push(ATOMIC_SENTINEL);
+      }
+      continue;
+    }
+    if (type === "verse") {
+      // Mirrors `$appendSignature`'s verse branch. `unknownAttributes` has no display
+      // representation at all, so a verse carrying it stays a sentinel on the live side
+      // (`verseNeedsSentinel`) and can never appear fresh here either — this branch is a
+      // defensive mirror of that, not a load-bearing gate (see this function's doc comment).
+      const verse = node as {
+        text?: string;
+        number?: string;
+        altnumber?: string;
+        pubnumber?: string;
+        unknownAttributes?: unknown;
+      };
+      if (verse.unknownAttributes) {
+        out.push(ATOMIC_SENTINEL);
+        continue;
+      }
+      out.push(
+        SIGNATURE_OPEN,
+        "verse",
+        toFragmentText(verse.text ?? ""),
+        JSON.stringify({
+          number: verse.number ?? null,
+          altnumber: verse.altnumber ?? null,
+          pubnumber: verse.pubnumber ?? null,
+        }),
+      );
+      // A verse can carry up to two independent wrapped runs (`\va` then `\vp`), each its own
+      // immediately-following `attribute-run` sibling — mirrors `$verseAttributeRun`'s wrapped
+      // case, the only shape a fresh, canonical rebuild ever produces.
+      let consumed = 0;
+      let runChildren = serializedRunWrapperChildren(children, index + 1 + consumed);
+      while (runChildren) {
+        appendSerializedSignature(runChildren, out, getMarkerFn);
+        consumed++;
+        runChildren = serializedRunWrapperChildren(children, index + 1 + consumed);
+      }
+      out.push(SIGNATURE_CLOSE);
+      index += consumed;
+      continue;
+    }
+    if (type === "marker") {
+      // Delimited and tagged, mirroring `$appendSignature`'s marker branch — not the generic text
+      // fallback below, which a bare `.text` field would otherwise match first. The glyph's own
+      // `.text` field is NOT read: `usjEditorAdaptor.serializeEditorState`'s `createMarker` helper
+      // builds this JSON directly (never through a live `MarkerNode`, whose `getTextContent()` is
+      // itself computed from `marker`/`markerSyntax`/`nested`, never stored independently — see
+      // `MarkerNode.ts`'s `getMarkerText`), and leaves `.text` empty; re-derive the SAME canonical
+      // glyph text here instead, exactly as `MarkerNode`'s own `getMarkerText` would.
+      const marker = node as { marker?: string; markerSyntax?: string; nested?: boolean };
+      out.push(
+        SIGNATURE_OPEN,
+        "marker",
+        toFragmentText(
+          serializedMarkerGlyphText(marker.marker ?? "", marker.markerSyntax, marker.nested),
+        ),
+        SIGNATURE_CLOSE,
+      );
+      continue;
+    }
+    if (type === "linebreak") {
+      out.push(" ");
+      continue;
+    }
+    if (type === "char") {
+      const char = node as { unknownAttributes?: unknown };
+      out.push(SIGNATURE_OPEN, "char", JSON.stringify(char.unknownAttributes ?? null));
+      appendSerializedSignature(serializedChildren(node) ?? [], out, getMarkerFn, true);
+      out.push(SIGNATURE_CLOSE);
+      continue;
+    }
+    // Note/UnknownNode: defensive mirror of `$isRebuildSentinel`'s unconditional sentinel for
+    // these kinds — unreachable in practice (see this function's doc comment), never load-bearing.
+    if (type === "note" || type === "unknown") {
+      out.push(ATOMIC_SENTINEL);
+      continue;
+    }
+    if (type === "unmatched") {
+      // Tagged, mirroring `$appendSignature`'s unmatched branch — the bare-text fallback below
+      // would otherwise match this node's `.text` field and make the literal→flagged-element
+      // resolution signature-invisible on the JSON side.
+      out.push(SIGNATURE_OPEN, "unmatched", toFragmentText(serializedText(node) ?? ""));
+      out.push(SIGNATURE_CLOSE);
+      continue;
+    }
+    const text = serializedText(node);
+    if (text !== undefined) {
+      out.push(toFragmentText(insideCharChildren ? charOwnChildSignatureText(text) : text));
+      continue;
+    }
+    const nodeChildren = serializedChildren(node);
+    if (nodeChildren) {
+      out.push(SIGNATURE_OPEN, type);
+      appendSerializedSignature(nodeChildren, out, getMarkerFn);
+      out.push(SIGNATURE_CLOSE);
+    } else {
+      out.push(ATOMIC_SENTINEL);
+    }
+  }
+}
+
+/** U+FFFC occurrences across a serialized tree — the serialize-side half of the symmetry
+ * bail-out, for comparisons made before (or without) a parsed tree. */
+export function countSerializedSentinels(nodes: SerializedLexicalNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    const children = serializedChildren(node);
+    if (children) {
+      count += countSerializedSentinels(children);
+      continue;
+    }
+    const text = serializedText(node);
+    if (text !== undefined)
+      for (const character of text) if (character === ATOMIC_SENTINEL) count++;
+  }
+  return count;
 }
 
 function $appendChildrenFragment(
@@ -1126,16 +1394,6 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     { type: USJ_TYPE, version: USJ_VERSION, content },
     viewOptions,
   );
-  const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
-
-  // Second sentinel check, now on the SERIALIZED->PARSED tree: the tokenizer-level count above
-  // guards the MarkerContent, but the serialize/parse round trip is a separate place a U+FFFC
-  // placeholder can vanish. If the parsed tree has fewer (or more) than the preserved-run count,
-  // $replaceSentinels would silently drop or mis-pair a preserved node. Abort untouched instead.
-  if (countSentinelNodes(newNodes) !== combined.sentinels.length) {
-    logger?.warn("[MarkerEdit] Tier 2 aborted: serialized sentinel/preserved-node count mismatch");
-    return false;
-  }
 
   // Fixed-point refusal (preserve-or-refuse). If the freshly-tokenized output is
   // structurally identical to the paragraphs it was derived from, this rebuild is a
@@ -1151,8 +1409,30 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
   // identity; a rebuild that actually restructures anything (literal `\nd x\nd*` → a
   // CharNode span, or an unknown opener splitting off its own paragraph) has a
   // different signature and is never mistaken for a no-op.
-  if ($signatureOf(newNodes, getMarkerFn) === $signatureOf(paras, getMarkerFn)) {
+  //
+  // Compared on the SERIALIZED rebuild (`serializedSignatureOf`, the same JSON-side computation
+  // the read-only settle makes) rather than on parsed nodes, so a refusal materializes NO live
+  // nodes at all. Parse orphans count as dirty leaves: they turned a refused (no-op) settle into
+  // a real commit — reconciliation, a DOM selection round trip, and a follow-on
+  // caret-normalization commit that could displace the caret out from under an active gesture
+  // (observed: a caret parked in span content yanked to the paragraph's marker glyph, so the
+  // next keystrokes landed outside the span). A refused re-settle must be a TRUE no-op.
+  if (
+    serializedSignatureOf(serialized.root.children, getMarkerFn) ===
+    $signatureOf(paras, getMarkerFn)
+  ) {
     logger?.debug("[MarkerEdit] Tier 2 skipped: rebuild is a no-op (fixed point)");
+    return false;
+  }
+
+  const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
+
+  // Second sentinel check, now on the SERIALIZED->PARSED tree: the tokenizer-level count above
+  // guards the MarkerContent, but the serialize/parse round trip is a separate place a U+FFFC
+  // placeholder can vanish. If the parsed tree has fewer (or more) than the preserved-run count,
+  // $replaceSentinels would silently drop or mis-pair a preserved node. Abort untouched instead.
+  if (countSentinelNodes(newNodes) !== combined.sentinels.length) {
+    logger?.warn("[MarkerEdit] Tier 2 aborted: serialized sentinel/preserved-node count mismatch");
     return false;
   }
 
@@ -1364,15 +1644,13 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
       );
     return false;
   }
-  const newNodes = unwrapped.children.map((child) => $parseSerializedNode(child));
-
-  // Second sentinel check, now on the SERIALIZED->PARSED tree (the mirror of `$rebuildParas`'
-  // recount): the tokenizer-level count above guards the MarkerContent, but the serialize/parse
-  // round trip is a separate place a U+FFFC placeholder can vanish. If the unwrapped content has
-  // fewer (or more) than the preserved-run count, `$replaceSentinels` would silently drop or
+  // Second sentinel check, now on the SERIALIZED tree (the mirror of `$rebuildParas`' recount and
+  // of the read-only settle's own): the tokenizer-level count above guards the MarkerContent, but
+  // serialization is a separate place a U+FFFC placeholder can vanish. If the unwrapped content
+  // has fewer (or more) than the preserved-run count, `$replaceSentinels` would silently drop or
   // mis-pair a preserved node. Abort untouched — before the category write below, which is also
   // derived from this rebuild's output — instead.
-  if (countSentinelNodes(newNodes) !== out.sentinels.length) {
+  if (countSerializedSentinels(unwrapped.children) !== out.sentinels.length) {
     logger?.warn(
       "[MarkerEdit] Note Tier 2 aborted: serialized sentinel/preserved-node count mismatch",
     );
@@ -1390,9 +1668,24 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   // Fixed-point refusal (preserve-or-refuse) on the CONTENT nodes only: if the freshly
   // tokenized content is structurally identical to what it was derived from, splicing it
   // would re-arm the trigger and loop. Compare BEFORE any mutation and bail — reporting the
-  // category catch-up (a real mutation) when one happened.
-  if ($signatureOf(newNodes, getMarkerFn) === $signatureOf(contentNodes, getMarkerFn)) {
+  // category catch-up (a real mutation) when one happened. Compared on the SERIALIZED rebuild
+  // (`serializedSignatureOf`), before any nodes are parsed, so a refusal materializes no live
+  // nodes — see `$rebuildParas`' fixed-point comment for why orphan-free refusal is load-bearing.
+  if (
+    serializedSignatureOf(unwrapped.children, getMarkerFn) ===
+    $signatureOf(contentNodes, getMarkerFn)
+  ) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: rebuild is a no-op (fixed point)");
+    return categoryChanged;
+  }
+
+  const newNodes = unwrapped.children.map((child) => $parseSerializedNode(child));
+
+  // Parse-leg recount: the serialized-level count above cleared serialization, but the parse into
+  // live nodes is one more place a placeholder could in principle vanish. Abort the splice; the
+  // category catch-up above already happened and is reported truthfully.
+  if (countSentinelNodes(newNodes) !== out.sentinels.length) {
+    logger?.warn("[MarkerEdit] Note Tier 2 aborted: parsed sentinel/preserved-node count mismatch");
     return categoryChanged;
   }
 
@@ -1644,11 +1937,6 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
     { type: USJ_TYPE, version: USJ_VERSION, content },
     viewOptions,
   );
-  const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
-  if (!$isChapterNode(newNodes[0])) {
-    logger?.warn("[MarkerEdit] Chapter Tier 2 aborted: serialized output is not a chapter");
-    return false;
-  }
 
   // Fixed-point refusal (preserve-or-refuse), the same comparison the other two scopes make —
   // but with the STATE catch-up the note scope's category write also needs: an edited (or
@@ -1657,8 +1945,14 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
   // point while `number`/`altnumber`/`pubnumber` still lag the displayed bytes. Reconcile them
   // here; the splice path below needs none of this (the fresh nodes replace the region, state
   // and all). Compared over the whole REGION: an adjacent unfoldable first-class char that
-  // re-tokenizes to its identical self is part of the fixed point, not a difference.
-  if ($signatureOf(newNodes, getMarkerFn) === $signatureOf(region, getMarkerFn)) {
+  // re-tokenizes to its identical self is part of the fixed point, not a difference. Compared on
+  // the SERIALIZED rebuild (`serializedSignatureOf`), before any nodes are parsed, so a refusal
+  // materializes no live nodes — see `$rebuildParas`' fixed-point comment for why orphan-free
+  // refusal is load-bearing.
+  if (
+    serializedSignatureOf(serialized.root.children, getMarkerFn) ===
+    $signatureOf(region, getMarkerFn)
+  ) {
     let reconciled = false;
     if (chapter.getNumber() !== (freshChapter.number ?? "")) {
       chapter.setNumber(freshChapter.number ?? "");
@@ -1675,6 +1969,12 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
     if (!reconciled)
       logger?.debug("[MarkerEdit] Chapter Tier 2 skipped: rebuild is a no-op (fixed point)");
     return reconciled;
+  }
+
+  const newNodes = serialized.root.children.map((child) => $parseSerializedNode(child));
+  if (!$isChapterNode(newNodes[0])) {
+    logger?.warn("[MarkerEdit] Chapter Tier 2 aborted: serialized output is not a chapter");
+    return false;
   }
 
   newNodes.forEach((node) => chapter.insertBefore(node));
