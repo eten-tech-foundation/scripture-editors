@@ -553,9 +553,13 @@ function recurseNodes(
           // text node stands in for THREE presentation shapes — the tagged separators the
           // forward adaptor builds, the empty-char placeholder, and an orphaned structural
           // prefix a split or deletion strands in its own (untagged) node. The known cost is
-          // that a CONTENT string which is exactly one NBSP is dropped too (e.g. a
-          // paragraph-leading single " " rewritten to NBSP for standard view); fixing that
-          // needs a per-context story for the untagged shapes, not a tag test alone.
+          // that a CONTENT string which is exactly one NBSP is dropped too; fixing that needs
+          // a per-context story for the untagged shapes, not a tag test alone. The forward
+          // side keeps its own output clear of the ambiguity: `createPara` leaves a
+          // spaces-only paragraph-leading string plain instead of rewriting a lone " " into
+          // exactly this shape, so in standard view only an authored lone-NBSP data string
+          // (displayed as `~`, never as a bare NBSP node) is at stake — leaving the drop to
+          // genuinely structural nodes.
           serializedTextNode.text !== NBSP &&
           !serializedTextNode.text.startsWith(NODE_ATTRIBUTE_PREFIX) &&
           // Char-span attribute display runs (bare `|…`, no NBSP prefix — see

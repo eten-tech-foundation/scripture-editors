@@ -517,7 +517,12 @@ function createPara(
       (node) =>
         !isSerializedMarkerNode(node) && !(isSerializedTextNode(node) && node.text === NBSP),
     );
-    if (isSerializedTextNode(firstContent))
+    // A spaces-only first string stays plain: rewriting a lone " " would leave a node that IS
+    // exactly one NBSP, byte-identical to the engine's untagged structural spacers, which the
+    // reverse adaptor drops — deleting the authored space from the file on save. (Only the
+    // lone-" " string can produce that shape — a longer run is already all-NBSP from the display
+    // mapping — but any spaces-only string gains nothing from the rewrite, so skip them all.)
+    if (isSerializedTextNode(firstContent) && !/^ +$/.test(firstContent.text))
       firstContent.text = firstContent.text.replace(/^ +/, (lead) => NBSP.repeat(lead.length));
   }
   const unknownAttributes = getUnknownAttributes(markerObject, PARA_MARKER_OBJECT_PROPS);

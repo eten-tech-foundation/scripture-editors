@@ -58,6 +58,7 @@ import {
 } from "lexical";
 import {
   $createImmutableVerseNode,
+  FORMATTED_VIEW_MODE,
   getViewOptions,
   NoteCallerOnClick,
   STANDARD_VIEW_MODE,
@@ -1007,5 +1008,84 @@ describe("Note caller index vs the USJ note walk", () => {
     expect(notes).toHaveLength(2);
     expect(notes[0]).toEqual(notes[1]);
     expect(secondIndex).toBe(1);
+  });
+
+  // A paragraph-leading whitespace-only content string is where the standard-view display
+  // mapping and the reverse adaptor's lone-NBSP structural-spacer drop can meet: a lone " "
+  // rewritten to display NBSP becomes byte-identical to the engine's untagged spacers, so it
+  // was swallowed on save. Each variant pins the exact round trip.
+  describe("paragraph-leading whitespace-only content string round trip", () => {
+    function roundTripLeading(lead: string, viewMode: string): MarkerContent[] | undefined {
+      const usj: Usj = {
+        ...EMPTY_USJ,
+        content: [
+          {
+            type: "para",
+            marker: "p",
+            content: [lead, { type: "verse", marker: "v", number: "1" }, "in the days"],
+          } as MarkerObject,
+        ],
+      };
+      initializeSerialize(undefined, undefined);
+      reset();
+      const viewOptions = getViewOptions(viewMode);
+      const state = serializeEditorState(usj, viewOptions);
+      const editorState = editor.parseEditorState(state);
+      initializeDeserialize(undefined);
+      const result = editorUsjAdaptor.deserializeEditorState(editorState, viewOptions);
+      return (result?.content?.[0] as MarkerObject).content;
+    }
+
+    it("standard view: preserves a lone leading space", () => {
+      expect(roundTripLeading(" ", STANDARD_VIEW_MODE)).toEqual([
+        " ",
+        { type: "verse", marker: "v", number: "1" },
+        "in the days",
+      ]);
+    });
+
+    it("standard view: preserves a lone leading data NBSP (displays as ~)", () => {
+      expect(roundTripLeading(NBSP, STANDARD_VIEW_MODE)).toEqual([
+        NBSP,
+        { type: "verse", marker: "v", number: "1" },
+        "in the days",
+      ]);
+    });
+
+    it("standard view: collapses a leading two-space run to one space (space-run normalization)", () => {
+      expect(roundTripLeading("  ", STANDARD_VIEW_MODE)).toEqual([
+        " ",
+        { type: "verse", marker: "v", number: "1" },
+        "in the days",
+      ]);
+    });
+
+    it("formatted view: preserves a lone leading space", () => {
+      expect(roundTripLeading(" ", FORMATTED_VIEW_MODE)).toEqual([
+        " ",
+        { type: "verse", marker: "v", number: "1" },
+        "in the days",
+      ]);
+    });
+
+    // Known cost of the reverse adaptor's lone-NBSP byte test (documented at the test itself in
+    // editor-usj.adaptor.ts): outside standard view there is no display mapping to disguise a
+    // data NBSP, so a content string that is EXACTLY one NBSP is indistinguishable from an
+    // untagged structural spacer and is dropped. Pinned as-is: fixing it needs a per-context
+    // story for the untagged spacer shapes, not a byte-test tweak.
+    it("formatted view: drops a lone leading data NBSP (byte-test cost, pinned)", () => {
+      expect(roundTripLeading(NBSP, FORMATTED_VIEW_MODE)).toEqual([
+        { type: "verse", marker: "v", number: "1" },
+        "in the days",
+      ]);
+    });
+
+    it("formatted view: preserves a leading two-space run byte-for-byte", () => {
+      expect(roundTripLeading("  ", FORMATTED_VIEW_MODE)).toEqual([
+        "  ",
+        { type: "verse", marker: "v", number: "1" },
+        "in the days",
+      ]);
+    });
   });
 });
