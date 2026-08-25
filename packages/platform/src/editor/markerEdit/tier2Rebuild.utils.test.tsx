@@ -1334,14 +1334,31 @@ describe("$buildParaFragment: wrapped run vs. loose equivalent (byte-for-byte)",
     );
 
     editor.getEditorState().read(() => {
-      const looseVerseFragment = $buildParaFragment(looseVersePara, bundledGetMarker);
-      const wrappedVerseFragment = $buildParaFragment(wrappedVersePara, bundledGetMarker);
+      const standardViewOptions = getViewOptions(STANDARD_VIEW_MODE);
+      const looseVerseFragment = $buildParaFragment(
+        looseVersePara,
+        bundledGetMarker,
+        standardViewOptions,
+      );
+      const wrappedVerseFragment = $buildParaFragment(
+        wrappedVersePara,
+        bundledGetMarker,
+        standardViewOptions,
+      );
       if (!looseVerseFragment || !wrappedVerseFragment)
         throw new Error("verse fragment build refused by a guard rail");
       expect(wrappedVerseFragment.text).toBe(looseVerseFragment.text);
 
-      const looseMilestoneFragment = $buildParaFragment(looseMilestonePara, bundledGetMarker);
-      const wrappedMilestoneFragment = $buildParaFragment(wrappedMilestonePara, bundledGetMarker);
+      const looseMilestoneFragment = $buildParaFragment(
+        looseMilestonePara,
+        bundledGetMarker,
+        standardViewOptions,
+      );
+      const wrappedMilestoneFragment = $buildParaFragment(
+        wrappedMilestonePara,
+        bundledGetMarker,
+        standardViewOptions,
+      );
       if (!looseMilestoneFragment || !wrappedMilestoneFragment)
         throw new Error("milestone fragment build refused by a guard rail");
       expect(wrappedMilestoneFragment.text).toBe(looseMilestoneFragment.text);

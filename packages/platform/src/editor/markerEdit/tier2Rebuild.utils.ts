@@ -70,7 +70,7 @@ import {
   usfmFragmentToUsjContent,
   VerseNode,
 } from "shared";
-import { $isImmutableNoteCallerNode, ViewOptions } from "shared-react";
+import { $isImmutableNoteCallerNode, hasStandardViewWhitespace, ViewOptions } from "shared-react";
 
 export interface Tier2Context {
   viewOptions: ViewOptions;
@@ -125,11 +125,50 @@ function pushSentinel(out: FragmentAccumulator, nodes: LexicalNode[]): void {
   out.text += ATOMIC_SENTINEL;
 }
 
-/** Display text → USFM fragment text: structural NBSP separators become plain spaces. Exported for
- * the read-only settle's serialized-side signature mirror (virtualSettle.utils.ts), which needs
- * the exact same normalization over JSON text fields. */
+/** Display text → USFM fragment text: structural NBSP separators become plain spaces. Applied to
+ * GLYPH text, attribute runs, and the para-prefix separator in every view, and to content text
+ * under standard-view whitespace (see {@link contentFragmentText} for why content differs by
+ * view). Also the normalization both signature builders apply to every text field — deliberately
+ * view-independent there: the signature only ever compares the live scope against its own fresh
+ * rebuild, so as long as BOTH sides flatten identically the comparison is exact, and a
+ * view-dependent signature would buy nothing while opening a mirror-drift surface. */
 export function toFragmentText(text: string): string {
   return text.replaceAll(NBSP, " ");
+}
+
+/**
+ * Display text → USFM fragment text for a CONTENT run — plain text that is not glyph bytes, not
+ * an attribute run, and not the para-prefix separator. What an NBSP byte in such a run MEANS
+ * depends on the view, so the flattening must too:
+ *
+ * - Standard-view whitespace: a data NBSP displays as `~` (usjTextToDisplay), so an NBSP byte in
+ *   display text is always a display artifact — a space-run member or a structural separator —
+ *   and flattens to " " ({@link toFragmentText}).
+ * - Unformatted (editable without the standard whitespace mapping): a content NBSP IS the data
+ *   byte. It is spelled `~` — the tokenizer's input convention (`usjText` maps `~` back to NBSP,
+ *   PT9 UsfmParser) — so a settle that rewrites the paragraph round-trips it instead of
+ *   corrupting it to a plain space. Two structural shapes still flatten to " " even here:
+ *   a node that is EXACTLY one NBSP (the engine-owned spacer / empty-char placeholder shape,
+ *   which serialization also treats as structural — the lone-NBSP byte test in
+ *   editor-usj.adaptor.ts), and the one structural leading NBSP fused onto a char span's first
+ *   content child (`structuralLead` — the positional twin of `createCharMarker`'s non-standard
+ *   first-string strip in editor-usj.adaptor.ts).
+ *
+ * ONE definition for every fragment producer: the mutating rebuilds and the read-only settle both
+ * build their fragments through `$appendNodesFragment` below, so the mirror can never flatten a
+ * content NBSP differently from the live path (a disagreement there is a fixed-point refusal —
+ * the editor refusing to settle).
+ */
+export function contentFragmentText(
+  text: string,
+  viewOptions: ViewOptions | undefined,
+  structuralLead = false,
+): string {
+  if (hasStandardViewWhitespace(viewOptions)) return toFragmentText(text);
+  if (text === NBSP) return " ";
+  const hasLead = structuralLead && text.startsWith(NBSP);
+  const body = hasLead ? text.slice(1) : text;
+  return (hasLead ? " " : "") + body.replaceAll(NBSP, "~");
 }
 
 /**
@@ -812,20 +851,41 @@ function $appendChildrenFragment(
   element: ElementNode,
   out: FragmentAccumulator,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
+  charLead?: { pending: boolean },
 ): void {
-  $appendNodesFragment(element.getChildren(), out, getMarkerFn);
+  $appendNodesFragment(element.getChildren(), out, getMarkerFn, viewOptions, charLead);
 }
 
+/**
+ * `charLead`, when given, tracks a char span's ONE structural leading NBSP (see
+ * {@link contentFragmentText}): it starts pending at the span's first child and is consumed by
+ * the first content-position node — glyphs excluded — whether or not that node is the text that
+ * carries the fused prefix (element-first content puts a pure spacer there instead, and any text
+ * AFTER an element's slot has a data leading NBSP, never the structural one).
+ */
 function $appendNodesFragment(
   children: LexicalNode[],
   out: FragmentAccumulator,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
+  charLead?: { pending: boolean },
 ): void {
+  // Reads-and-clears the char span's pending structural-lead flag. Called from every
+  // content-position branch below; glyphs (MarkerNode) never consume it, and the transparent
+  // wrapper branch passes it through instead — a mark wrapper's children sit in the SAME content
+  // positions the wrapper occupies.
+  const consumeCharLead = (): boolean => {
+    const pending = charLead?.pending === true;
+    if (charLead) charLead.pending = false;
+    return pending;
+  };
   for (let index = 0; index < children.length; index++) {
     const node = children[index];
     if ($isMarkerNode(node)) {
       pushText(out, node, toFragmentText(node.getTextContent()));
     } else if ($isMilestoneNode(node)) {
+      consumeCharLead();
       // The MilestoneNode itself contributes no bytes (an invisible decorator); its display
       // run is the marker's actual USFM representation. A re-tokenizable milestone's run flows
       // into the fragment as ordinary text — `scanMilestone` re-derives sid/eid/unknownAttributes
@@ -839,12 +899,14 @@ function $appendNodesFragment(
       // deletion. With no displayable bytes it degrades to an atomic sentinel and survives
       // (the spec's "state not recoverable from displayed bytes → atomic" self-protection).
       if ($isReTokenizableMilestone(node.getMarker(), getMarkerFn) && milestoneRunRendersBytes(run))
-        $appendNodesFragment(run, out, getMarkerFn);
+        $appendNodesFragment(run, out, getMarkerFn, viewOptions);
       else pushSentinel(out, [node, ...run]);
       index += run.length;
     } else if ($isNoteNode(node) || $isUnknownNode(node)) {
+      consumeCharLead();
       pushSentinel(out, [node]);
     } else if ($isVerseNode(node)) {
+      consumeCharLead();
       // A sentinel verse's \va/\vp display run (attributeDisplay.utils.ts) rides inside its
       // sentinel, node and run together — exactly like a non-re-tokenizable milestone's run
       // above. Re-tokenizing the run's bytes on their own (after the verse's own opaque
@@ -858,10 +920,11 @@ function $appendNodesFragment(
         pushSentinel(out, [node, ...run]);
       } else {
         pushText(out, node, toFragmentText($textNodeFragmentText(node)));
-        $appendNodesFragment(run, out, getMarkerFn);
+        $appendNodesFragment(run, out, getMarkerFn, viewOptions);
       }
       index += run.length;
     } else if ($isCharNode(node)) {
+      consumeCharLead();
       // Unknown-marker spans (custom.sty) are not text-recoverable: the tokenizer would degrade
       // them to literal text (preserve-or-refuse). Likewise a span whose attributes have no
       // closing glyph to anchor a display run (`$hasUnrecoverableAttributes`) carries bytes with
@@ -870,16 +933,33 @@ function $appendNodesFragment(
       // `extractAttributes` like the rest of the span's content.
       if ($hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
         pushSentinel(out, [node]);
-      else $appendChildrenFragment(node, out, getMarkerFn);
+      else $appendChildrenFragment(node, out, getMarkerFn, viewOptions, { pending: true });
     } else if ($isLineBreakNode(node)) {
+      consumeCharLead();
       pushText(out, node, " ");
     } else if ($isTextNode(node)) {
-      pushText(out, node, toFragmentText($textNodeFragmentText(node)));
+      // Glyph-adjacent structural text (the para-prefix separator, attribute runs — whose own
+      // leading NBSP is the file's real separator byte before `|…`) keeps the blanket
+      // NBSP-to-space flattening in every view; everything else is a content run, where the
+      // flattening is view-dependent (see `contentFragmentText`).
+      const isStructuralRun =
+        $isMarkerTrailingSeparator(node) || $getState(node, textTypeState) === "attribute";
+      const structuralLead = consumeCharLead() && !isStructuralRun;
+      pushText(
+        out,
+        node,
+        isStructuralRun
+          ? toFragmentText($textNodeFragmentText(node))
+          : contentFragmentText($textNodeFragmentText(node), viewOptions, structuralLead),
+      );
     } else if ($isElementNode(node)) {
       // TypedMarkNode and other transparent wrappers: annotation marks are
-      // host-reapplied overlays; their text content is rebuilt as plain content.
-      $appendChildrenFragment(node, out, getMarkerFn);
+      // host-reapplied overlays; their text content is rebuilt as plain content — in the SAME
+      // content positions the wrapper occupies, so a char span's pending structural lead passes
+      // through to the wrapper's children instead of being consumed by the wrapper itself.
+      $appendChildrenFragment(node, out, getMarkerFn, viewOptions, charLead);
     } else {
+      consumeCharLead();
       pushSentinel(out, [node]);
     }
   }
@@ -897,6 +977,7 @@ function $appendNodesFragment(
 export function $buildParaFragment(
   para: ParaNode,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): FragmentAccumulator | undefined {
   // Guard rails (preserve-or-refuse): a paragraph the engine cannot fully
   // re-derive from its text is never rebuilt — edits inside it stay literal text.
@@ -915,7 +996,7 @@ export function $buildParaFragment(
   for (let parent = para.getParent(); parent !== null; parent = parent.getParent())
     if ($isUnknownNode(parent)) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendChildrenFragment(para, out, getMarkerFn);
+  $appendChildrenFragment(para, out, getMarkerFn, viewOptions);
   return out;
 }
 
@@ -999,11 +1080,12 @@ export function countSentinels(content: MarkerContent[]): number {
 function $spansForNodes(
   nodes: LexicalNode[],
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): { text: string; spans: FragmentSpan[] } {
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const node of nodes) {
     if (out.text.length > 0) out.text += " ";
-    if ($isElementNode(node)) $appendChildrenFragment(node, out, getMarkerFn);
+    if ($isElementNode(node)) $appendChildrenFragment(node, out, getMarkerFn, viewOptions);
   }
   return { text: out.text, spans: out.spans };
 }
@@ -1306,6 +1388,7 @@ function $restoreSelectionAtOffset(
   anchor: CaretByteAnchor | undefined,
   anchorInParas: boolean,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): void {
   // The caret was somewhere else entirely (the primary completion flow: the user
   // typed a mid-edit marker, then clicked/arrowed into another paragraph, which is
@@ -1316,7 +1399,7 @@ function $restoreSelectionAtOffset(
     newNodes.find($isElementNode)?.selectStart();
     return;
   }
-  $selectAtFragmentByteAnchor($spansForNodes(newNodes, getMarkerFn), anchor, newNodes);
+  $selectAtFragmentByteAnchor($spansForNodes(newNodes, getMarkerFn, viewOptions), anchor, newNodes);
 }
 
 /**
@@ -1329,6 +1412,7 @@ function $restoreSelectionInNoteContent(
   anchor: CaretByteAnchor | undefined,
   anchorInNote: boolean,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): void {
   if (!anchorInNote) return;
   if (anchor === undefined) {
@@ -1336,7 +1420,7 @@ function $restoreSelectionInNoteContent(
     return;
   }
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendNodesFragment(newNodes, out, getMarkerFn);
+  $appendNodesFragment(newNodes, out, getMarkerFn, viewOptions);
   $selectAtFragmentByteAnchor({ text: out.text, spans: out.spans }, anchor, newNodes);
 }
 
@@ -1346,7 +1430,7 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
 
   const combined: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const para of paras) {
-    const fragment = $buildParaFragment(para, getMarkerFn);
+    const fragment = $buildParaFragment(para, getMarkerFn, viewOptions);
     if (!fragment) {
       logger?.debug("[MarkerEdit] Tier 2 skipped: paragraph excluded by guard rails");
       return false;
@@ -1463,7 +1547,7 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
     if (newVerses[i].getNumber() === oldVerseSids[i].number)
       newVerses[i].setSid(oldVerseSids[i].sid);
   }
-  $restoreSelectionAtOffset(newNodes, caretAnchor, anchorInParas, getMarkerFn);
+  $restoreSelectionAtOffset(newNodes, caretAnchor, anchorInParas, getMarkerFn, viewOptions);
   return true;
 }
 
@@ -1482,6 +1566,7 @@ export function $rebuildParas(paras: ParaNode[], context: Tier2Context): boolean
 export function $buildNoteFragment(
   note: NoteNode,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): { out: FragmentAccumulator; contentNodes: LexicalNode[] } | undefined {
   // Only inline-expanded notes are re-tokenizable: a collapsed note's content is not
   // inline-editable and its display layout (interspersed spacing) is not text-recoverable.
@@ -1520,7 +1605,7 @@ export function $buildNoteFragment(
 
   const contentNodes = children.slice(start, end);
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendNodesFragment(contentNodes, out, getMarkerFn);
+  $appendNodesFragment(contentNodes, out, getMarkerFn, viewOptions);
   return { out, contentNodes };
 }
 
@@ -1566,7 +1651,7 @@ export function extractLeadingCategoryFold(content: MarkerContent[]): string | u
  */
 export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): boolean {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
-  const built = $buildNoteFragment(note, getMarkerFn);
+  const built = $buildNoteFragment(note, getMarkerFn, viewOptions);
   if (!built) {
     logger?.debug("[MarkerEdit] Note Tier 2 skipped: note excluded by guard rails");
     return false;
@@ -1710,7 +1795,7 @@ export function $rebuildNoteContent(note: NoteNode, context: Tier2Context): bool
   contentNodes.forEach((node) => {
     if (!preservedKeys.has(node.getKey())) node.remove();
   });
-  $restoreSelectionInNoteContent(newNodes, caretAnchor, anchorInNote, getMarkerFn);
+  $restoreSelectionInNoteContent(newNodes, caretAnchor, anchorInNote, getMarkerFn, viewOptions);
   return true;
 }
 
@@ -1760,7 +1845,9 @@ const CHAPTER_ATTRIBUTE_PARA_MARKER = "cp";
 function $isChapterAttributeImpliedPara(node: LexicalNode): node is ImpliedParaNode {
   if (!$isImpliedParaNode(node)) return false;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendChildrenFragment(node, out, bundledGetMarker);
+  // View-independent classification probe: NBSP mapping cannot change whether the text
+  // tokenizes as a chapter-attribute literal, so no view options are threaded here.
+  $appendChildrenFragment(node, out, bundledGetMarker, undefined);
   if (out.sentinels.length > 0) return false;
   const text = out.text;
   if (text.trim() === "") return false;
@@ -1866,13 +1953,14 @@ function $chapterOfAdjacentAttributeNode(rootChild: LexicalNode): ChapterNode | 
 export function $buildChapterFragment(
   chapter: ChapterNode,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): FragmentAccumulator | undefined {
   if (Object.keys(chapter.getUnknownAttributes() ?? {}).length > 0) return undefined;
   const adjacent = $chapterAdjacentAttributeNodes(chapter);
   if (adjacent.some((node) => $isParaNode(node) && node.getUnknownAttributes())) return undefined;
   const out: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
-  $appendNodesFragment(chapter.getChildren(), out, getMarkerFn);
-  $appendNodesFragment(adjacent, out, getMarkerFn);
+  $appendNodesFragment(chapter.getChildren(), out, getMarkerFn, viewOptions);
+  $appendNodesFragment(adjacent, out, getMarkerFn, viewOptions);
   if (out.sentinels.length > 0) return undefined;
   return out;
 }
@@ -1895,7 +1983,7 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
   // paragraph at root — captured BEFORE the splice below detaches them, and the same region
   // `$buildChapterFragment` reads its bytes from.
   const region: LexicalNode[] = [chapter, ...$chapterAdjacentAttributeNodes(chapter)];
-  const out = $buildChapterFragment(chapter, getMarkerFn);
+  const out = $buildChapterFragment(chapter, getMarkerFn, viewOptions);
   if (!out) {
     logger?.debug("[MarkerEdit] Chapter Tier 2 skipped: chapter excluded by guard rails");
     return false;
@@ -1979,7 +2067,7 @@ export function $rebuildChapter(chapter: ChapterNode, context: Tier2Context): bo
 
   newNodes.forEach((node) => chapter.insertBefore(node));
   region.forEach((node) => node.remove());
-  $restoreSelectionAtOffset(newNodes, caretAnchor, anchorInRegion, getMarkerFn);
+  $restoreSelectionAtOffset(newNodes, caretAnchor, anchorInRegion, getMarkerFn, viewOptions);
   return true;
 }
 
@@ -2153,6 +2241,7 @@ function appendContentBytes(content: MarkerContent[] | undefined, out: string[])
 export function $idleSettleWouldDiscardCaretHeldBytes(
   node: LexicalNode,
   getMarkerFn: MarkerLookup,
+  viewOptions: ViewOptions | undefined,
 ): boolean {
   const scope = $settleScopeForNode(node);
   if (!$isParaNode(scope)) return false;
@@ -2169,7 +2258,7 @@ export function $idleSettleWouldDiscardCaretHeldBytes(
       break;
     }
   if (!caretInScope) return false;
-  const fragment = $buildParaFragment(scope, getMarkerFn);
+  const fragment = $buildParaFragment(scope, getMarkerFn, viewOptions);
   if (!fragment) return false;
   const content = usfmFragmentToUsjContent(fragment.text, { getMarker: getMarkerFn });
   if (content.length === 0) return false;
@@ -2178,7 +2267,12 @@ export function $idleSettleWouldDiscardCaretHeldBytes(
     if (!FRAGMENT_WS.test(ch)) counts.set(ch, (counts.get(ch) ?? 0) + 1);
   const folded: string[] = [];
   appendContentBytes(content, folded);
-  for (const ch of folded.join("")) {
+  // Fragment text spells a data NBSP as `~` (in every view: the standard-view display already
+  // shows `~`, and `contentFragmentText` spells unformatted content NBSPs the same way), while
+  // the fold emits the real NBSP byte — which `\s` matches, so it would silently vanish from
+  // this count and report every caret-held data NBSP as a discard. Count it as the fragment
+  // spells it.
+  for (const ch of folded.join("").replaceAll(NBSP, "~")) {
     if (FRAGMENT_WS.test(ch)) continue;
     const remaining = counts.get(ch);
     if (remaining !== undefined && remaining > 0) counts.set(ch, remaining - 1);

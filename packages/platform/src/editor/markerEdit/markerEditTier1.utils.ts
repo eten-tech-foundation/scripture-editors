@@ -1152,7 +1152,7 @@ export function $resolvePendingMarkers(
         mutated = $applyOpenerRename(node, bare[1], context) || mutated;
       else if (
         settleReason === "idle" &&
-        $idleSettleWouldDiscardCaretHeldBytes(node, context.getMarker)
+        $idleSettleWouldDiscardCaretHeldBytes(node, context.getMarker, context.viewOptions)
       ) {
         // The idle tick may not settle a caret-held site whose re-tokenization would DROP the
         // typed byte (accept-then-discard, and the caret's byte would not survive) — the same
@@ -1225,7 +1225,7 @@ export function $resolvePendingMarkers(
     // span — so this is the same rebuild, reached only after the owner's grace has declined.
     if (
       settleReason === "idle" &&
-      $idleSettleWouldDiscardCaretHeldBytes(target, context.getMarker)
+      $idleSettleWouldDiscardCaretHeldBytes(target, context.getMarker, context.viewOptions)
     ) {
       // Same idle carve-out as the marker-glyph arm above: a rebuild that would discard the
       // caret-held typed byte re-pends and settles on genuine departure instead.

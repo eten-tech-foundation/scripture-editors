@@ -475,7 +475,7 @@ function $settledParaNodes(
   // reads must be what that same widened rebuild produces.
   const fragment: FragmentAccumulator = { text: "", spans: [], sentinels: [] };
   for (const para of paras) {
-    const built = $buildParaFragment(para, getMarkerFn);
+    const built = $buildParaFragment(para, getMarkerFn, viewOptions);
     if (!built) return undefined;
     if (fragment.text.length > 0) fragment.text += " ";
     const base = fragment.text.length;
@@ -603,7 +603,7 @@ function $settledNoteContent(
     }
   | undefined {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
-  const built = $buildNoteFragment(note, getMarkerFn);
+  const built = $buildNoteFragment(note, getMarkerFn, viewOptions);
   if (!built) return undefined;
   const { out, contentNodes } = built;
   if (contentNodes.length === 0) return undefined;
@@ -881,7 +881,7 @@ function $settledChapter(
   transient: TransientLiteral | undefined,
 ): SerializedLexicalNode[] | undefined {
   const { viewOptions, getMarker: getMarkerFn, logger } = context;
-  const out = $buildChapterFragment(chapter, getMarkerFn);
+  const out = $buildChapterFragment(chapter, getMarkerFn, viewOptions);
   if (!out) return undefined;
   const fragmentText = transient ? $fragmentTextWithoutTransient(out, transient) : out.text;
   const content: MarkerContent[] = usfmFragmentToUsjContent(fragmentText, {
