@@ -124,6 +124,69 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     expect(css).toContain(".editor-input.usfm .usfm_pr { margin-left: 5vw; text-align: right; }");
   });
 
+  // The host serializer delivers explicit stylesheet zeros (e.g. custom.sty `\FirstLineIndent 0`
+  // overriding usfm.sty); those must EMIT a zero declaration so it can override the static base
+  // sheet, while an absent field must emit nothing so the base sheet applies.
+  describe("explicit zero vs absent", () => {
+    it("emits zero declarations for explicit-zero length fields", () => {
+      const zeroStyleInfo: StyleInfo = {
+        markers: {
+          p: {
+            marker: "p",
+            styleType: "paragraph",
+            firstLineIndent: 0,
+            leftMargin: 0,
+            rightMargin: 0,
+            spaceBefore: 0,
+            spaceAfter: 0,
+          },
+        },
+      };
+      expect(generateUsjCss(zeroStyleInfo)).toBe(
+        ".editor-input.usfm .usfm_p { text-indent: 0vw; margin-left: 0vw; margin-right: 0vw; margin-top: 0pt; margin-bottom: 0pt; }",
+      );
+    });
+
+    it("emits nothing for absent numeric fields (rule omitted entirely)", () => {
+      const absentStyleInfo: StyleInfo = {
+        markers: { p: { marker: "p", styleType: "paragraph" } },
+      };
+      expect(generateUsjCss(absentStyleInfo)).toBe("");
+    });
+
+    it("deliberately drops fontSize 0 (would blank the text) and lineSpacing 0 (PT9 single spacing)", () => {
+      const destructiveZeroStyleInfo: StyleInfo = {
+        defaultFontSize: 0,
+        markers: {
+          p: { marker: "p", styleType: "paragraph", fontSize: 0, lineSpacing: 0, bold: true },
+        },
+      };
+      const css = generateUsjCss(destructiveZeroStyleInfo);
+      expect(css).toBe(".editor-input.usfm .usfm_p { font-weight: bold; }");
+      expect(css).not.toContain("font-size");
+      expect(css).not.toContain("line-height");
+    });
+
+    it("keeps PT9's exclusion of negative margins while negative text-indent still emits", () => {
+      const negativeStyleInfo: StyleInfo = {
+        markers: {
+          q1: {
+            marker: "q1",
+            styleType: "paragraph",
+            firstLineIndent: -0.5,
+            leftMargin: -1,
+            rightMargin: -1,
+            spaceBefore: -4,
+            spaceAfter: -4,
+          },
+        },
+      };
+      expect(generateUsjCss(negativeStyleInfo)).toBe(
+        ".editor-input.usfm .usfm_q1 { text-indent: -10vw; }",
+      );
+    });
+  });
+
   // Values from a project stylesheet flow straight into CSS text, so any value that could break
   // out of its declaration/selector must be neutralized (escaped or validated-and-skipped).
   describe("untrusted value handling", () => {

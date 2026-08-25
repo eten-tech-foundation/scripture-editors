@@ -68,6 +68,19 @@ function escapeCssIdentifier(value: string): string {
  */
 const SAFE_COLOR_REGEX = /^[#\w().,%/\s-]+$/;
 
+/**
+ * Presence gate for numeric stylesheet fields: emit iff the serializer delivered a value —
+ * INCLUDING an explicit 0. PT9's ScrTag cannot distinguish "unset" from "explicitly 0" (both are
+ * the int 0, so CSSCreator.cs gates on `!= 0`/`> 0`), but this wire can: an explicit stylesheet 0
+ * (e.g. `\FirstLineIndent 0`) must EMIT `text-indent: 0` so it overrides the static base sheet's
+ * declaration for the marker, while an absent field must emit nothing so the base sheet applies.
+ * The wire type says `number | undefined`, but the value crosses a JSON boundary where a host-side
+ * null survives parsing, so null is treated as absent too.
+ */
+function hasValue(value: number | undefined): value is number {
+  return value !== undefined && value !== null;
+}
+
 /** The scope prefix used when none is supplied — see {@link UsjCssOptions.containerSelector}. */
 const DEFAULT_CONTAINER_SELECTOR = ".editor-input.usfm";
 
@@ -109,19 +122,29 @@ function markerDeclarations(
       );
     }
   }
-  if (entry.fontSize) decls.push(`font-size: ${Math.floor((entry.fontSize * 100) / 12)}%`);
-  if (entry.firstLineIndent)
+  // An explicit fontSize 0 stays un-emitted BY DESIGN (PT9 `FontSize > 0`): `font-size: 0%`
+  // would blank the marker's text, and unlike the length fields there is no meaningful
+  // "override to zero" reading of it.
+  if (hasValue(entry.fontSize) && entry.fontSize > 0)
+    decls.push(`font-size: ${Math.floor((entry.fontSize * 100) / 12)}%`);
+  if (hasValue(entry.firstLineIndent))
     decls.push(`text-indent: ${formatLength(entry.firstLineIndent * 20 * zoom)}vw`);
-  if (entry.leftMargin && entry.leftMargin > 0)
+  // Margins and spaces: an explicit 0 emits (see `hasValue`); negative values stay un-emitted
+  // like PT9 (`> 0` in CSSCreator.cs — only firstLineIndent supports negatives, for hanging
+  // indents).
+  if (hasValue(entry.leftMargin) && entry.leftMargin >= 0)
     decls.push(`margin-${rtl ? "right" : "left"}: ${formatLength(entry.leftMargin * 20 * zoom)}vw`);
-  if (entry.rightMargin && entry.rightMargin > 0)
+  if (hasValue(entry.rightMargin) && entry.rightMargin >= 0)
     decls.push(
       `margin-${rtl ? "left" : "right"}: ${formatLength(entry.rightMargin * 20 * zoom)}vw`,
     );
-  if (entry.spaceBefore && entry.spaceBefore > 0)
+  if (hasValue(entry.spaceBefore) && entry.spaceBefore >= 0)
     decls.push(`margin-top: ${formatLength(entry.spaceBefore * zoom)}pt`);
-  if (entry.spaceAfter && entry.spaceAfter > 0)
+  if (hasValue(entry.spaceAfter) && entry.spaceAfter >= 0)
     decls.push(`margin-bottom: ${formatLength(entry.spaceAfter * zoom)}pt`);
+  // lineSpacing is a discrete code, not a length: 1 → 1.5, 2 → double. An explicit 0 (single
+  // spacing) emits nothing BY DESIGN, matching PT9 (CSSCreator.cs deliberately comments out its
+  // `case 0: line-height:1`).
   if (entry.lineSpacing === 1) decls.push("line-height: 1.5");
   else if (entry.lineSpacing === 2) decls.push("line-height: 2");
   // Deliberate duplicate-property cascade: a marker with both fontSize and sub/superscript emits
@@ -162,7 +185,9 @@ export function generateUsjCss(styleInfo: StyleInfo, options: UsjCssOptions = {}
   const baseDecls: string[] = [];
   if (styleInfo.defaultFont)
     baseDecls.push(`font-family: "${escapeCssString(styleInfo.defaultFont)}"`);
-  if (styleInfo.defaultFontSize)
+  // Like the per-marker fontSize: a 0 default would blank the whole editor, so only positive
+  // sizes emit.
+  if (hasValue(styleInfo.defaultFontSize) && styleInfo.defaultFontSize > 0)
     baseDecls.push(`font-size: ${formatLength(styleInfo.defaultFontSize * zoom)}pt`);
   if (baseDecls.length > 0) rules.push(`${scope} { ${baseDecls.join("; ")}; }`);
   for (const [marker, entry] of Object.entries(styleInfo.markers)) {
