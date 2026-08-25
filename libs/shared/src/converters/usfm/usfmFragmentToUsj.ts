@@ -313,12 +313,12 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
     } else if (kind === MarkerType.Character) {
       consumeSeparator();
       tokens.push({ kind: "charOpen", marker: clean, isNested });
-    } else if (ATTRIBUTE_MARKERS[clean]) {
+    } else if (attributeMarker(clean)) {
       // Attribute markers (ca/cp/va/vp/cat) are parser-level in ParatextData, not stylesheet
       // entries — classify them by their fixed shape when the sheet doesn't know them, so
       // the assembly loop can fold them onto their target (or keep them standalone).
       consumeSeparator();
-      if (ATTRIBUTE_MARKERS[clean].shape === "para") tokens.push({ kind: "para", marker: name });
+      if (attributeMarker(clean)?.shape === "para") tokens.push({ kind: "para", marker: name });
       else tokens.push({ kind: "charOpen", marker: clean, isNested });
     } else {
       // Unknown to the effective stylesheet: PT9 resolves by context
@@ -366,6 +366,17 @@ export const ATTRIBUTE_MARKERS: {
   vp: { attrName: "pubnumber", targetTypes: ["verse"], shape: "char" },
   cat: { attrName: "category", targetTypes: ["note", "sidebar"], shape: "char" },
 };
+
+/**
+ * The attribute-marker entry for `marker`, or undefined if there is none.
+ *
+ * Goes through `Object.hasOwn` rather than indexing directly: a marker whose name collides with an
+ * `Object.prototype` member (`\toString`, `\constructor`) would otherwise resolve to the inherited
+ * function and read as a declared attribute marker.
+ */
+function attributeMarker(marker: string): (typeof ATTRIBUTE_MARKERS)[string] | undefined {
+  return Object.hasOwn(ATTRIBUTE_MARKERS, marker) ? ATTRIBUTE_MARKERS[marker] : undefined;
+}
 
 const ATTRIBUTE_PAIR_REGEX = /([-\w]+)\s*=\s*"(.*?)"/g;
 
@@ -589,8 +600,19 @@ function scanMilestone(
     // it while dropping the attribute bytes would lose those; this loses neither. A bare `|` with
     // nothing after it is not this case — there are no bytes to keep, and dropping it is the
     // ratified answer for a `|` typed into a milestone glyph.
-    if (!attributes && between.slice(pipeIndex + 1).trim() !== "")
-      return { token: { kind: "milestone", marker: name }, next: index + pipeIndex };
+    if (!attributes && between.slice(pipeIndex + 1).trim() !== "") {
+      // Content BEFORE the `|` is ejected here too, for the same reason the valid-attribute path
+      // below ejects it: it is bytes the milestone cannot hold, and resuming the scan at the `|`
+      // would skip straight past it. `\\qt1-s things|who=""\\*` keeps `things` as a sibling
+      // rather than deleting it, and still converges — re-tokenizing the ejected spelling
+      // `\\qt1-s\\*things|who=""\\*` reaches the same tree.
+      const beforePipe = between.slice(0, pipeIndex);
+      return {
+        token: { kind: "milestone", marker: name },
+        next: index + pipeIndex,
+        ejectedText: beforePipe.trim() !== "" ? beforePipe.replace(/^[ \u00A0]/, "") : undefined,
+      };
+    }
   }
   // Content a milestone cannot hold — the bytes before a valid attribute list, or, when there is
   // no `|` at all, everything between the marker and the closer. A milestone is self-closing, so
@@ -1031,7 +1053,7 @@ export function usfmFragmentToUsjContent(
         clearAttrTarget();
       } else if (token.kind === "charOpen" || token.kind === "para") {
         const foldable =
-          token.kind === "para" || !token.isNested ? ATTRIBUTE_MARKERS[token.marker] : undefined;
+          token.kind === "para" || !token.isNested ? attributeMarker(token.marker) : undefined;
         if (foldable && foldable.targetTypes.includes(attrTarget.type)) {
           // Whitespace between the target and its attribute marker is structural — dropped.
           heldWhitespace = "";

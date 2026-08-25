@@ -102,7 +102,10 @@ function includeMarker(marker: string, extraValidMarkers?: readonly string[]): b
 }
 
 function toStackEntry(styleInfo: StyleInfo, marker: string): ParaStackEntry | undefined {
-  const entry = styleInfo.markers[marker];
+  // `Object.hasOwn`, not a bare index: a document paragraph marked `\toString` (or any other
+  // `Object.prototype` member name) would otherwise resolve to the inherited function and build a
+  // stack entry for a marker the stylesheet never declared.
+  const entry = Object.hasOwn(styleInfo.markers, marker) ? styleInfo.markers[marker] : undefined;
   if (!entry) return undefined;
   return { marker, rank: entry.rank ?? 0, occursUnder: entry.occursUnder ?? [] };
 }

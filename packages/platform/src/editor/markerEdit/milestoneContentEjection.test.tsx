@@ -213,6 +213,35 @@ describe("a milestone ejects content it cannot hold", () => {
     ]);
   });
 
+  it("keeps content before an unparseable attribute list, not just the bytes after it", async () => {
+    // The unparseable-list branch resumed the scan AT the `|`, which skipped everything between
+    // the marker and it — so content before an unparseable list was deleted outright while the
+    // same content before a PARSEABLE list (the test below) was correctly ejected. A milestone
+    // holds neither, so both must come out the far side of it.
+    const editor = await typeAndSettle(`\\qt1-s things|who=""\\*`);
+    expect(paraContent(editor)).toEqual([
+      "before ",
+      { type: "ms", marker: "qt1-s" },
+      `things|who=""`,
+      { type: "unmatched", marker: "*" },
+    ]);
+  });
+
+  it("refuses to rebuild the ejected content-plus-unparseable-list document it SAVED", async () => {
+    // The fixed point for the case above, driven the way a reload drives it (retyping no longer
+    // reaches this document — see the sibling below).
+    const settled: MarkerContent[] = [
+      "before ",
+      { type: "ms", marker: "qt1-s" },
+      `things|who=""`,
+      { type: "unmatched", marker: "*" },
+    ];
+    const editor = await loadParas(settled);
+    expect(paraContent(editor)).toEqual(settled);
+    expect(await rebuiltFirstPara(editor)).toBe(false);
+    expect(paraContent(editor)).toEqual(settled);
+  });
+
   it("refuses to rebuild the document that settle SAVED, so a reload moves nothing", async () => {
     // The fixed point, driven the way a reload actually drives it: load the document the test
     // above saves and ask for the rebuild again. It must refuse, and the file must come back

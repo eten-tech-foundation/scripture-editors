@@ -1565,6 +1565,17 @@ describe("PT9 unknown-marker handling", () => {
     ]);
   });
 
+  it("a marker named after an Object.prototype member is unknown, not an attribute marker", () => {
+    // The attribute-marker table (ca/cp/va/vp/cat) is a plain object, so indexing it with
+    // `toString` returns the INHERITED function — truthy, and enough to classify the marker as a
+    // parser-level attribute marker whose `shape` is undefined. It must resolve by context like
+    // any other marker the stylesheet does not declare: a paragraph in body text.
+    expect(usfmFragmentToUsjContent("\\p before \\toString after")).toEqual([
+      { type: "para", marker: "p", content: ["before "] },
+      { type: "para", marker: "toString", content: ["after"] },
+    ]);
+  });
+
   it("esb stays a paragraph even in note context (UsfmToken.cs special case)", () => {
     const content = usfmFragmentToUsjContent("\\ft text \\esb more", { isNoteContext: true });
     expect(content[content.length - 1]).toMatchObject({ type: "para", marker: "esb" });
