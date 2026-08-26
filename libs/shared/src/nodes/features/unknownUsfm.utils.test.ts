@@ -114,6 +114,28 @@ const cases: Case[] = [
     unknownAttributes: { colspan: "2" },
     expected: { opening: "\\tc ", attributes: "", closingAttributes: "", closing: "" },
   },
+  // Degenerate-marker pins for the trailing-digit scan: an ALL-digit marker's start column is the
+  // whole marker, and a long digit run that ends in a non-digit has no trailing digits at all —
+  // the adversarial shape the scan must both answer correctly and answer in linear time.
+  {
+    name: "table:cell span re-encoding treats an all-digit marker's whole name as the start column",
+    tag: "table:cell",
+    marker: "123",
+    unknownAttributes: { colspan: "2" },
+    expected: { opening: "\\123-124 ", attributes: "", closingAttributes: "", closing: "" },
+  },
+  {
+    name: "table:cell with a long digit run ending in a non-digit has no trailing start column and stays bare",
+    tag: "table:cell",
+    marker: `${"0".repeat(500)}X`,
+    unknownAttributes: { colspan: "2" },
+    expected: {
+      opening: `\\${"0".repeat(500)}X `,
+      attributes: "",
+      closingAttributes: "",
+      closing: "",
+    },
+  },
   {
     name: "sidebar with a category renders \\cat as its own char-shaped marker after \\esb",
     tag: "sidebar",

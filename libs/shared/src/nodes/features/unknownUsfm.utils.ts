@@ -144,9 +144,19 @@ function tableCellMarkerWithSpan(
   if (marker === undefined) return undefined;
   const spanCount = Number(colspan);
   if (!Number.isInteger(spanCount) || spanCount < 2) return marker;
-  const startColumnMatch = /(\d+)$/.exec(marker);
-  if (!startColumnMatch) return marker;
-  return `${marker}-${Number(startColumnMatch[1]) + spanCount - 1}`;
+  // The trailing start column is found by a manual backward scan rather than `/(\d+)$/`: an
+  // end-anchored greedy digit run makes the regex engine retry the match from every position of a
+  // long digit run (quadratic on adversarial markers like "000…0X"), while the scan is linear.
+  // Byte-identical to the regex for every input — a marker that is ALL digits contributes the
+  // whole string as its start column, exactly as `(\d+)$` would match it.
+  let digitsStart = marker.length;
+  while (digitsStart > 0) {
+    const charCode = marker.charCodeAt(digitsStart - 1);
+    if (charCode < 0x30 || charCode > 0x39) break; // outside '0'..'9'
+    digitsStart -= 1;
+  }
+  if (digitsStart === marker.length) return marker;
+  return `${marker}-${Number(marker.slice(digitsStart)) + spanCount - 1}`;
 }
 
 /**
