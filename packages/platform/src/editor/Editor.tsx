@@ -981,6 +981,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             getMarker={markerLookup}
             logger={stableLogger}
             markerSettleDelayMs={markerSettleDelayMs}
+            structureProtectionMode={structureProtectionMode}
           />
           <MarkerValidationPlugin
             styleInfo={styleInfo}

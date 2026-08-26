@@ -1,5 +1,8 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
+  copyEvent,
+  findOnlyNote,
+  pasteEvent,
   serializedState,
   testEnvironment,
   testEnvironmentWithDisplaySyncs,
@@ -17,7 +20,7 @@ import { LexicalClipboardData } from "@lexical/clipboard";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
-import { usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
+import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
 import { $dfs } from "@lexical/utils";
 import {
   $createPoint,
@@ -37,11 +40,15 @@ import {
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
+  $isCharNode,
+  $isMarkerNode,
   $isParaNode,
   NBSP,
+  NoteNode,
   ParaNode,
   textTypeState,
 } from "shared";
+import { StructureKeyboardPlugin } from "shared-react";
 
 /**
  * Null-event leg: ClipboardPlugin/ContextMenuPlugin/EditorRef dispatch COPY_COMMAND/
@@ -69,25 +76,6 @@ vi.mock("@lexical/clipboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@lexical/clipboard")>();
   return { ...actual, copyToClipboard: copyToClipboardSpy };
 });
-
-/**
- * jsdom (see StructureKeyboardPlugin.test.tsx's `htmlPasteEvent`) doesn't implement
- * `ClipboardEvent`/`DataTransfer`; the handler under test only touches
- * `clipboardData.setData`/`preventDefault`, so a minimal stub covers it.
- */
-function copyEvent(): { event: ClipboardEvent; getData: (type: string) => string } {
-  const store = new Map<string, string>();
-  const clipboardData = {
-    getData: (type: string) => store.get(type) ?? "",
-    setData: (type: string, data: string) => {
-      store.set(type, data);
-    },
-  };
-  return {
-    event: { clipboardData, preventDefault: vi.fn() } as unknown as ClipboardEvent,
-    getData: (type: string) => clipboardData.getData(type),
-  };
-}
 
 /**
  * Builds `<p>` + a marker-trailing-space NBSP + `text` as siblings. The trailing-space node's
@@ -617,22 +605,47 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
   });
 });
 
-describe("paste normalization ($handlePasteForStandardView)", () => {
-  function pasteEvent(payload: { [key: string]: string }): {
-    event: ClipboardEvent;
-    prevented: () => boolean;
-  } {
-    let prevented = false;
-    const clipboardData = { getData: (type: string) => payload[type] ?? "" };
-    const event = {
-      clipboardData,
-      preventDefault: () => {
-        prevented = true;
-      },
-    } as unknown as ClipboardEvent;
-    return { event, prevented: () => prevented };
-  }
+/**
+ * Pastes `payload` at the current selection, settles Tier 2's structural rebuild, then selects
+ * the whole document and copies it back out, returning the round-tripped `text/plain`. A raw
+ * literal marker pair like `\nd`…`\nd*` only becomes its canonical node shape once Tier 2
+ * rebuilds it — and that rebuild re-derives its OWN structural separator byte regardless of
+ * whether this handler inserted a plain space or left an NBSP, so asserting on raw post-paste
+ * text content pins Tier 2's rebuild timing, not this handler's contract. Comparing USFM strings
+ * before and after a full round trip is what the live repro and this task actually care about:
+ * whether the marker was recognized and the data survived — not which byte an about-to-be-
+ * rebuilt separator held for one commit. `$selectionToUsfmText` (the copy leg) inverts every
+ * STRUCTURAL NBSP back to a plain space regardless of which one Tier 2 chose, so the round trip
+ * is meaningful however Tier 2 shapes the interim tree.
+ */
+async function pasteAndCopyBack(
+  editor: LexicalEditor,
+  payload: { [key: string]: string },
+): Promise<string> {
+  let handled = false;
+  await act(async () =>
+    editor.update(() => {
+      handled = $handlePasteForStandardView(pasteEvent(payload).event);
+    }),
+  );
+  expect(handled).toBe(true);
+  // Settle Tier 2 the same way neighboring suites do (a double microtask flush).
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () =>
+    editor.update(() => {
+      const root = $getRoot();
+      root.select(0, root.getChildrenSize());
+    }),
+  );
+  const { event, getData } = copyEvent();
+  await act(async () => editor.dispatchCommand(COPY_COMMAND, event));
+  return getData("text/plain");
+}
 
+describe("paste normalization ($handlePasteForStandardView)", () => {
   it("rewrites a pasted data-NBSP to the `~` display form (data round-trips to a real NBSP)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
@@ -660,7 +673,7 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     });
   });
 
-  it("passes through internal pastes (lexical payload) and NBSP-free plain text", async () => {
+  it("declines internal pastes (a same-namespace `application/x-lexical-editor` payload is present)", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
@@ -673,15 +686,41 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
       "application/x-lexical-editor": "{}",
       "text/plain": `x${NBSP}y`,
     });
-    const plain = pasteEvent({ "text/plain": "no nbsp here" });
+    let handled = true;
     await act(async () =>
       editor.update(() => {
-        expect($handlePasteForStandardView(internal.event)).toBe(false);
-        expect($handlePasteForStandardView(plain.event)).toBe(false);
+        handled = $handlePasteForStandardView(internal.event);
       }),
     );
+    expect(handled).toBe(false);
     expect(internal.prevented()).toBe(false);
-    expect(plain.prevented()).toBe(false);
+  });
+
+  it("claims an external plain-text paste with no NBSP at all, inserting it unchanged", async () => {
+    // Previously this handler only claimed NBSP-bearing pastes; every OTHER external paste fell
+    // through to Lexical's own HTML/plain-text handling. It now claims every non-lexical paste —
+    // Standard view has no fidelity carrier but plain text, so an NBSP-free paste re-tokenizes
+    // the same way an NBSP-bearing one does.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const { event, prevented } = pasteEvent({ "text/plain": "no nbsp here" });
+    let handled = false;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handlePasteForStandardView(event);
+      }),
+    );
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("no nbsp here");
+    });
   });
 
   it("rewrites an NBSP found only in a `text/html` payload (word-processor `&nbsp;`) to `~`, with no `text/plain` data", async () => {
@@ -720,19 +759,21 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
       text = $createTextNode("before after");
       $getRoot().append(para.append($createMarkerNode("p"), sep, text));
     });
-    await act(async () => editor.update(() => text.select(7, 7))); // between "before " and "after"
 
-    const { event } = pasteEvent({
-      "text/html": "<p>one&nbsp;two</p><p>three<br>four</p>",
-    });
-    let handled = false;
+    // Dispatched through PASTE_COMMAND (not a direct handler call): a multi-line insert only
+    // gets its fresh paragraphs correctly prefixed when it goes through MarkerEditPlugin's own
+    // registration, which arms `context.splitExpected` before inserting — see "multi-line paste
+    // interplay" below.
     await act(async () =>
       editor.update(() => {
-        handled = $handlePasteForStandardView(event);
+        text.select(7, 7); // between "before " and "after"
+        editor.dispatchCommand(
+          PASTE_COMMAND,
+          pasteEvent({ "text/html": "<p>one&nbsp;two</p><p>three<br>four</p>" }).event,
+        );
       }),
     );
 
-    expect(handled).toBe(true);
     editor.getEditorState().read(() => {
       // Block boundaries and <br> become newlines, so "two"/"three" don't fuse into one word —
       // and each newline is then replayed as a real paragraph split (see the line-replay
@@ -803,7 +844,10 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     });
   });
 
-  it("falls through to default html handling when `text/html` carries no NBSP (raw or decoded)", async () => {
+  it("claims Word-style external HTML, inserting plain text with no formatting nodes", async () => {
+    // Previously this fell through to Lexical's own HTML import whenever text/html carried no
+    // NBSP, which would have created a bold-formatted TextNode from the `<b>`. It now claims
+    // every non-lexical paste and never imports the html at all.
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       const para = $createParaNode("p");
@@ -812,16 +856,28 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     });
     await act(async () => editor.update(() => text.select(0, 0)));
 
-    const { event, prevented } = pasteEvent({ "text/html": "<p><b>bold text</b></p>" });
-    let handled = true;
+    const { event, prevented } = pasteEvent({
+      "text/html": "<p><b>bold</b> text</p>",
+      "text/plain": "bold text",
+    });
+    let handled = false;
     await act(async () =>
       editor.update(() => {
         handled = $handlePasteForStandardView(event);
       }),
     );
 
-    expect(handled).toBe(false);
-    expect(prevented()).toBe(false);
+    expect(handled).toBe(true);
+    expect(prevented()).toBe(true);
+    editor.getEditorState().read(() => {
+      expect($getRoot().getTextContent()).toContain("bold text");
+      // No formatting survived the plain-text carrier: every text node is unformatted, unlike a
+      // real Lexical HTML import of `<b>`, which would set the bold flag on a new TextNode.
+      const textNodes = $dfs($getRoot())
+        .map(({ node }) => node)
+        .filter($isTextNode);
+      textNodes.forEach((node) => expect(node.getFormat()).toBe(0));
+    });
   });
 
   it("keeps current behavior (declines) when an `application/x-lexical-editor` payload is present, even if `text/html` carries NBSP", async () => {
@@ -846,6 +902,493 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
 
     expect(handled).toBe(false);
     expect(prevented()).toBe(false);
+  });
+
+  it("does not double a Standard-view-shaped `<span data-marker>` glyph — the paste never reaches Lexical's HTML import", async () => {
+    // Shaped like Standard view's own exported markup (a data-marker span, marker glyph as real
+    // text) — the shape that would, if this ever reached Lexical's `$generateNodesFromDOM`
+    // import, produce a structural CharNode from the span AND a second, literal "\nd" from the
+    // marker glyph's own text (MarkerNode has no importDOM). Both text/html and text/plain carry
+    // the same bytes, matching a real Standard-view copy. Round-tripped through copy (rather than
+    // read as raw post-paste text) so an exact-equality check is meaningful: a doubled glyph
+    // would show up as extra "\nd"/"\nd*" occurrences in the copied USFM.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      text = $createTextNode("body");
+      $getRoot().append(para.append($createMarkerNode("p"), text));
+    });
+    await act(async () => editor.update(() => text.select(0, 0)));
+
+    const source = `\\nd${NBSP}light\\nd*`;
+    const roundTripped = await pasteAndCopyBack(editor, {
+      "text/html": `<span data-marker="nd">${source}</span>`,
+      "text/plain": source,
+    });
+
+    expect(roundTripped).toContain("\\nd light\\nd*body");
+    // "\nd" appears exactly twice: the opener itself, and the "\nd" prefix of "\nd*". A doubled
+    // glyph (the HTML-import path this handler must never reach) would show four.
+    expect(roundTripped.split("\\nd").length - 1).toBe(2);
+    // Round-tripped bytes alone can't distinguish "tokenized into a real CharNode" from "survived
+    // as literal, never-recognized text" (both would copy back the same bytes) — so check the
+    // node shape directly: Tier 2 (settled inside `pasteAndCopyBack`) must have produced exactly
+    // one real `nd` CharNode, not left the pasted span as literal text.
+    editor.getEditorState().read(() => {
+      const chars = $dfs($getRoot())
+        .map(({ node }) => node)
+        .filter($isCharNode);
+      expect(chars.filter((char) => char.getMarker() === "nd")).toHaveLength(1);
+    });
+  });
+
+  describe("positional NBSP normalization", () => {
+    // These replace the old blanket NBSP→`~` pins above (the ones with no marker in the pasted
+    // text stay unaffected — every existing NBSP-preservation pin above still holds byte-for-byte
+    // under the positional rule; there was simply no marker adjacency in them to normalize).
+    it("an NBSP immediately after a marker token is treated as a display artifact, not corrupted into `~` (the 2026-08-07 live-repro shape, fixed)", async () => {
+      // Live repro: a same-editor paste of a copied footnote turned every display-NBSP into a
+      // literal `~`, corrupting `\f`/`\fr`/`\ft` into unknown-marker soup (see the round-trip
+      // regression below for the full footnote). This is the minimal reproduction of one such
+      // position — the required separator right after an opening glyph. Round-tripped through
+      // copy (see `pasteAndCopyBack`'s doc comment): once Tier 2 recognizes the full `\nd`…`\nd*`
+      // pair it rebuilds its own canonical structural separator regardless of which byte this
+      // handler inserted, so the meaningful check is that the marker was recognized at all
+      // (round-trips clean) rather than which byte survives for one commit pre-rebuild.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/plain": `\\nd${NBSP}light\\nd*`,
+      });
+
+      expect(roundTripped).toContain("\\nd light\\nd*");
+      expect(roundTripped).not.toContain("~");
+    });
+
+    it("a double NBSP after a marker token: only the first is marker-adjacent — the second is interior data (`\\nd ~light`)", async () => {
+      // Only ONE NBSP per marker adjacency is treated as a display artifact — a SECOND,
+      // unexplained NBSP right after it is preserved as data rather than silently dropped, since
+      // losing user data is worse than the reverse. `\nd` + NBSP + NBSP + `light`: the
+      // after-marker pass matches `\nd` + the FIRST NBSP only (consuming that pair), so the
+      // second NBSP is left with nothing recognized immediately before or after it and falls
+      // through to the interior/data pass. Round-tripped through copy (see `pasteAndCopyBack`'s
+      // doc comment): `\nd` alone (no closer) is still a real opener Tier 1 recognizes and
+      // re-derives its own canonical separator for, discarding whichever byte this handler
+      // inserted there — the same interim-shape caveat the closed-pair positional tests above
+      // sidestep the same way. The SECOND NBSP is untouched by any such rebuild (it is already a
+      // literal `~` character by the time Tier 1/2 sees it), so it survives the round trip as-is.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/plain": `\\nd${NBSP}${NBSP}light`,
+      });
+
+      expect(roundTripped).toContain("\\nd ~light");
+    });
+
+    it("an NBSP with no adjacent marker token is genuine data and stays `~`", async () => {
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const { event } = pasteEvent({ "text/plain": `word${NBSP}word` });
+      let handled = false;
+      await act(async () =>
+        editor.update(() => {
+          handled = $handlePasteForStandardView(event);
+        }),
+      );
+
+      expect(handled).toBe(true);
+      editor.getEditorState().read(() => {
+        expect($getRoot().getTextContent()).toContain("word~word");
+      });
+    });
+
+    it("an NBSP sitting before a closing marker (not following one) is dropped — a structural spacer with no source counterpart", async () => {
+      // Browser-hop shape: `\nd` + NBSP + `Lord` + NBSP + `\nd*`. The first NBSP follows the
+      // opening marker (display artifact → space). The second precedes the closer instead of
+      // following one: `createNote` (usj-editor.adaptor.ts) proves a note-level spacer sits in
+      // exactly this position (before `\ft`/`\f*`, not just after an opener), so this is a
+      // structural artifact too — but with no source USFM byte to become (`\nd Lord\nd*` needs no
+      // space before its closer at all) — so it is DROPPED entirely, not spaced and not kept as
+      // `~`. Round-tripped through copy (see `pasteAndCopyBack`) to sidestep asserting on Tier 2's
+      // pre-rebuild interim text.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/plain": `\\nd${NBSP}Lord${NBSP}\\nd*`,
+      });
+
+      expect(roundTripped).toContain("\\nd Lord\\nd*");
+      expect(roundTripped).not.toContain("~");
+    });
+
+    it("normalizes a leading NBSP with no preceding marker literal (a partial selection starting at a char span's structural separator)", async () => {
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const { event } = pasteEvent({ "text/plain": `${NBSP}Lord` });
+      let handled = false;
+      await act(async () =>
+        editor.update(() => {
+          handled = $handlePasteForStandardView(event);
+        }),
+      );
+
+      expect(handled).toBe(true);
+      editor.getEditorState().read(() => {
+        const content = $getRoot().getTextContent();
+        expect(content).toContain(" Lord");
+        expect(content).not.toContain("~Lord");
+      });
+    });
+
+    it("html-only payload (no text/plain): text derived via `htmlPasteText` is positionally normalized the same way", async () => {
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/html": `<p>\\nd${NBSP}light\\nd*</p>`,
+      });
+
+      expect(roundTripped).toContain("\\nd light\\nd*");
+    });
+
+    it("recognizes a nested char marker (`\\+nd`) as a marker token — the NBSP after it does not gain `~`", async () => {
+      // Round-tripped through copy (see `pasteAndCopyBack`'s doc comment): `\wj`/`\+nd` are real
+      // recognized char markers, so Tier 2 rebuilds both the outer and nested span, re-deriving
+      // its own canonical structural leading separator for each (discarding whatever byte this
+      // handler inserted) — the same interim-shape caveat the simple single-marker positional
+      // tests above sidestep the same way.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/plain": `\\wj li\\+nd${NBSP}g\\+nd*ht\\wj*`,
+      });
+
+      expect(roundTripped).toContain("\\wj li\\+nd g\\+nd*ht\\wj*");
+      expect(roundTripped).not.toContain("~");
+    });
+
+    it("recognizes a milestone's anonymous self-closer (`\\*`) as a marker token — the NBSP after it does not gain `~`", async () => {
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const { event } = pasteEvent({ "text/plain": `\\qt-s\\*${NBSP}after` });
+      let handled = false;
+      await act(async () =>
+        editor.update(() => {
+          handled = $handlePasteForStandardView(event);
+        }),
+      );
+
+      expect(handled).toBe(true);
+      editor.getEditorState().read(() => {
+        const content = $getRoot().getTextContent();
+        expect(content).toContain("\\qt-s\\* after");
+        expect(content).not.toContain("~");
+      });
+    });
+  });
+
+  describe("multi-line paste interplay (splitExpected arming)", () => {
+    it("an NBSP-bearing multi-line paste both splits into prefixed paragraphs AND normalizes NBSPs positionally", async () => {
+      // Latent bug this closes: the old NBSP-only gate called `selection.insertText` on the
+      // WHOLE multi-line string with no paragraph-splitting logic at all, so a pasted "\n"
+      // landed as a literal character inside one text run instead of a paragraph break — an
+      // NBSP-bearing multi-line paste was never actually split. Dispatched via PASTE_COMMAND (not
+      // a direct handler call) so MarkerEditPlugin's own registration arms
+      // `context.splitExpected` before inserting; a direct call defaults that callback to a
+      // no-op and the freshly split paragraphs would be merged back as "marker deleted".
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const sep = $createTextNode(NBSP);
+        $setState(sep, textTypeState, "marker-trailing-space");
+        text = $createTextNode("before after");
+        $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          text.select(7, 7); // between "before " and "after"
+          editor.dispatchCommand(
+            PASTE_COMMAND,
+            pasteEvent({ "text/plain": `one${NBSP}two\nthree${NBSP}four` }).event,
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras.map((p) => p.getMarker())).toEqual(["p", "p"]);
+        paras.forEach((p) => expect($isMarkerNode(p.getFirstChild())).toBe(true));
+        // Neither NBSP is marker-adjacent (no `\marker` anywhere in this paste), so both stay
+        // data (`~`) across the paragraph split.
+        expect(paras[0].getTextContent()).toContain("before one~two");
+        expect(paras[1].getTextContent()).toContain("three~four");
+      });
+    });
+
+    it("a leading NBSP on a SECOND line (right after an internal `\\n`, not string-start) also normalizes to a space, under the `gm`-flagged leading-NBSP pass", async () => {
+      // `$normalizePastedNbsp`'s leading-NBSP pass uses the `gm` flags, so `^` matches after
+      // every `\n`, not just at the very start of the whole paste — a later paragraph of a
+      // multi-line paste can itself start mid-span (a partial selection spanning a paragraph
+      // boundary) and reads as the same structural separator the string-start case does.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        const sep = $createTextNode(NBSP);
+        $setState(sep, textTypeState, "marker-trailing-space");
+        text = $createTextNode("before after");
+        $getRoot().append(para.append($createMarkerNode("p"), sep, text));
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          text.select(7, 7); // between "before " and "after"
+          editor.dispatchCommand(
+            PASTE_COMMAND,
+            pasteEvent({ "text/plain": `one\n${NBSP}two` }).event,
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras[0].getTextContent()).toContain("before one");
+        // The second line's leading NBSP became a plain space, not data — no `~` anywhere.
+        expect(paras[1].getTextContent()).toContain(" twoafter");
+        expect(paras[1].getTextContent()).not.toContain("~");
+      });
+    });
+
+    it("normalizes a bare `\\r` (no `\\n`) to a paragraph break instead of inserting a control character", async () => {
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+
+      await act(async () =>
+        editor.update(() => {
+          text.select(0, 0);
+          editor.dispatchCommand(
+            PASTE_COMMAND,
+            pasteEvent({ "text/plain": "first\rsecond" }).event,
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const paras = $getRoot().getChildren().filter($isParaNode);
+        expect(paras).toHaveLength(2);
+        expect(paras[0].getTextContent()).toContain("first");
+        expect(paras[1].getTextContent()).toContain("second");
+        expect($getRoot().getTextContent()).not.toContain("\r");
+      });
+    });
+  });
+
+  describe("structure protection", () => {
+    async function protectedTestEnvironment($initialEditorState: () => void) {
+      return baseTestEnvironment(
+        $initialEditorState,
+        <>
+          <MarkerEditPlugin viewOptions={viewOptions} structureProtectionMode="protected" />
+          <StructureKeyboardPlugin structureProtectionMode="protected" />
+        </>,
+      );
+    }
+
+    it("declines when the document is structure-protected, letting StructureKeyboardPlugin's sanitizer govern the paste", async () => {
+      // Both plugins register PASTE_COMMAND at COMMAND_PRIORITY_HIGH, and MarkerEditPlugin mounts
+      // first (matching Editor.tsx's real order) — so without an explicit decline here, this
+      // handler would claim the paste before StructureKeyboardPlugin's sanitizer ever runs.
+      let t1: TextNode;
+      const { editor } = await protectedTestEnvironment(() => {
+        const sep = $createTextNode(NBSP);
+        $setState(sep, textTypeState, "marker-trailing-space");
+        t1 = $createTextNode("hello world");
+        $getRoot().append($createParaNode("p").append($createMarkerNode("p"), sep, t1));
+      });
+      await act(async () => editor.update(() => t1.select(5, 5)));
+
+      // Same verse-marker HTML shape StructureKeyboardPlugin.test.tsx pins against alone.
+      const verseHtml =
+        '<p data-marker="p" class="para">' +
+        '<span data-marker="v" data-number="2" class="verse">2</span>pasted</p>';
+      const { event } = pasteEvent({ "text/html": verseHtml });
+
+      await act(async () =>
+        editor.update(() => {
+          editor.dispatchCommand(PASTE_COMMAND, event);
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        // If `$handlePasteForStandardView` had wrongly claimed this instead of declining, it
+        // would extract the verse span's own visible "2" as literal text via `htmlPasteText` and
+        // insert "2pasted" — StructureKeyboardPlugin's sanitizer instead strips the verse node
+        // entirely, so no such digit leak survives.
+        const content = $getRoot().getTextContent();
+        expect(content).not.toContain("2pasted");
+        expect(content).toContain("pasted");
+      });
+    });
+  });
+
+  describe("tilde-corruption regression (2026-08-07 live repro)", () => {
+    /** The exact live-repro footnote: `\f - \fr 1:1 \ft Caller test.\f*`. */
+    function footnoteUsj(): Usj {
+      return {
+        type: "USJ",
+        version: "3.1",
+        content: [
+          {
+            type: "para",
+            marker: "p",
+            content: [
+              {
+                type: "note",
+                marker: "f",
+                caller: "-",
+                content: [
+                  { type: "char", marker: "fr", content: ["1:1 "], closed: "false" },
+                  { type: "char", marker: "ft", content: ["Caller test."], closed: "false" },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as Usj;
+    }
+
+    it("a same-editor paste of a just-copied footnote round-trips byte-exact — no NBSP is corrupted into `~`", async () => {
+      // `pasteSelection` (clipboard.utils.ts) rebuilds its `DataTransfer` from Chromium's async
+      // `navigator.clipboard.read()`, which exposes only standard MIME types — the private
+      // `application/x-lexical-editor` flavor written on copy never comes back on a real Ctrl+V,
+      // so even a same-editor paste rides text/html and text/plain like any external source. This
+      // reproduces exactly that: copy captures all three flavors below, but the paste payload
+      // deliberately omits the lexical one, matching what a real Ctrl+V actually delivers.
+      const { editor: sourceEditor } = await baseTestEnvironment(
+        serializedState(footnoteUsj()),
+        <MarkerEditPlugin viewOptions={viewOptions} />,
+      );
+      let note: NoteNode | undefined;
+      sourceEditor.getEditorState().read(() => {
+        note = findOnlyNote($getRoot());
+      });
+      if (!note) throw new Error("expected exactly one note");
+      const noteNode = note;
+      await act(async () =>
+        sourceEditor.update(() => {
+          const first = noteNode.getFirstDescendant();
+          const last = noteNode.getLastDescendant();
+          if (!first || !last) throw new Error("note has no descendants");
+          const selection = $createRangeSelection();
+          selection.anchor = $createPoint(first.getKey(), 0, "text");
+          selection.focus = $createPoint(last.getKey(), last.getTextContentSize(), "text");
+          $setSelection(selection);
+        }),
+      );
+      const copyStub = copyEvent();
+      await act(async () => sourceEditor.dispatchCommand(COPY_COMMAND, copyStub.event));
+      const sourceText = copyStub.getData("text/plain");
+      // Ground truth: no NBSP at all in a correct copy (matches
+      // clipboardCopyFidelity.test.tsx's pin for this exact live-repro footnote).
+      expect(sourceText).toBe("\\f - \\fr 1:1 \\ft Caller test.\\f*");
+
+      let text: TextNode;
+      const { editor: targetEditor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => targetEditor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(targetEditor, {
+        "text/plain": sourceText,
+        "text/html": copyStub.getData("text/html"),
+      });
+
+      expect(roundTripped).not.toContain("~");
+      expect(roundTripped).toContain("\\f - \\fr 1:1 \\ft Caller test.\\f*");
+    });
+
+    it("a browser-hop/html-derived collapsed-footnote shape (structural NBSPs before `\\ft` and `\\f*`, not only after `\\f`/`\\fr`) round-trips clean", async () => {
+      // `createNote` (usj-editor.adaptor.ts) appends a spacer NBSP after EVERY child, not just
+      // the first — confirmed by inspecting this exact fixture's real `$getHtmlContent` export:
+      // `…<span>\fr</span><span>&nbsp;1:1 </span></span><span>&nbsp;</span><span>\ft</span>…`
+      // (a bare `&nbsp;` span sits between `\fr`'s content and `\ft`, and another one between
+      // `\ft`'s content and `\f*`). So a browser-hop paste of this shape carries structural NBSPs
+      // on BOTH sides of its interior markers, not only after an opener. Hand-built (rather than
+      // a live html round-trip) so this pins the positional-normalization rule specifically —
+      // `ImmutableNoteCallerNode`'s own DOM export carries the caller only as a `data-caller`
+      // attribute, never as visible text, so a REAL html-only round-trip of this fixture loses
+      // the caller entirely, an unrelated, pre-existing gap this test isn't about.
+      let text: TextNode;
+      const { editor } = await testEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("body");
+        $getRoot().append(para.append($createMarkerNode("p"), text));
+      });
+      await act(async () => editor.update(() => text.select(0, 0)));
+
+      const roundTripped = await pasteAndCopyBack(editor, {
+        "text/plain": `\\f - \\fr 1:1 ${NBSP}\\ft Caller test.${NBSP}\\f*`,
+      });
+
+      expect(roundTripped).not.toContain("~");
+      expect(roundTripped).toContain("\\f - \\fr 1:1 \\ft Caller test.\\f*");
+    });
   });
 });
 

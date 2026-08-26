@@ -1,3 +1,4 @@
+import { $createImmutableTypedTextNode, ImmutableTypedTextNode } from "./ImmutableTypedTextNode.js";
 import { $createParaNode, ParaNode } from "../usj/ParaNode.js";
 import { createBasicTestEnvironment } from "../usj/test.utils.js";
 import { $createUnknownNode, UnknownNode } from "./UnknownNode.js";
@@ -339,6 +340,42 @@ describe("UnknownNode", () => {
       expect(JSON.stringify(editor.getEditorState().toJSON().root.children[1])).toBe(
         serializedUnknown,
       );
+    });
+  });
+
+  // The narrowed predicate behind the same-namespace `application/x-lexical-editor` optbreak copy
+  // fix: @lexical/clipboard's `$appendNodesToJSON` computes node exclusion from
+  // `excludeFromCopy('html')` for EVERY copy-out format it handles, not only
+  // actual `text/html` generation (see `excludeFromCopy`'s own doc comment). A direct unit pin on
+  // the predicate here — independent of the integration-level clipboard pins in
+  // `optbreakClipboardFidelity.test.tsx` — catches a regression to this method locally, without
+  // needing the full editor/selection/clipboard-event machinery those pins exercise.
+  describe("excludeFromCopy()", () => {
+    it("does NOT exclude a CHILD-BEARING optbreak — the fix that lets a copied optbreak survive the lexical-flavor paste path", () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode, ImmutableTypedTextNode]);
+      editor.update(() => {
+        const optbreak = $createUnknownNode("optbreak");
+        optbreak.append($createImmutableTypedTextNode("marker", "//"));
+        expect(optbreak.excludeFromCopy("html")).toBe(false);
+      });
+    });
+
+    it('excludes a CHILDLESS optbreak — a genuinely empty live husk falls back to the old, excluding behavior, matching text/plain\'s own "nothing here" for that shape', () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode]);
+      editor.update(() => {
+        const optbreak = $createUnknownNode("optbreak");
+        expect(optbreak.getChildrenSize()).toBe(0);
+        expect(optbreak.excludeFromCopy("html")).toBe(true);
+      });
+    });
+
+    it('still excludes a figure, child-bearing or not — the fix is scoped to "optbreak" only; every other UnknownNode kind is an un-fixed, documented residual (clipboard semantics doc, "Deferred / Out of Scope")', () => {
+      const { editor } = createBasicTestEnvironment([UnknownNode, ImmutableTypedTextNode]);
+      editor.update(() => {
+        const figure = $createUnknownNode("figure", "fig");
+        figure.append($createImmutableTypedTextNode("marker", "\\fig "));
+        expect(figure.excludeFromCopy("html")).toBe(true);
+      });
     });
   });
 });
