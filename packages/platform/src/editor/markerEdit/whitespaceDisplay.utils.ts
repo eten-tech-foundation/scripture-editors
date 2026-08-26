@@ -19,7 +19,9 @@
  *    (usj-editor.adaptor.ts), where "first in the paragraph" is actually known.
  * 2. Live TYPING: `$displayWhitespaceTransform` (plugin utils) keeps a run's spaces displayed as
  *    NBSP incrementally and length-preservingly, so the caret stays valid mid-keystroke.
- * 3. COPY/CUT: display-NBSP → plain space in the clipboard payload (plugin utils).
+ * 3. COPY/CUT: display-NBSP → plain space in the clipboard payload — wholesale in `text/plain`,
+ *    collapse-aware in `text/html`, which keeps NBSP only where a rich-text consumer would
+ *    destroy the plain space (runs of 2+, fragment edges) (plugin utils).
  * 4. PASTE: external NBSP (including `&nbsp;` in text/html) → display `~` (plugin utils).
  * 5. SERIALIZATION (display → data): the reverse adaptor strips a char span's structural leading
  *    NBSP separator, then inverts via {@link displayTextToUsj}, then collapses runs via

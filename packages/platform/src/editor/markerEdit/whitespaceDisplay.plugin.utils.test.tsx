@@ -9,7 +9,9 @@ import {
   $getStandardViewClipboardData,
   $handleCopyForStandardView,
   $handlePasteForStandardView,
+  invertDisplayNbspInHtml,
 } from "./whitespaceDisplay.plugin.utils";
+import { displayTextToUsj } from "./whitespaceDisplay.utils";
 import { act } from "@testing-library/react";
 import { LexicalClipboardData } from "@lexical/clipboard";
 // Reaching inside only for tests.
@@ -321,8 +323,10 @@ describe("$getStandardViewClipboardData", () => {
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
     let data: LexicalClipboardData | undefined;
     await act(async () => editor.update(() => (data = $getStandardViewClipboardData(editor))));
-    // Only text/plain inverts display-NBSP back to plain spaces; the html and lexical payloads
-    // keep the on-screen NBSPs so a paste back into a Standard-view editor round-trips exactly.
+    // text/plain inverts every display-NBSP back to a plain space. text/html is collapse-aware
+    // (see the dedicated describe below): this run of 2 keeps its NBSPs so it survives a
+    // rich-text consumer's whitespace collapsing. The lexical payload keeps the on-screen NBSPs
+    // so a paste back into a Standard-view editor round-trips exactly.
     expect(data?.["text/plain"]).toBe("a  b");
     // html carries the two NBSPs (as entities) inside a text span, NOT normalized to spaces.
     expect(data?.["text/html"]).toContain("a&nbsp;&nbsp;b");
@@ -331,6 +335,187 @@ describe("$getStandardViewClipboardData", () => {
     const lexical = JSON.parse(data?.["application/x-lexical-editor"] ?? "{}");
     expect(lexical.nodes).toHaveLength(1);
     expect(lexical.nodes[0]).toMatchObject({ type: "text", text: `a${NBSP}${NBSP}b` });
+  });
+});
+
+describe("text/html flavor — collapse-aware display-NBSP inversion", () => {
+  /**
+   * Selects from the start of `from` to the end of `to`.
+   *
+   * Mutating: call inside `editor.update()`.
+   */
+  function $selectSpan(from: TextNode, to: TextNode): void {
+    const selection = from.select(0, 0);
+    selection.focus.set(to.getKey(), to.getTextContentSize(), "text");
+  }
+
+  /** The text a rich consumer would extract from the html flavor (inline fragment: no blocks). */
+  function htmlTextOf(html: string): string {
+    return new DOMParser().parseFromString(html, "text/html").body.textContent ?? "";
+  }
+
+  it("inverts a single display-NBSP (marker-trailing separator) to a plain space", async () => {
+    let marker: TextNode;
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      marker = $createMarkerNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("a b c");
+      $getRoot().append($createParaNode("p").append(marker, sep, text));
+    });
+    await act(async () => editor.update(() => $selectSpan(marker, text)));
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+    expect(getData("text/plain")).toBe("\\p a b c");
+    // The separator NBSP sits between the glyph and the content — an interior single — so the
+    // html flavor ships the plain space it stands for: nothing non-breaking reaches a rich
+    // consumer from ordinary single-spaced text.
+    const html = getData("text/html");
+    expect(html).not.toContain("&nbsp;");
+    expect(html).not.toContain(NBSP);
+    expect(htmlTextOf(html)).toBe("\\p a b c");
+  });
+
+  it("keeps a genuine data NBSP's `~` byte form in both flavors", async () => {
+    // In Standard view a data NBSP never appears as an NBSP character: it displays as the
+    // literal `~` (the USFM byte form PT9 also shows and copies), so BOTH flavors carry `~` —
+    // not an NBSP — and stay decode-consistent with each other. Every NBSP character in the
+    // display is a display artifact standing for a plain space.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode("pay 3~000 now");
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+    expect(getData("text/plain")).toBe("pay 3~000 now");
+    const html = getData("text/html");
+    expect(html).toContain("3~000");
+    expect(html).not.toContain("&nbsp;");
+    expect(html).not.toContain(NBSP);
+  });
+
+  it("keeps a run of 2+ display-NBSPs all-NBSP so it survives html whitespace collapsing", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}${NBSP}${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+    // Plain spaces would collapse to one in a rich consumer; the run stays in its all-NBSP form
+    // (the bytes the display already carries — the space/NBSP alternation would survive too but
+    // changes bytes for no gain).
+    expect(getData("text/plain")).toBe("a   b");
+    expect(getData("text/html")).toContain("a&nbsp;&nbsp;&nbsp;b");
+  });
+
+  it("judges runs across span boundaries: separator + paragraph-leading NBSP form one preserved run", async () => {
+    // The marker-trailing separator and a paragraph-leading NBSP live in different html spans
+    // but are adjacent in the fragment's text: treated per span each would be a "single" and
+    // become a plain space, and the consumer would then collapse the pair down to one space.
+    let marker: TextNode;
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      marker = $createMarkerNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      // The paragraph-leading NBSP shape createPara produces for an authored leading space.
+      text = $createTextNode(`${NBSP}lead in`);
+      $getRoot().append($createParaNode("p").append(marker, sep, text));
+    });
+    await act(async () => editor.update(() => $selectSpan(marker, text)));
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+    expect(getData("text/plain")).toBe("\\p  lead in");
+    const html = getData("text/html");
+    expect(html.match(/&nbsp;/g)).toHaveLength(2);
+    expect(htmlTextOf(html)).toBe(`\\p${NBSP}${NBSP}lead in`);
+  });
+
+  it("keeps a fragment-leading single NBSP (separator selected without its marker)", async () => {
+    // A plain space at the fragment's edge is exactly what html consumers drop; edge whitespace
+    // is in the fragment only because the user deliberately selected it, so it stays NBSP.
+    let sep: TextNode;
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      text = $createTextNode("body");
+      $getRoot().append($createParaNode("p").append($createMarkerNode("p"), sep, text));
+    });
+    await act(async () => editor.update(() => $selectSpan(sep, text)));
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+    expect(getData("text/plain")).toBe(" body");
+    const html = getData("text/html");
+    expect(html.match(/&nbsp;/g)).toHaveLength(1);
+    expect(htmlTextOf(html)).toBe(`${NBSP}body`);
+  });
+
+  it("both flavors decode to the same document text across glyphs, runs, `~`, and a char span", async () => {
+    let marker: TextNode;
+    let spanText: TextNode;
+    const { editor } = await testEnvironment(() => {
+      marker = $createMarkerNode("p");
+      const sep = $createTextNode(NBSP);
+      $setState(sep, textTypeState, "marker-trailing-space");
+      const text = $createTextNode(`before${NBSP}${NBSP}mid 3~000 x`);
+      spanText = $createTextNode(`${NBSP}deep waters`);
+      $getRoot().append(
+        $createParaNode("p").append(
+          marker,
+          sep,
+          text,
+          $createCharNode("nd").append(
+            $createMarkerNode("nd", "opening"),
+            spanText,
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => $selectSpan(marker, spanText)));
+    const { event, getData } = copyEvent();
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, event);
+    });
+    const plain = getData("text/plain");
+    expect(plain).toBe("\\p before  mid 3~000 x\\nd deep waters");
+    // One selection, one document: the display→data inversion (display-NBSP → space, `~` →
+    // data NBSP) must read both flavors as the same text, or the paste target's flavor choice
+    // would change the content.
+    expect(displayTextToUsj(htmlTextOf(getData("text/html")))).toBe(displayTextToUsj(plain));
+  });
+
+  describe("invertDisplayNbspInHtml mechanics", () => {
+    it("inverts an interior single NBSP that is its own span (concatenated-text judgment)", () => {
+      expect(invertDisplayNbspInHtml(`<span>a</span><span>${NBSP}</span><span>b</span>`)).toBe(
+        "<span>a</span><span> </span><span>b</span>",
+      );
+    });
+
+    it("returns the input unchanged when nothing inverts (runs and edge singles keep NBSP)", () => {
+      const run = `<span>a${NBSP}${NBSP}b</span>`;
+      expect(invertDisplayNbspInHtml(run)).toBe(run);
+      const leadingEdge = `<span>${NBSP}a</span>`;
+      expect(invertDisplayNbspInHtml(leadingEdge)).toBe(leadingEdge);
+      const trailingEdge = `<span>a${NBSP}</span>`;
+      expect(invertDisplayNbspInHtml(trailingEdge)).toBe(trailingEdge);
+    });
   });
 });
 

@@ -6,7 +6,8 @@
  *
  * While typing, spaces in a run are kept visible as display-NBSP (the same mapping
  * `usjTextToDisplay` applies at load time, applied incrementally as the user types); copying
- * or cutting selected text inverts display-NBSP back to plain spaces for `text/plain` so pasted
+ * or cutting selected text inverts display-NBSP back to plain spaces — wholesale for
+ * `text/plain`, collapse-aware for `text/html` ({@link invertDisplayNbspInHtml}) — so pasted
  * text elsewhere isn't polluted with NBSP. Both pieces are gated to Standard view only by the
  * caller (`MarkerEditPlugin.tsx`) — they must not run in other view modes.
  */
@@ -76,6 +77,9 @@ export function $displayWhitespaceTransform(node: TextNode): void {
  * `text/plain`.
  */
 export function htmlPasteText(html: string): string {
+  // DOMParser yields an inert document: parsing never executes scripts or loads subresources,
+  // and no node from the parsed document is ever adopted into the live DOM — only text content
+  // is read out of it.
   const { body } = new DOMParser().parseFromString(html, "text/html");
   body.querySelectorAll("script,style,template").forEach((element) => element.remove());
   body.querySelectorAll("br").forEach((element) => element.replaceWith("\n"));
@@ -215,8 +219,60 @@ export function $handlePasteForStandardView(event: ClipboardEvent | null | undef
 }
 
 /**
- * Payload builder: the currently-selected content, normalized so `text/plain` carries
- * plain spaces where the display shows NBSP. Shared by both the real-event and null-event
+ * Collapse-aware display-NBSP inversion for the `text/html` clipboard flavor. Every display-NBSP
+ * stands for a PLAIN space in the document data (marker-trailing separator spaces, char spans'
+ * structural separators, paragraph-leading spaces, and every space in a run of 2+ — the display
+ * mapping in whitespaceDisplay.utils.ts), so shipping them to a rich-text paste target as real
+ * NBSPs breaks line wrapping and text search there, while `text/plain` already inverts them all.
+ * But a plain space does not always survive HTML: consumers collapse space runs and drop
+ * fragment-edge whitespace. So this inversion keeps NBSP exactly where the plain space it stands
+ * for would be destroyed:
+ *
+ * - a run of 2+ NBSPs stays all-NBSP — the form the display already carries (byte-stable; the
+ *   conventional space/NBSP alternation would survive collapsing too, but changes bytes for no
+ *   gain);
+ * - a single NBSP at the very start or end of the fragment's text stays NBSP — HTML consumers
+ *   drop a leading/trailing plain space, and edge whitespace is in the fragment only because the
+ *   user deliberately selected it;
+ * - every other single NBSP becomes the plain space it stands for.
+ *
+ * A genuine data NBSP takes no part here: Standard view displays it as a literal `~` (the USFM
+ * byte form PT9 also shows and copies), so it is ordinary text to this inversion and ships as `~`
+ * in BOTH flavors — the same display-vs-data line the `text/plain` inversion draws by replacing
+ * only NBSP, never `~`. Either way both flavors decode to the same document text.
+ *
+ * Runs and edges are judged on the fragment's CONCATENATED text, not per markup span — a
+ * marker-trailing NBSP separator and a paragraph-leading NBSP sit in different spans but form one
+ * run a consumer would collapse if either became plain. The mapping is length-preserving, so the
+ * result writes straight back to each text node as a slice.
+ */
+export function invertDisplayNbspInHtml(html: string): string {
+  // Same inert-DOMParser guarantee as htmlPasteText above: no script execution, no subresource
+  // loads, nothing adopted into the live DOM — the mutated fragment only ever becomes a string.
+  const { body } = new DOMParser().parseFromString(html, "text/html");
+  const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const textNodes: Node[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) textNodes.push(node);
+  const text = textNodes.map((node) => node.nodeValue ?? "").join("");
+  const inverted = text.replace(/\u00A0+/g, (run, offset: number) =>
+    run.length >= 2 || offset === 0 || offset + run.length === text.length ? run : " ",
+  );
+  if (inverted === text) return html;
+  let offset = 0;
+  for (const node of textNodes) {
+    const length = (node.nodeValue ?? "").length;
+    node.nodeValue = inverted.slice(offset, offset + length);
+    offset += length;
+  }
+  return body.innerHTML;
+}
+
+/**
+ * Payload builder: the currently-selected content, normalized so `text/plain` carries plain
+ * spaces where the display shows NBSP and `text/html` keeps NBSP only where a plain space would
+ * not survive a rich-text consumer ({@link invertDisplayNbspInHtml}). The internal
+ * `application/x-lexical-editor` flavor keeps the display form untouched so a paste back into a
+ * Standard-view editor round-trips exactly. Shared by both the real-event and null-event
  * branches of `$handleCopyForStandardView` below so they stay byte-for-byte consistent.
  */
 export function $getStandardViewClipboardData(
@@ -229,7 +285,7 @@ export function $getStandardViewClipboardData(
   };
   const html = $getHtmlContent(editor);
   const lexical = $getLexicalContent(editor);
-  if (html) data["text/html"] = html;
+  if (html) data["text/html"] = invertDisplayNbspInHtml(html);
   if (lexical) data["application/x-lexical-editor"] = lexical;
   return data;
 }
