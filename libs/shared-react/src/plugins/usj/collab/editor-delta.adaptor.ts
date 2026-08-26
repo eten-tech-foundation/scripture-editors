@@ -329,7 +329,12 @@ function $handleTextNodes(
   // Char-span attribute display runs (bare `|…`, no NBSP prefix — see usj-editor.adaptor's
   // `addCharAttributes`) carry no NBSP prefix to strip against, so the prefix check alone can't
   // catch them; the textType state tag is the other signal, kept alongside the prefix check for
-  // the legacy NBSP-prefixed (milestone) attribute text. Text inside an AttributeRunNode wrapper
+  // the legacy NBSP-prefixed (milestone) attribute text. The legacy byte arm is LOAD-BEARING for
+  // compatibility, not a leftover: deployed peers and persisted OT documents (ScriptureForge
+  // shares these collab documents) predate the state-tagged format, and their stored deltas
+  // replay through here — without the byte check, that replayed attribute text would leak display
+  // bytes into content. Do not retire it while any pre-tag document or peer can reach this
+  // editor. Text inside an AttributeRunNode wrapper
   // is excluded regardless of its own textType tag: the wrapper is an engine-owned presentation
   // region (see AttributeRunNode.ts), so anything riding inside it is presentation, not content,
   // whether or not it happens to also carry the "attribute" state tag.
