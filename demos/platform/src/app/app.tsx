@@ -526,7 +526,9 @@ export default function App() {
                 <label htmlFor="markerSettleDelaySelect">Marker settle delay</label>
                 <select
                   id="markerSettleDelaySelect"
-                  value={markerSettleDelayMs === undefined ? "default" : String(markerSettleDelayMs)}
+                  value={
+                    markerSettleDelayMs === undefined ? "default" : String(markerSettleDelayMs)
+                  }
                   onChange={(e) =>
                     setMarkerSettleDelayMs(
                       e.target.value === "default" ? undefined : Number(e.target.value),

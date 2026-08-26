@@ -1252,7 +1252,11 @@ function $appendVerseContentStartingWithNonText($createVerse: (number: string) =
     $createTextNode("note verse text "),
   );
   emptyVerseMarker = $createVerse("5");
-  emptyVersePara = $createParaNode().append(emptyVerseMarker, $createVerse("6"), plainVerseTextNode);
+  emptyVersePara = $createParaNode().append(
+    emptyVerseMarker,
+    $createVerse("6"),
+    plainVerseTextNode,
+  );
 
   $getRoot().append(
     $createBookNode("GEN").append($createTextNode("Test Book")),
