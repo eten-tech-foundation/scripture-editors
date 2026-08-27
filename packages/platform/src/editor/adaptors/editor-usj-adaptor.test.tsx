@@ -63,6 +63,7 @@ import {
   NoteCallerOnClick,
   STANDARD_VIEW_MODE,
   TextSpacingPlugin,
+  UNFORMATTED_VIEW_MODE,
   usjReactNodes,
 } from "shared-react";
 import {
@@ -148,7 +149,13 @@ describe("Editor USJ Adaptor", () => {
     verse2.text = getVisibleOpenMarkerText(VERSE_MARKER, verse2Number);
     const editorState = editor.parseEditorState(editorStateEdited);
 
-    const usj = editorUsjAdaptor.deserializeEditorState(editorState);
+    // The fixture is the EDITABLE-marker-mode shape (NBSP separators after char openers), so the
+    // deserialization must know the mode it was built in — the char-separator strip only runs
+    // for editable-mode states, exactly as production callers always pass their view options.
+    const usj = editorUsjAdaptor.deserializeEditorState(
+      editorState,
+      getViewOptions(UNFORMATTED_VIEW_MODE),
+    );
 
     const usjGen1v1Edited = usjGen1v1;
     const usjChapter1 = usjGen1v1Edited.content[CHAPTER_1_INDEX] as MarkerObject;

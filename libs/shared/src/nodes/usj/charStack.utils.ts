@@ -34,6 +34,7 @@ import {
   $continuationCharAttributes,
 } from "./charGlyphs.utils.js";
 import { $createCharNode, $isCharNode, CharNode } from "./CharNode.js";
+import { $isSeparatorPrefixHostText } from "./markerSeparators.utils.js";
 import { $isNestedCharNode } from "./nestedGlyphs.utils.js";
 import { canonicalAttributeText } from "./attributeDisplay.utils.js";
 import { textTypeState } from "../collab/delta.state.js";
@@ -207,13 +208,13 @@ function $absorbIntoCharSpan(span: CharNode, content: LexicalNode[], renderGlyph
     span.getChildren().forEach((child: LexicalNode) => {
       if (!$isMarkerNode(child)) child.remove();
     });
+  // Only PLAIN leading text takes the separator as its prefix — the same host predicate the
+  // separator sync uses ($isSeparatorPrefixHostText): TextNode subclasses (VerseNode,
+  // ImmutableUnmatchedNode) render their own marker bytes and attribute runs are engine-owned
+  // canonical output, so splicing an NBSP into either rewrites a glyph or corrupts the run.
+  // Everything else gets its standalone spacer from `$syncOpenerSeparators` on the next dirty.
   const [first] = content;
-  if (
-    renderGlyphs &&
-    $isTextNode(first) &&
-    !$isMarkerNode(first) &&
-    !first.getTextContent().startsWith(NBSP)
-  )
+  if (renderGlyphs && $isSeparatorPrefixHostText(first) && !first.getTextContent().startsWith(NBSP))
     first.setTextContent(NBSP + first.getTextContent());
   span.append(...content);
 }

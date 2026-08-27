@@ -2,7 +2,7 @@ import { $createImmutableVerseNode } from "../../../nodes/usj/ImmutableVerseNode
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { $createWholeNote } from "../../../nodes/usj/note.utils";
 import { UsjNodeOptions } from "../../../nodes/usj/usj-node-options.model";
-import { ViewOptions } from "../../../views/view-options.utils";
+import { showParaMarkerPrefix, ViewOptions } from "../../../views/view-options.utils";
 import {
   $isEmbedNode,
   $isOTTextNode,
@@ -1749,6 +1749,10 @@ function $createPara(paraAttributes: OTParaAttribute, viewOptions: ViewOptions) 
 
   const unknownAttributes = getUnknownAttributes(paraAttributes, OT_PARA_PROPS);
   const para = $createParaNode(style, unknownAttributes);
+  // Gated on the shared prefix predicate, not raw markerMode alone: a surface that suppresses
+  // paragraph prefixes (showParaMarkerPrefixes: false — the footnote editor's scaffolding
+  // paragraph) must not grow a `\p ` glyph from a remote op either.
+  if (!showParaMarkerPrefix(viewOptions)) return para;
   if (viewOptions.markerMode === "editable") {
     para.append($createMarkerNode(style), $createMarkerTrailingSeparator());
   } else if (viewOptions.markerMode === "visible" || viewOptions.hasGutterParaMarkers) {
@@ -1854,20 +1858,20 @@ function $createNote(
   for (const childOp of contents?.ops ?? []) {
     if (typeof childOp.insert !== "string") continue;
     if (hasCharAttributes(childOp.attributes)) {
-      // Note contents ops carry CONTENT only; in editable marker mode a char span's content
+      // Note contents ops carry CONTENT only; in editable marker mode a char span's FIRST content
       // text carries a structural NBSP separator after the opening glyph (mirror the USJ
-      // adaptor's `createChar`). Empty content stays empty so `$createNestedChars` inserts
-      // the empty-char placeholder instead.
-      const text =
-        viewOptions.markerMode === "editable" && childOp.insert !== ""
-          ? NBSP + childOp.insert
-          : childOp.insert;
+      // adaptor's `createChar`). `$createNestedChars` owns the prepend because only it knows
+      // whether this op starts a fresh span (separator) or merges into the preceding span's tail
+      // (mid-span content — an NBSP there is fabricated `~` in the file). Empty content stays
+      // empty so it inserts the empty-char placeholder instead.
       const charNodes = $createNestedChars(
         childOp.attributes.char,
         viewOptions,
-        $createTextNode(text),
+        $createTextNode(childOp.insert),
         undefined,
         mergeableNodesForContentOp(childOp.attributes.char, contentNodes),
+        false,
+        viewOptions.markerMode === "editable",
       );
       contentNodes.push(...charNodes);
     } else {
@@ -2028,10 +2032,26 @@ function $createNestedChars(
   // merge recursion below appends into an existing outer span), so its own glyphs need the `+`.
   // Every span deeper than the outermost is nested by construction and always gets the `+`.
   nestedInParent = false,
+  // True when a text innerNode landing at the START of a NEWLY created span should take the
+  // editable-mode structural NBSP separator after that span's opening glyph (mirroring the USJ
+  // adaptor's `createChar`). Decided HERE, per branch, because only this function knows whether
+  // the text starts a new span or appends into an existing span's tail — an NBSP prepended to a
+  // tail-append is fabricated content (`~` in the file), not a separator.
+  addEditableSeparator = false,
 ): LexicalNode[] {
   if ($isTextNode(innerNode) && innerNode.getTextContentSize() === 0) {
     innerNode.setTextContent(EMPTY_CHAR_PLACEHOLDER_TEXT);
   }
+  // Prepend the structural separator to a text innerNode about to become a fresh span's first
+  // content (never to the empty-char placeholder, which stands alone).
+  const $prependEditableSeparator = (): void => {
+    if (
+      addEditableSeparator &&
+      $isTextNode(innerNode) &&
+      innerNode.getTextContent() !== EMPTY_CHAR_PLACEHOLDER_TEXT
+    )
+      innerNode.setTextContent(NBSP + innerNode.getTextContent());
+  };
   if (Array.isArray(charAttr)) {
     if (charAttr.length === 0) throw new Error("Empty charAttr array");
     const cleanAttrs = charAttr.map(cleanCharStyle);
@@ -2043,6 +2063,8 @@ function $createNestedChars(
       // Merge into existing CharNode by creating inner nodes only. The inner spans nest inside
       // that existing outer char, so their outermost gets the `+` too (nestedInParent = true).
       if (cleanAttrs.length > 1) {
+        // The inner spans are freshly created, so their first text still takes the separator —
+        // the recursion's own creation branch prepends it.
         const innerCharNodes = $createNestedChars(
           cleanAttrs.slice(1),
           viewOptions,
@@ -2050,14 +2072,17 @@ function $createNestedChars(
           undefined,
           undefined,
           true,
+          addEditableSeparator,
         );
         innerCharNodes.forEach((node) => lastNode.append(node));
       } else {
-        // Just append the innerNode
+        // Tail-append into the existing span: mid-span content, NO separator.
         if (innerNode) lastNode.append(innerNode);
       }
       return []; // Return empty array since we merged into existing node
     }
+
+    $prependEditableSeparator();
 
     // Build nested CharNodes from innermost to outermost using reduceRight
     // At each level, we add markers as children if needed
@@ -2104,11 +2129,12 @@ function $createNestedChars(
     // Check if we can merge with existing CharNode
     const lastNode = existingNodes?.[existingNodes.length - 1];
     if ($isCharNode(lastNode) && $hasSameCharAttributes(cleanAttr, lastNode)) {
-      // Merge into existing CharNode
+      // Tail-append into the existing span: mid-span content, NO separator.
       if (innerNode) lastNode.append(innerNode);
       return []; // Return empty array since we merged into existing node
     }
 
+    $prependEditableSeparator();
     const charNode = $createCharNode(
       cleanAttr.style,
       getUnknownAttributes(cleanAttr, OT_CHAR_PROPS),

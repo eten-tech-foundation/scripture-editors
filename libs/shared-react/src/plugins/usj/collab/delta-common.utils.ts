@@ -2,7 +2,7 @@
 
 import { $isSomeVerseNode, SomeVerseNode } from "../../../nodes/usj/node-react.utils";
 import { OTEmbedTypes, validOTEmbedTypes } from "./rich-text-ot.model";
-import { $dfs, $findMatchingParent, DFSNode } from "@lexical/utils";
+import { $dfsIterator, $findMatchingParent, DFSNode } from "@lexical/utils";
 import {
   $getNodeByKey,
   $getState,
@@ -17,18 +17,24 @@ import {
 import { Op } from "quill-delta";
 import {
   $isAttributeRunNode,
+  $isCharNode,
   $isCursorPlaceholderOnlyText,
   $isDescendantOf,
   $isImmutableUnmatchedNode,
+  $isMarkerNode,
   $isMilestoneNode,
   $isNoteNode,
   $isParaLikeNode,
   $isParaNode,
+  $isDisplayRunPiece,
   $isSomeChapterNode,
   $isSynthesizedMarkerNode,
   $isUnknownNode,
+  EMPTY_CHAR_PLACEHOLDER_TEXT,
+  getEditableCallerText,
   ImmutableUnmatchedNode,
   MilestoneNode,
+  NODE_ATTRIBUTE_PREFIX,
   NoteNode,
   ParaLikeNode,
   SomeChapterNode,
@@ -194,7 +200,10 @@ export function $getOTPositionOfNode(
 ): number | undefined {
   if (!node) return undefined;
 
-  const dfsNodes = $dfs();
+  // LAZY traversal, terminated by the early returns below: this runs per keystroke on
+  // DeltaOnChangePlugin's fast path, and the eager `$dfs()` array materialized the ENTIRE
+  // document each call regardless of where the target sat.
+  const dfsNodes = $dfsIterator();
   let currentIndex = 0;
   const openParaLikeNodes: ParaLikeNode[] = [];
   const openContentEmbeds: OpenContentEmbed[] = [];
@@ -319,7 +328,10 @@ export function $getNodeFromOTPosition(
   otPosition: number,
   coordinates: OTCoordinateSystem = "delta-doc",
 ): LexicalNode | undefined {
-  const dfsNodes = $dfs();
+  // LAZY traversal, terminated by the early returns below — same reasoning as
+  // $getOTPositionOfNode: the walk stops at the resolved position instead of first
+  // materializing the entire document.
+  const dfsNodes = $dfsIterator();
   let currentIndex = 0;
   const openParaLikeNodes: ParaLikeNode[] = [];
   const openContentEmbeds: OpenContentEmbed[] = [];
@@ -580,6 +592,56 @@ export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
  *   traversal; only `"delta-doc"` excludes it, mirroring `editor-delta.adaptor.ts`'s existing ops
  *   exclusion for the identical bytes.
  */
+/**
+ * Mirror of editor-delta.adaptor.ts's empty-char-placeholder skip, in delta-doc coordinates: the
+ * lone stand-in text of an otherwise childless char span, which the ops stream never emits.
+ */
+function $isEmptyCharPlaceholderText(node: TextNode): boolean {
+  const parent = node.getParent();
+  return (
+    $isCharNode(parent) &&
+    node.getTextContent() === EMPTY_CHAR_PLACEHOLDER_TEXT &&
+    parent.getChildrenSize() === 1
+  );
+}
+
+/**
+ * Mirror of editor-delta.adaptor.ts's positional note-caller skip: the editable-mode caller text
+ * directly after a glyph-fronted note's opening glyph, which the ops stream never emits. The
+ * positional guard keeps a pathological content text that merely EQUALS the caller text
+ * (elsewhere in the note) counting normally.
+ */
+function $isEditableNoteCallerText(node: TextNode): boolean {
+  const parent = node.getParent();
+  if (!$isNoteNode(parent)) return false;
+  const previousSibling = node.getPreviousSibling();
+  return (
+    $isMarkerNode(previousSibling) &&
+    previousSibling === parent.getFirstChild() &&
+    node.getTextContent() === getEditableCallerText(parent.getCaller())
+  );
+}
+
+/**
+ * Whether the single-dirty-leaf fast path (DeltaOnChangePlugin) may emit `node`'s raw text as a
+ * content op. ONE authority rather than a re-implemented exclusion list: eligibility derives
+ * from the same delta-doc counting the length side uses ({@link $getNodeOTContribution}) — a
+ * node whose bytes are presentation (contribution 0: para-prefix glyphs, marker-trailing-space,
+ * attribute text and runs, placeholders, caller text, legacy `⍽|`-prefixed attribute text) or an
+ * opaque embed (contribution 1 ≠ text size: an editable verse glyph) counts differently from its
+ * raw bytes, so an op built from those bytes would be in a different currency than its retain —
+ * such an edit must take the full-diff fallback, which applies `$handleTextNodes`' exclusions.
+ * `$isDisplayRunPiece` is checked on top because the ops stream excludes a LOOSE display run's
+ * glyphs while delta-doc counting deliberately keeps them (the documented asymmetry in
+ * editor-delta.adaptor.ts).
+ */
+export function $isFastPathContentText(node: TextNode): boolean {
+  return (
+    !$isDisplayRunPiece(node) &&
+    $getNodeOTContribution(node, "delta-doc") === node.getTextContentSize()
+  );
+}
+
 function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSystem): number {
   // Embeds are checked FIRST: an editable VerseNode is a TextNode subclass but counts as one
   // opaque OT unit (its glyph text is engine-owned display, excluded from content ops), the same
@@ -587,6 +649,10 @@ function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSyst
   if ($isEmbedNode(node)) return 1;
 
   if ($isTextNode(node)) {
+    // Read before the guard chain below: its type guards narrow `node` in later `||` operands
+    // (a false branch of a `node is TextNode` guard leaves `never`), so member access there
+    // does not typecheck even though the value is unchanged.
+    const nodeText = node.getTextContent();
     if (
       coordinates === "delta-doc" &&
       // A bare cursor host (EmptyVerseCaretGuardPlugin) is a transient, collab-invisible node:
@@ -607,7 +673,15 @@ function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSyst
         // (`isNodeAttributeText` in editor-delta.adaptor.ts), so counting them here would put this
         // side out of step with the op stream on ordinary Scripture.
         $getState(node, textTypeState) === "attribute" ||
-        $hasAttributeRunAncestor(node))
+        $hasAttributeRunAncestor(node) ||
+        // The remaining ops-stream exclusions, so this side and $handleTextNodes count the same
+        // bytes (docs/standard-view-invariants.md §II — extend the shared list, never fork it):
+        // the legacy NBSP-`|` byte-prefixed attribute text the ops stream still honors for
+        // pre-state-tag peers and persisted deltas, the empty-char placeholder, and the
+        // editable-mode note caller in caller position.
+        nodeText.startsWith(NODE_ATTRIBUTE_PREFIX) ||
+        $isEmptyCharPlaceholderText(node) ||
+        $isEditableNoteCallerText(node))
     )
       return 0;
     return node.getTextContentSize();

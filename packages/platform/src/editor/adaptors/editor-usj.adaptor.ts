@@ -225,14 +225,16 @@ function createCharMarker(
 ): MarkerObject {
   const { type, marker: nodeMarker, unknownAttributes } = node;
   const marker = nodeMarker === "" ? undefined : nodeMarker;
-  // Remove the structural NBSP separator at the span's START only. The forward adaptor
-  // (`createChar`) prepends it solely to the first child — never to text following a nested
-  // closer (the `ht` in `\wj li\+nd g\+nd*ht\wj*`) — so the strip is positional to match: a
-  // leading NBSP on any LATER string is authored data (`~`), and stripping it deleted one
-  // authored NBSP per round trip. In standard view this separator is stripped earlier, before
-  // whitespace inversion, so a real leading NBSP in the data isn't misread as the separator
-  // here (see the `recurseNodes` TextNode branch).
-  if (!isStandardView(viewOptions) && content) {
+  // Remove the structural NBSP separator at the span's START only. The strip mirrors the ADD:
+  // the forward adaptor (`createChar`) prepends the separator only in markerMode "editable", and
+  // solely to the first child — never to text following a nested closer (the `ht` in
+  // `\wj li\+nd g\+nd*ht\wj*`) — so the strip is gated and positional to match. In the
+  // non-editable modes (Formatted's "hidden", Markers' "visible") nothing added a separator, so a
+  // leading NBSP there is the author's own `~` and must survive; a leading NBSP on any LATER
+  // string is authored data in every mode. In standard view this separator is stripped earlier,
+  // before whitespace inversion, so a real leading NBSP in the data isn't misread as the
+  // separator here (see the `recurseNodes` TextNode branch).
+  if (viewOptions?.markerMode === "editable" && !isStandardView(viewOptions) && content) {
     const [first] = content;
     if (typeof first === "string" && first.startsWith(NBSP)) content[0] = first.slice(1);
   }
@@ -540,7 +542,17 @@ function recurseNodes(
         // both stay load-bearing regardless of verse/milestone run shape.
         break;
       case TypedMarkNode.getType():
-        childMarkers = recurseNodes(serializedMarkNode.children, viewOptions);
+        // An annotation mark is presentation the splice below strips, so its children serialize
+        // exactly as if they were direct children here — the note-caller and char-child context
+        // must survive the re-entry, or a mark wrapping a char span's first text hides the
+        // structural NBSP from the strip (a fabricated leading space in the file) and a mark
+        // wrapping a note's caller text emits the caller as content.
+        childMarkers = recurseNodes(
+          serializedMarkNode.children,
+          viewOptions,
+          noteCaller,
+          isCharChild,
+        );
         if (childMarkers) {
           const commentIDs = serializedMarkNode.typedIDs[COMMENT_MARK_TYPE];
           if (commentIDs) {

@@ -23,6 +23,7 @@ import {
   $getCharacterOffsets,
   $getNodeByKey,
   $getSelection,
+  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
@@ -58,6 +59,7 @@ import {
   openingMarkerText,
   ScriptureReference,
   segmentState,
+  textTypeState,
 } from "shared";
 
 /** Caller count is in an object so it can be manipulated by passing the object. */
@@ -536,6 +538,11 @@ export function $stripSelectionToQuotation(selection: RangeSelection): string {
     // ImmutableUnmatchedNode is a TextNode subclass, so without this skip it falls through to
     // the TextNode branch below and its bytes land verbatim in the quotation.
     if ($isImmutableUnmatchedNode(node)) continue;
+    // Attribute display text is display too: a char span's `|lemma="…"` run, a verse's `\va`
+    // value, and a milestone's attribute run are engine-owned bytes, not Scripture — without
+    // this skip they land verbatim in the inserted note's quotation and reach the file as note
+    // content.
+    if ($getState(node, textTypeState) === "attribute") continue;
 
     // Check verse nodes before TextNode, via the union: in editable markerMode a VerseNode IS a
     // TextNode subclass, so a TextNode-first check would emit its raw glyph text instead of

@@ -53,6 +53,26 @@ import {
 } from "lexical";
 
 /**
+ * Whether `node` is text that may carry a char-span separator NBSP as its own PREFIX: exactly a
+ * plain `TextNode` — subclasses (`VerseNode`, `ImmutableUnmatchedNode`, `MarkerNode`) render their
+ * own marker bytes, and splicing an NBSP into those rewrites a glyph — and not an attribute
+ * display run (textType "attribute"), whose `|…` bytes are engine-owned canonical output that an
+ * NBSP prefix would corrupt. THE one predicate for every site that splices a separator into
+ * leading text ({@link $openerSeparatorGap} here, plus the continuation/absorb span builders in
+ * charGlyphs.utils.ts and charStack.utils.ts), so the rule cannot drift between them; anything
+ * else takes a standalone NBSP spacer instead.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+export function $isSeparatorPrefixHostText(node: LexicalNode | null | undefined): node is TextNode {
+  return (
+    $isTextNode(node) &&
+    node.getType() === TextNode.getType() &&
+    $getState(node, textTypeState) !== "attribute"
+  );
+}
+
+/**
  * Where a separator is missing after `opener` (a direct child of `char`):
  *
  * - `"prefix"` — the glyph is followed by plain text that lacks the NBSP prefix;
@@ -73,19 +93,12 @@ function $openerSeparatorGap(opener: MarkerNode, char: CharNode): "prefix" | "sp
     // glyph (the span's own closer on a degenerate empty span) takes none.
     return $charGlyphNestedValue(next, char) === true ? "spacer" : undefined;
   }
-  // Plain text directly after the glyph carries the separator as its prefix — except a char
-  // attribute display run's `|…` text (textType "attribute"), whose bytes are engine-owned
-  // canonical output: prefixing an NBSP INTO it would corrupt the run, so it takes a standalone
-  // spacer like element content. TextNode SUBCLASSES (VerseNode) render their own marker text
-  // and fall through to the spacer case.
-  if (
-    $isTextNode(next) &&
-    next.getType() === TextNode.getType() &&
-    $getState(next, textTypeState) !== "attribute"
-  )
+  // Plain text directly after the glyph carries the separator as its prefix — see
+  // $isSeparatorPrefixHostText for what qualifies and why.
+  if ($isSeparatorPrefixHostText(next))
     return next.getTextContent().startsWith(NBSP) ? undefined : "prefix";
-  // Element content (nested char span, note, milestone, verse) and attribute-run text:
-  // standalone NBSP spacer.
+  // Element content (nested char span, note, milestone, verse), TextNode subclasses, and
+  // attribute-run text: standalone NBSP spacer.
   return "spacer";
 }
 

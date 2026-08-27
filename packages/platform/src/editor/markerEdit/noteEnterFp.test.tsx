@@ -385,7 +385,10 @@ describe("Enter inside note content", () => {
       editor.update(() => {
         const { ftText: head } = $noteFtTextAndTrailingBodyText();
         const tail = $createTextNode(" tail");
-        $setState(tail, textTypeState, "attribute");
+        // A style difference keeps Lexical from merging the adjacent texts while the tail stays
+        // PLAIN content text — an "attribute"-tagged device would (correctly) be refused the
+        // \fp span's structural NBSP prefix that this test asserts the caret sits after.
+        tail.setStyle("letter-spacing: normal");
         head.insertAfter(tail);
         head.select(head.getTextContentSize(), head.getTextContentSize());
         handled = $handleEnterInNote();

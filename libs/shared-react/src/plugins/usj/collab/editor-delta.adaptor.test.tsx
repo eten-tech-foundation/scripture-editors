@@ -665,7 +665,10 @@ describe("getEditorDelta", () => {
               $createMarkerNode("ft"),
               $createTextNode(`${NBSP}see `),
               $createCharNode("fv").append($createMarkerNode("fv"), $createTextNode(`${NBSP}2`)),
-              $createTextNode(`${NBSP} more`),
+              // Text after a nested closer takes NO structural separator (the adaptors prepend
+              // one only to the text directly after an OPENING glyph), so its canonical shape
+              // has no leading NBSP.
+              $createTextNode(" more"),
             ),
             $createMarkerNode("f", "closing"),
           ),
@@ -691,6 +694,56 @@ describe("getEditorDelta", () => {
                   attributes: { char: [{ style: "ft" }, { style: "fv" }] },
                 },
                 { insert: " more", attributes: { char: { style: "ft" } } },
+              ],
+            },
+          },
+        },
+      },
+      { insert: LF, attributes: { para: { style: "q1" } } },
+    ]);
+  });
+
+  it("keeps an authored NBSP on a later char child in canonical contents ops (only the opener's separator strips)", async () => {
+    // `\ft A\+nd x\+nd*~B` — the `~` before B is the author's own NBSP, positioned after a
+    // nested closer where no structural separator ever lives. The strip is positional (the text
+    // directly after the span's opening glyph); keying it on the parent span deleted one
+    // authored NBSP per emit.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("q1").append(
+          $createTextNode("When"),
+          $createNoteNode("f", GENERATOR_NOTE_CALLER, false).append(
+            $createMarkerNode("f"),
+            $createTextNode(getEditableCallerText(GENERATOR_NOTE_CALLER)),
+            $createCharNode("ft").append(
+              $createMarkerNode("ft"),
+              $createTextNode(`${NBSP}A`),
+              $createCharNode("nd").append($createMarkerNode("nd"), $createTextNode(`${NBSP}x`)),
+              $createTextNode(`${NBSP}B`),
+            ),
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+
+    const delta = getEditorDelta(editor.getEditorState());
+
+    expect(delta.ops).toEqual([
+      { insert: "When" },
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: {
+              ops: [
+                { insert: "A", attributes: { char: { style: "ft" } } },
+                {
+                  insert: "x",
+                  attributes: { char: [{ style: "ft" }, { style: "nd" }] },
+                },
+                { insert: `${NBSP}B`, attributes: { char: { style: "ft" } } },
               ],
             },
           },

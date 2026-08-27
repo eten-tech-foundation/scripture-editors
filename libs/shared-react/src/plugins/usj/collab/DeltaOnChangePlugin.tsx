@@ -2,7 +2,7 @@
  * Adapted from https://github.com/facebook/lexical/blob/d0456a81955bc6fef7cc7f87907f2a172d41bbf2/packages/lexical-react/src/LexicalOnChangePlugin.ts
  */
 
-import { $getOTPositionOfNode, DeltaOp } from "./delta-common.utils";
+import { $getOTPositionOfNode, $isFastPathContentText, DeltaOp } from "./delta-common.utils";
 import { $getTextOp, getEditorDelta } from "./editor-delta.adaptor";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import type { EditorState, LexicalEditor, UpdateListenerPayload } from "lexical";
@@ -86,7 +86,19 @@ function $getUpdateOps(
     // note's OUTER position and the emitted op would land the edit AFTER the note. The full-diff
     // fallback replaces the note embed wholesale instead.
     const isInsideNote = dirtyNode !== null && $findFirstAncestorNoteNode(dirtyNode) !== undefined;
-    if (dirtyLeaves.size === 1 && $isTextNode(dirtyNode) && !isInsideNote) {
+    // Presentation-carrying text must not take the fast path either: the fast path's insert is
+    // the node's RAW bytes while its retain is counted in delta-doc coordinates, and for a node
+    // the ops-stream exclusions treat specially (a `\q1` prefix glyph, a `\va 2\va*` run,
+    // attribute text) those are different currencies — a peer would receive display bytes as
+    // Scripture and every later offset would shift. $isFastPathContentText derives eligibility
+    // from the same delta-doc counting instead of re-listing the exclusions; anything ineligible
+    // falls to the full diff, whose $handleTextNodes applies the one authoritative list.
+    if (
+      dirtyLeaves.size === 1 &&
+      $isTextNode(dirtyNode) &&
+      !isInsideNote &&
+      $isFastPathContentText(dirtyNode)
+    ) {
       // Handle the most common case of text changing in a single text node.
       // Default "delta-doc" coordinates (NOT "apply"): this fast path and the `getEditorDelta`
       // diff fallback below feed the same doc-delta op stream emitted to the host via
