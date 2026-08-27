@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Standard View
+
+Standard view shows USFM markers as editable text, and most of the machinery that makes that work
+lives in this repo: the marker-edit engine, the settle clocks, the display-run registry, and the
+USFM tokenizer.
+
+**Before changing any of it, read the Standard View invariants** — the contract those layers keep
+with each other, the ratified behaviors that must not be "fixed", and the approval gate on C#
+serialization. The document lives in the host repo, since it spans both:
+
+`paranext-core/.context/standards/Standard-View-Invariants.md`
+
+It is deliberately not inlined here — most work in this repo does not touch Standard view, and the
+invariants are long enough to be worth reading on demand rather than carrying in every session.
+
 ## Development Commands
 
 ### Prerequisites
