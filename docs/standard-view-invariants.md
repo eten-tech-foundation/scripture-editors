@@ -148,6 +148,24 @@ the marker and caller are governed by dropdowns and should not be typeable, and 
 Markers view, which has no such UI and wants direct caller editing. Any rule about editing a note's
 shell has to be keyed on a view option, never on `noteMode: "expanded"` alone.
 
+**`token` mode alone does NOT make the shell atomic.** `ViewOptions.isNoteShellEditable: false`
+renders the opening glyph and the caller in Lexical's `token` mode, which is necessary but not
+sufficient: `token` only redirects an insertion at a token node's BOUNDARY, and even there it picks
+the right sibling at exactly one of them. A caret strictly INSIDE a token node replaces the whole
+node with the typed character — the measured results are a caller replaced by the keystroke (which
+then leaks into the note's content on save) and, for the opening glyph, a note destroyed outright,
+since a note that has lost its opener is unwrapped as deletion damage. `NoteShellCaretGuardPlugin`
+(shared-react) is what actually keeps the caret out: it corrects any caret that comes to rest in the
+shell, in the same update, before anything can be typed.
+
+The shell has exactly ONE caret position: the **trailing edge of its last node** — the caller's own
+end — which is where `token` mode redirects typing forward into the note's content. At the shell's
+leading edge Lexical inserts INSIDE the note before the opening glyph (a `NoteNode` does not refuse
+text before it), and at the seam between the glyph and the caller it inserts between them.
+
+Consequence for tests: asserting that the mode is `token` proves nothing about whether the shell is
+protected. Assert what the DOCUMENT does under a keystroke.
+
 ### `\cat` is the attribute marker the stylesheet does not declare
 
 `ATTRIBUTE_MARKERS` holds `ca`, `cp`, `va`, `vp`, and `cat`. All but `cat` are also usfm.sty
