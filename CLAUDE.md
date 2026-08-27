@@ -8,14 +8,17 @@ Standard view shows USFM markers as editable text, and most of the machinery tha
 lives in this repo: the marker-edit engine, the settle clocks, the display-run registry, and the
 USFM tokenizer.
 
-**Before changing any of it, read the Standard View invariants** — the contract those layers keep
-with each other, the ratified behaviors that must not be "fixed", and the approval gate on C#
-serialization. The document lives in the host repo, since it spans both:
+**Before changing any of it, read [the Standard View invariants](docs/standard-view-invariants.md)**
+— the contract those layers keep with each other, the rules settled by investigation rather than
+preference, and the ratified behaviors that must not be "fixed".
 
-`paranext-core/.context/standards/Standard-View-Invariants.md`
+The host repo (`paranext-core`) owns the USJ-to-USFM writer, the markers map, the marker palette's
+key semantics, and the C# serialization approval gate, and carries its own half at
+`.context/standards/Standard-View-Invariants.md`. The two are deliberately separate so each is
+readable with only one repo checked out; if you have both, read both.
 
-It is deliberately not inlined here — most work in this repo does not touch Standard view, and the
-invariants are long enough to be worth reading on demand rather than carrying in every session.
+It is not inlined here — most work in this repo does not touch Standard view, and the invariants are
+long enough to be worth reading on demand rather than carrying in every session.
 
 ## Development Commands
 

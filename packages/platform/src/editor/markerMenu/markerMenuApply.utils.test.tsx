@@ -641,6 +641,61 @@ describe("$applyMarkerMenuSelection", () => {
       });
     });
 
+    it("wraps a selection in a CLOSER-LESS family marker as a closed span", async () => {
+      // The note-content families (\ft, \xt, \fq …) are INSERTED closer-less by convention, so a
+      // fresh wrapper for one carried an opener and no closer — and $wrapNode's strip-everything
+      // branch removed that lone opener, leaving a glyph-less span the marker-edit engine unwraps
+      // again. The apply did nothing at all, silently. These markers ARE offered over a paragraph
+      // selection (the character source lists \xt there), so this was reachable by typing `xt`
+      // into the palette and pressing Space. Applying a marker to a selection means "wrap this
+      // text", which is a closed span whatever the marker's insertion default is.
+      let text: TextNode;
+      const { editor } = await fullHarnessEnvironment(() => {
+        const para = $createParaNode("p");
+        text = $createTextNode("hello world");
+        $getRoot().append(para.append($createMarkerNode("p"), $createTrailingSpaceNode(), text));
+      });
+      await act(async () =>
+        editor.update(() => {
+          const selection = $createRangeSelection();
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          selection.anchor.set(text!.getKey(), 0, "text");
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          selection.focus.set(text!.getKey(), 5, "text");
+          $setSelection(selection);
+        }),
+      );
+
+      const item: MarkerMenuItem = { marker: "xt", kind: "character", isBasic: true };
+      await act(async () =>
+        editor.update(() => {
+          $applyMarkerMenuSelection(
+            item,
+            { trigger: "backslash", literalPrefixLanded: false },
+            reference,
+            makeDeps(),
+          );
+        }),
+      );
+
+      editor.getEditorState().read(() => {
+        const para = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0],
+          "para missing",
+        );
+        const chars = para.getChildren().filter($isCharNode);
+        expect(chars).toHaveLength(1);
+        expect(chars[0].getMarker()).toBe("xt");
+        expect(chars[0].getTextContent()).toContain("hello");
+        // Both glyphs present — the opener is what used to be stripped — and no `+` prefix,
+        // because this span is not nested inside another char span.
+        const glyphs = chars[0].getChildren().filter($isMarkerNode);
+        expect(glyphs.map((g) => g.getTextContent())).toEqual(["\\xt", "\\xt*"]);
+        // The text the selection did NOT cover stays outside the span.
+        expect(para.getTextContent()).toContain("world");
+      });
+    });
+
     /**
      * Wrapping a selection that is nothing but whitespace. Lives here rather than beside the
      * trailing-space transform's own lone-space pins because what it exercises is the WRAP

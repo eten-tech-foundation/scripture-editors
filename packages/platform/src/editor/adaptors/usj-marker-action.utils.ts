@@ -541,16 +541,20 @@ function isNestInPlaceCharNode(charNode: CharNode, styleInfo?: StyleInfo): boole
  * (`\ft A \+nd ho\+nd*\+fq\+nd ly\+nd*` re-parses with the second `\+nd` INSIDE `\+fq`); and a
  * selection wrap into a fresh closer-less span strips its opener glyph and gets unwrapped as a
  * "deleted opener" (a silent no-op). An explicit closer fixes both, matching PT9's requirement
- * that an applied nested span be explicitly terminated.
+ * that an applied span be explicitly terminated.
+ *
+ * `isNested` also decides the `+` prefix: a span nested inside another char span carries it, one
+ * applied at container level does not.
  */
-function $ensureNestedSpanClosed(charNode: CharNode): void {
-  charNode.getChildren().forEach((child) => {
-    if ($isMarkerNode(child)) child.setNested(true);
-  });
+function $ensureSpanClosed(charNode: CharNode, isNested: boolean): void {
+  if (isNested)
+    charNode.getChildren().forEach((child) => {
+      if ($isMarkerNode(child)) child.setNested(true);
+    });
   const hasCloser = charNode
     .getChildren()
     .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
-  if (!hasCloser) charNode.append($createMarkerNode(charNode.getMarker(), "closing", true));
+  if (!hasCloser) charNode.append($createMarkerNode(charNode.getMarker(), "closing", isNested));
   const attributes = charNode.getUnknownAttributes();
   if (attributes?.closed === "false") {
     const rest = { ...attributes };
@@ -706,12 +710,21 @@ function $wrapTextSelectionInInlineNode(
       currentWrapper = createNode();
       targetNode.insertBefore(currentWrapper);
       isFreshWrapper = true;
-      // A wrapper nested inside another char span needs `+` glyphs and an explicit closer, so
-      // $wrapNode inserts content before a real closer instead of stripping the lone opener of a
-      // closer-less span (which leaves a glyph-less span the marker-edit engine unwraps — a silent
-      // no-op). At other levels the wrapper keeps whatever convention it was built with.
-      if ($isCharNode(currentWrapper) && $isCharNode(currentWrapper.getParent()))
-        $ensureNestedSpanClosed(currentWrapper);
+      // A fresh wrapper needs an explicit closer so $wrapNode inserts the content BEFORE it rather
+      // than taking the strip-everything branch, which removes the lone opener of a closer-less
+      // span and leaves a glyph-less span the marker-edit engine unwraps again — a silent no-op.
+      // That bites the note-content families (`\ft`, `\xt`, `\fq` …), which are INSERTED
+      // closer-less by convention: applying one over a selection did nothing at all. Applying a
+      // marker to a selection means "wrap this text", which is a closed span whatever the marker's
+      // insertion default is — the same end state every other char marker already produced.
+      // Keyed on having an opener to lose, so non-editable marker modes (which build no glyphs)
+      // keep their existing shape. Nesting additionally needs `+` glyphs.
+      if ($isCharNode(currentWrapper)) {
+        const hasOpener = currentWrapper
+          .getChildren()
+          .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "opening");
+        if (hasOpener) $ensureSpanClosed(currentWrapper, $isCharNode(currentWrapper.getParent()));
+      }
     }
 
     // Wrap the target node
