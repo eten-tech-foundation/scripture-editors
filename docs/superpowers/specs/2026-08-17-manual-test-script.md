@@ -281,3 +281,64 @@ hit testing and paints no caret.
     Press Left and expect the end of the text before the note. Repeat with a footnote ending the
     LAST paragraph of the chapter — pressing Right repeatedly must not put the caret, or a typed
     character, inside the note body.
+
+## 12. Closeout round 2 — the fixes from the owner's hand-test of `sv/closeout`
+
+Everything below either was found by hand after the closeout branch shipped, or is a fix whose
+decisive evidence a headless test cannot produce. Items 72-78 have pins; the point of running them
+by hand is that the pins run in jsdom, which has no layout, no hit testing, and paints no caret.
+
+**Setup:** paranext-core with the merged dists (`devpub` platform-editor + utilities, then
+`npm run editor:link && npm run utils:link`), Standard view with editable markers. Keep the dev
+console open — any `[MarkerEdit] settle cascade exceeded` warning at any step is a bug report by
+itself.
+
+### Typed spaces beside markers
+
+72. **Inside a verse marker.** `\v| 6` — caret between the `\v` and the separator — press space.
+    Expect the space to APPEAR with the caret immediately after it (`\v | 6`), not merely a cursor
+    move. Repeat at `\v |6` (after the separator, before the number). Save and reload: the file is
+    unchanged either way, because the writer emits one structural space regardless.
+73. **After a char opener, flat and nested.** `\nd| things` + space → `\nd | things`, caret between
+    the two spaces. Repeat inside a `\wj` for the nested `\+nd` spelling.
+74. **At the verse/`\va` seam.** `\v 1| \va 3\va*` + space, then `\v 1 |\va 3\va*` + space. Both
+    insert; the caret lands right after the typed byte; `altnumber` stays `3`.
+75. **Inside the five display runs.** A space at the end of a `\va`, `\vp`, `\ca`, `\cp` and `\cat`
+    value, and one in the separator before the value. It stays visible after you click away; the
+    value itself is unchanged.
+
+### Milestones
+
+76. **A valid milestone applies at once.** Type `\qt1-s\*`, then `\qt1-s |who="TJ"\*`. The milestone
+    must appear as you finish the closer — NOT wait for you to click away.
+77. **Destructive edits wait for the settle.** With the caret still inside, type
+    `\qt1-s things|sid="asdf"\*`. Nothing must rearrange while you are typing. Click away: it
+    settles to `\qt1-s |sid="asdf"\*things\*` — milestone closed, attributes kept, the content it
+    cannot hold ejected as a sibling, and the leftover `\*` unmatched. Save and reload: identical.
+78. **An unparseable attribute string ejects.** Type `\qt1-s |who=""\*` and click away: expect
+    `\qt1-s\*|who=""\*`. Reload and confirm nothing moves again.
+79. **Re-absorption.** From that ejected state, fix the attribute string so it parses —
+    `\qt1-s\*|who="person"\*` — and click away. Expect it to fold back to `\qt1-s |who="person"\*`.
+    Now delete the trailing `\*` so it reads `\qt1-s\*|who="person"` and click away: it must NOT
+    absorb. Repeat with a space between the milestone's `\*` and the `|` (still absorbs), and on a
+    milestone that already has attributes (they merge, body text wins on a key collision).
+
+### The phantom paragraph
+
+80. **The owner's four-step sequence.** At a paragraph's end type `\qt-s\*` and click away (the
+    milestone forms). Change the `-` to a `1` and click away — `\qt1s\*` is genuinely unknown, so it
+    correctly becomes an unmatched pair on its own line. Now change the `1` back to a `-` and click
+    away: the milestone must fold BACK into the paragraph above. **No `\p` may appear.** Check the
+    saved file as well as the screen.
+81. **The same shape with a note and a char marker.** Repeat step 80 substituting `\f` and `\nd` for
+    the milestone, to confirm the rejoin is keyed on "not a block marker" rather than on one kind.
+    An unknown marker (`\zzz`) must still stay block-shaped — that is the tokenizer's own default
+    and is correct.
+
+### Focus and the caret
+
+82. **One click to the end of a paragraph ending in a footnote.** With focus OUTSIDE the editor
+    (click a toolbar or another panel first), click once in the blank space at the end of that line.
+    Expect the caret there on the FIRST click, and Space to type a space rather than scroll the
+    page. Compare against clicking the end of an ordinary line from unfocused — if that also takes
+    two clicks, say so, because then it is general and not about the footnote.

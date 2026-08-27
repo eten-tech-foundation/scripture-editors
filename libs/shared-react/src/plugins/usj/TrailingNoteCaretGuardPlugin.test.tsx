@@ -180,6 +180,61 @@ async function clickAtDomPosition(
   releaseDomSelection();
 }
 
+/**
+ * The whole sequence a click into an editor that does NOT yet have focus produces, in the order a
+ * browser produces it. Measured in Chromium against the rendered standard view, because jsdom has
+ * no layout and no hit testing and can supply none of it on its own:
+ *
+ * 1. focus reaches the editor;
+ * 2. the browser's hit test writes its landing into the DOM selection — and for the blank stretch
+ *    at the end of a line that a collapsed note ends, that landing is the note's caller, at every
+ *    distance from the text measured;
+ * 3. Lexical resolves that DOM position to no point at all, so the editor-state selection becomes
+ *    `null`, and `SELECTION_CHANGE_COMMAND` is dispatched inside that same update;
+ * 4. committing a null selection over a selection the editor already had makes Lexical's reconciler
+ *    call `removeAllRanges()`, after which the browser reports the caret at the start of the
+ *    editable instead;
+ * 5. only then does `click` fire.
+ *
+ * Step 4 is the whole difficulty: by the time the click arrives, neither the caret nor the DOM
+ * selection says anything about where the click came down. Step 3 is the last moment that does.
+ *
+ * What is supplied here is that ORDER and those POSITIONS; which position a real click at given
+ * coordinates produces is the browser's answer, quoted above, not this test's.
+ */
+async function clickIntoUnfocusedEditor(
+  editor: LexicalEditor,
+  target: Element,
+  container: Node,
+  offset: number,
+): Promise<void> {
+  const hadCaret = editor.getEditorState().read(() => $getSelection() !== null);
+  await act(async () => {
+    const domSelection = putDomCaret(container, offset);
+    editor.update(() => {
+      $setSelection($createRangeSelectionFromDom(domSelection, editor));
+      editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+    });
+  });
+
+  const stillUnresolved = editor.getEditorState().read(() => $getSelection() === null);
+  const rootElement = editor.getRootElement();
+  if (hadCaret && stillUnresolved && rootElement) {
+    // Step 4. The reconciler only clears the DOM range when the editor had a selection to lose, so
+    // a first-ever click into a never-used editor keeps the landing the hit test gave it.
+    putDomCaret(rootElement, 0);
+  } else if (!stillUnresolved) {
+    // A repaired selection is written back out to the DOM by a browser; jsdom does no such
+    // reconciliation, and releasing the range is the faithful stand-in. See `releaseDomSelection`.
+    releaseDomSelection();
+  }
+
+  await act(async () => {
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  releaseDomSelection();
+}
+
 /** Every placeholder-bearing text node in the document, wherever it sits. */
 function allHosts(editor: LexicalEditor): TextNode[] {
   return editor.getEditorState().read(() =>
@@ -597,11 +652,13 @@ describe("TrailingNoteCaretGuardPlugin", () => {
     });
 
     it("resolves a position on the note's caller to no selection at all", async () => {
-      // The caller is a decorator, so Lexical resolves no point inside it and the editor is left
-      // with no selection — the same measured behavior the gutter-marker click guard documents.
-      // There is no caret here for a rule about the caret's resting place to read, which is why
-      // this landing needs the click itself; the next test is that repair.
-      const { editor } = await noteParagraphEnvironment(<TrailingNoteCaretGuardPlugin />);
+      // No guard mounted: the raw resolution again. The caller is a decorator, so Lexical resolves
+      // no point inside it and the editor is left with no selection — the same measured behavior
+      // the gutter-marker click guard documents. That is the landing a real hit test produces for
+      // the blank stretch at the end of the line, and having no caret is what makes it a position
+      // no rule about the caret's RESTING PLACE can read. With the guard mounted this same arrival
+      // is repaired; the "a click that arrives with focus" tests pin that.
+      const { editor } = await noteParagraphEnvironment();
       const { callerDom } = noteParagraphDom(editor);
 
       await caretFromDomPosition(editor, callerDom, 0);
@@ -609,7 +666,6 @@ describe("TrailingNoteCaretGuardPlugin", () => {
       editor.getEditorState().read(() => {
         expect($getSelection()).toBe(null);
       });
-      expect(allHosts(editor).length).toBe(0);
     });
 
     it("repairs a click whose position resolved to no caret at all", async () => {
@@ -759,6 +815,99 @@ describe("TrailingNoteCaretGuardPlugin", () => {
         expect($isTextNode(last) && last.getTextContent()).toBe("X");
         expect(note.getTextContent()).not.toContain("X");
       });
+    });
+  });
+
+  // A click that also has to deliver focus. The reported symptom is that it takes two: the first
+  // one leaves the caret somewhere other than where it was aimed. See `clickIntoUnfocusedEditor`
+  // for the measured order of events, which is what makes this case different from a click into an
+  // editor that already has focus.
+  describe("a click that arrives with focus", () => {
+    async function noteParagraphEnvironment(children?: ReactNode, textAfterNote?: string) {
+      let para: ParaNode;
+      let before: TextNode;
+      let note: NoteNode;
+      const { editor } = await baseTestEnvironment(() => {
+        before = $createTextNode("before ");
+        note = $createTrailingNote();
+        para = $createParaNode("p");
+        $getRoot().append(
+          para.append(
+            ...(textAfterNote === undefined
+              ? [before, note]
+              : [before, note, $createTextNode(textAfterNote)]),
+          ),
+        );
+      }, children);
+      return { editor, para: para!, before: before!, note: note! };
+    }
+
+    /** The caret the user left behind before clicking away — the ordinary starting state. */
+    async function giveEditorACaret(editor: LexicalEditor, before: TextNode) {
+      await act(async () => {
+        editor.update(() => {
+          before.select(1, 1);
+        });
+      });
+      await dispatchSelectionChange(editor);
+    }
+
+    it("lands past the note on the FIRST click, from an editor that already had a caret", async () => {
+      const { editor, para, before, note } = await noteParagraphEnvironment(
+        <TrailingNoteCaretGuardPlugin />,
+      );
+      await giveEditorACaret(editor, before);
+      const { paraDom, callerDom } = noteParagraphDom(editor);
+
+      await clickIntoUnfocusedEditor(editor, paraDom, callerDom, 0);
+
+      editor.getEditorState().read(() => {
+        const host = para.getLastChild();
+        if (!$isTextNode(host)) throw new Error("expected a text host past the note");
+        expect(host.getTextContent()).toBe(CURSOR_PLACEHOLDER_CHAR);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        expect(selection.anchor.key).toBe(host.getKey());
+        expect(note.getTextContent()).not.toContain(CURSOR_PLACEHOLDER_CHAR);
+      });
+      expect(allHosts(editor).length).toBe(1);
+    });
+
+    it("lands past the note on the first click into an editor nobody had used yet", async () => {
+      // No caret to lose, so Lexical never clears the DOM range and the click still knows its own
+      // landing. Both routes have to end in the same place, or the fix would only work every other
+      // time the user visits the editor.
+      const { editor, para, note } = await noteParagraphEnvironment(
+        <TrailingNoteCaretGuardPlugin />,
+      );
+      const { paraDom, callerDom } = noteParagraphDom(editor);
+
+      await clickIntoUnfocusedEditor(editor, paraDom, callerDom, 0);
+
+      editor.getEditorState().read(() => {
+        const host = para.getLastChild();
+        if (!$isTextNode(host)) throw new Error("expected a text host past the note");
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        expect(selection.anchor.key).toBe(host.getKey());
+        expect(note.getTextContent()).not.toContain(CURSOR_PLACEHOLDER_CHAR);
+      });
+      expect(allHosts(editor).length).toBe(1);
+    });
+
+    it("leaves a note that something in its block renders past alone", async () => {
+      // The rule is about the position at the END of a line, which is the only one with nothing to
+      // render a caret in. A caller with text after it has a caret position either side already.
+      const { editor, before } = await noteParagraphEnvironment(
+        <TrailingNoteCaretGuardPlugin />,
+        " after",
+      );
+      await giveEditorACaret(editor, before);
+      const { paraDom, callerDom } = noteParagraphDom(editor);
+
+      await clickIntoUnfocusedEditor(editor, paraDom, callerDom, 0);
+
+      expect(allHosts(editor).length).toBe(0);
     });
   });
 });

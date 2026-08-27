@@ -11,10 +11,13 @@
  * re-tokenizes from here, regardless of backslashes or termination-looking
  * content, and pends whenever its own run diverges from what the owner's
  * state calls for — see the attribute branch below. Plain `|…`
- * content typed into an ALREADY-closed char span is a fourth case: it carries
+ * content bounded by a CLOSER is a fourth case: it carries
  * no backslash, so the immediate path never fires, yet it is a pending
  * attribute edit (PT9 re-parses `|…` before an explicit closer), so it pends
  * for the same caret-departure settle rather than being discarded as inert text.
+ * The closer is the enclosing char span's own closing glyph, or a leftover
+ * unmatched closing marker sitting right after the run — the shape a milestone's
+ * ejection leaves behind, whose repair the tokenizer folds back in.
  * Typed `//` is a fifth case: USFM's discretionary line break (optbreak) carries
  * no backslash or pipe either, but the tokenizer maps it to an optbreak wherever
  * plain text appears, so it pends for the same caret-departure settle.
@@ -65,16 +68,29 @@ import {
 } from "shared";
 
 /**
- * Whether `node` sits inside a char span that already carries its closing glyph. USFM attributes
- * are only meaningful before an explicit closer, so `|` bytes typed into such a span's plain
- * content are a pending attribute edit (PT9 re-parses them via `extractAttributes` on the next
- * reformat), not inert text. The nearest CharNode ancestor is the one that matters; a span with no
- * closing glyph (an unclosed `closed="false"` span) keeps such bytes literal, and plain paragraph
- * text with no CharNode ancestor is never an attribute site at all. Reuses `$charClosingGlyph` --
- * the same closing-glyph locator the attribute display owns (attributeDisplay.utils.ts) -- so this
- * pend decision and the display run can never disagree about whether a span is closed.
+ * Whether `node` sits where USFM reads a `|` run as an ATTRIBUTE LIST rather than as content:
+ * between a marker and its CLOSER. Attributes are only meaningful before an explicit closer, so
+ * this is what separates a pending attribute edit (PT9 re-parses such a run on the next reformat)
+ * from inert text.
+ *
+ * The closer has two spellings and either one bounds the run. INSIDE a char span it is the span's
+ * own closing glyph, carried by the nearest CharNode ancestor -- a span with no closing glyph (an
+ * unclosed `closed="false"` span) keeps such bytes literal. At SIBLING level it is a leftover
+ * unmatched closing marker sitting directly after the run, which is the shape a milestone's
+ * ejection leaves behind: the milestone closes, the bytes it could not hold follow it, and the
+ * author's own `\*` is stranded past them. Repairing those bytes into a list that parses folds
+ * them back into the milestone (the tokenizer's absorption, scanMilestone), but the repair lands
+ * in a plain text node with no backslash of its own -- so without this arm nothing pended, caret
+ * departure settled nothing, and the fold waited for a reload.
+ *
+ * Plain paragraph text bounded by neither is not an attribute site at all.
+ *
+ * Reuses `$charClosingGlyph` -- the same closing-glyph locator the attribute display owns
+ * (attributeDisplay.utils.ts) -- so this pend decision and the display run can never disagree
+ * about whether a span is closed.
  */
-function $isInClosedCharSpan(node: LexicalNode): boolean {
+function $isAttributeListSite(node: LexicalNode): boolean {
+  if ($isImmutableUnmatchedNode(node.getNextSibling())) return true;
   for (let parent = node.getParent(); parent; parent = parent.getParent())
     if ($isCharNode(parent)) return $charClosingGlyph(parent) !== undefined;
   return false;
@@ -191,8 +207,8 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
     // keeps it literal — PT9 semantics, terminating without churn). Do NOT rebuild now: the user is
     // mid-typing `|stuff="thi…`. All other plain text still deletes its key (that cleanup matters):
     // pipe-text in an unclosed span carries no attribute, and pipe-text in bare paragraph content
-    // is not an attribute site at all — `$isInClosedCharSpan` keeps both out.
-    if (text.includes("|") && $isInClosedCharSpan(node)) context.pendingKeys.add(node.getKey());
+    // bounded by no closer is not an attribute site at all — `$isAttributeListSite` keeps both out.
+    if (text.includes("|") && $isAttributeListSite(node)) context.pendingKeys.add(node.getKey());
     // `//` is USFM's discretionary line break (optbreak). The tokenizer maps it to an optbreak
     // wherever plain text appears — body paragraphs and char-span content alike (the split is
     // flat, run before char-stack assembly). No backslash, pipe, or termination ever re-triggers
@@ -390,7 +406,7 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       }
       const text = node.getTextContent();
       // Four literal shapes pend, mirroring the transform's TextNode branches: backslash runs
-      // (terminated or not), pipe bytes in a closed char span (the pipe branch), `//` optbreak
+      // (terminated or not), pipe bytes at an attribute site (the pipe branch), `//` optbreak
       // text (the optbreak branch), and content of an empty `\va`/`\vp` SOURCE span (the
       // verse-attribute-site branch). Undoing an optbreak settle restores the literal `//`, and
       // undoing a settled fold restores the empty source span's typed value — both are the same
@@ -400,7 +416,7 @@ export function $rependPendShapedNodes(context: MarkerEditContext): void {
       // claimed by the chapter arm above.
       if (
         text.includes("\\") ||
-        (text.includes("|") && $isInClosedCharSpan(node)) ||
+        (text.includes("|") && $isAttributeListSite(node)) ||
         text.includes("//") ||
         $verseOfAttributeSourceText(node) !== undefined
       )

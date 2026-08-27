@@ -489,10 +489,17 @@ export function milestoneDefaultAttribute(name: string): string {
  * unmatched.
  *
  * Answered by running the real tokenizer rather than re-deriving the conditions, so it cannot drift
- * from {@link scanMilestone}: the ejected shape is a milestone whose next sibling is the unmatched
- * closing marker left over from it. Callers use this to defer such a rebuild to the settle instead
- * of applying it mid-keystroke, because ejection MOVES bytes and doing that under the caret
- * rearranges the line the user is still typing on.
+ * from {@link scanMilestone}. Callers use this to defer such a rebuild to the settle instead of
+ * applying it mid-keystroke, because ejection MOVES bytes and doing that under the caret rearranges
+ * the line the user is still typing on. Only ejection earns that deferral: a well-formed milestone
+ * rearranges nothing and applies where it stands, the instant its `\*` is typed.
+ *
+ * The ejected shape is BOTH halves together — content immediately after the milestone AND the
+ * author's own `\*` stranded past that content as an unmatched closing marker. Asking only for
+ * the first half counts ordinary body text following a well-formed milestone, which is the common
+ * case and not an ejection at all; the leftover unmatched `\*` is the observable that tells the
+ * two apart. The content run may tokenize into several items (an ejected list containing `//`
+ * splits around an optbreak), so the closer is looked for anywhere past it rather than adjacent.
  */
 export function milestoneEjectionPending(text: string): boolean {
   const content = usfmFragmentToUsjContent(text)[0];
@@ -500,11 +507,52 @@ export function milestoneEjectionPending(text: string): boolean {
   if (!items) return false;
   return items.some((item, index) => {
     if (typeof item !== "object" || item.type !== "ms") return false;
-    return items.slice(index + 1).some((later) => {
-      if (typeof later === "string") return true;
-      return later.type === "unmatched" && later.marker === "*";
-    });
+    if (typeof items[index + 1] !== "string") return false;
+    return items
+      .slice(index + 2)
+      .some(
+        (later) => typeof later !== "string" && later.type === "unmatched" && later.marker === "*",
+      );
   });
+}
+
+/**
+ * An attribute list sitting AFTER a closed milestone that belongs back INSIDE it — the shape
+ * ejection leaves behind once the author repairs the bytes. `\qt1-s\*|who="person"\*` reads as
+ * the milestone the author meant, `\qt1-s |who="person"\*`.
+ *
+ * Two conditions, and both are load-bearing.
+ *
+ * The author's own trailing `\*` is what marks the run as a milestone's list rather than body
+ * text: content that merely begins with `|` has no closer after it, so this can never quietly eat
+ * ordinary bytes. Whitespace between the milestone's closer and the `|` is tolerated — it is the
+ * separator the author would have typed inside the milestone anyway.
+ *
+ * The list must PARSE, and that is what keeps absorption and ejection from chasing each other.
+ * Ejection puts an unparseable list OUTSIDE the milestone ({@link scanMilestone}); absorbing one
+ * back in would produce bytes that eject again, and the two would trade the same run forever.
+ * `|who=""` does not parse, so the ejected spelling stays ejected and the pair terminates.
+ *
+ * Returns the parsed list and where scanning resumes (past its `\*`), or undefined for every
+ * shape that is not this one.
+ */
+function scanAbsorbableAttributes(
+  fragment: string,
+  start: number,
+  name: string,
+): { attributes: { [attributeName: string]: string }; next: number } | undefined {
+  let index = start;
+  while (index < fragment.length && /[\s\u00A0\u200B]/.test(fragment[index])) index++;
+  if (fragment[index] !== "|") return undefined;
+  const closeIndex = fragment.indexOf("\\", index);
+  if (closeIndex === -1 || fragment.slice(closeIndex, closeIndex + 2) !== "\\*") return undefined;
+  const attributes = parseAttributeText(
+    fragment.slice(index + 1, closeIndex),
+    name,
+    milestoneDefaultAttribute(name),
+  );
+  if (!attributes) return undefined;
+  return { attributes, next: closeIndex + 2 };
 }
 
 /**
@@ -563,6 +611,20 @@ function scanMilestone(
       token: { kind: "milestone", marker: name, attributes },
       next: closeIndex,
       ejectedText: ejected.replace(/^[ \u00A0]/, ""),
+    };
+  // A repaired attribute list left sitting past the closer folds back in, its values overwriting
+  // any the milestone already carries: the list the author just fixed is the one they mean. Only
+  // the clean path absorbs: when content was ejected above, the `\*` is deliberately left to scan
+  // as an unmatched closer, so there is no "past the closer" position to absorb from.
+  const absorbed = scanAbsorbableAttributes(fragment, closeIndex + 2, name);
+  if (absorbed)
+    return {
+      token: {
+        kind: "milestone",
+        marker: name,
+        attributes: { ...attributes, ...absorbed.attributes },
+      },
+      next: absorbed.next,
     };
   return { token: { kind: "milestone", marker: name, attributes }, next: closeIndex + 2 };
 }

@@ -83,9 +83,15 @@ export const OPENER_NAME_SPAN_REGEX = new RegExp(
 /**
  * A backslash sequence ANYWHERE in text, completed by a space/NBSP separator or a `*` closer —
  * the "did the user just finish typing a marker?" trigger test (markerEditTier2Trigger.utils.ts).
+ *
+ * The closer has TWO spellings and both terminate: `\nd*` attaches the `*` to the marker name,
+ * while a milestone's closer is the standalone `\*` (`\qt1-s\*`). Reading only the attached
+ * spelling left a bare milestone with no terminator the immediate arm could see, so the one
+ * construct whose complete form needs no separator and carries no attached closer was the one
+ * that never applied where it stood — it waited for a settle the user had to earn by leaving.
  */
 export const TERMINATED_MARKER_IN_TEXT_REGEX = new RegExp(
-  String.raw`\\\+?[${ENGINE_MARKER_NAME_BYTES}]+(?:\*|[ \u00A0])`,
+  String.raw`\\\+?[${ENGINE_MARKER_NAME_BYTES}]+(?:\\?\*|[ \u00A0])`,
 );
 
 /**

@@ -23,6 +23,14 @@
  * An unknown paragraph LOADED from file (not a split artifact) rejoins by the same rule — the
  * joined bytes are what the tokenizer sees — and with no paragraph predecessor the degraded
  * bytes take the tokenizer's body-context default (`\p`), pinned against the tokenizer directly.
+ *
+ * "Inline" is the PROPERTY, not a list of kinds: the bytes end the split when they do not name a
+ * PARAGRAPH-kind marker. A char span, a milestone and a note are all inline, so all three rejoin;
+ * a name the effective stylesheet does not know does NOT, because the tokenizer's unknown-token
+ * default is exactly what made it block-shaped in the first place. The last suite drives the
+ * reported six-step milestone gesture end to end for that reason — while the gate enumerated only
+ * `Character`, a milestone kept a split it had no reason to keep and the stranded paragraph
+ * re-tokenized alone into a `\p` the user never typed.
  */
 import {
   $retypeGlyph,
@@ -44,6 +52,7 @@ import {
   $isRangeSelection,
   $isTextNode,
   LexicalEditor,
+  TextNode,
 } from "lexical";
 import {
   $createCharNode,
@@ -52,6 +61,8 @@ import {
   $createParaNode,
   $isCharNode,
   $isMarkerNode,
+  $isMilestoneNode,
+  $isNoteNode,
   $isParaNode,
   getPendedDisplayOwners,
   NBSP,
@@ -640,6 +651,253 @@ describe("an unknown split whose glyph regains a marker interpretation that is n
       const paras = $getRoot().getChildren().filter($isParaNode);
       expect(paras).toHaveLength(2);
       expect(paras[0].getTextContent()).not.toContain("stuff");
+    });
+  });
+});
+
+describe("an unknown split whose glyph regains an INLINE marker that is not a char", () => {
+  // The gate is the positional-kind property, not a list of kinds: bytes end the split when they
+  // do not name a PARAGRAPH-kind marker. A milestone and a note are as inline as a char span, so
+  // the same rejoin applies to all three — while a name the stylesheet does not know stays block,
+  // because the tokenizer's unknown-token default is what made it one.
+
+  /** `\p before ` plus a paragraph to park the caret in, through the public `Editor`. */
+  const inlineUsj: Usj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      { type: "book", marker: "id", code: "GEN", content: ["GEN"] },
+      { type: "chapter", marker: "c", number: "1" },
+      { type: "para", marker: "p", content: ["before "] },
+      { type: "para", marker: "p", content: ["second"] },
+    ],
+  };
+
+  /** The first BODY text node (never a glyph) whose text contains `match`. */
+  function $bodyTextContaining(match: string): TextNode {
+    const node = $getRoot()
+      .getAllTextNodes()
+      .find((candidate) => !$isMarkerNode(candidate) && candidate.getTextContent().includes(match));
+    if (!$isTextNode(node)) throw new Error(`body text containing "${match}" not found`);
+    return node;
+  }
+
+  /**
+   * Mount `inlineUsj` and give the root DOM focus. Without focus Lexical does not reconcile an
+   * editor-state selection, so the FIRST caret a test places is read back off the empty DOM
+   * selection and lost — every gesture below then starts from nowhere.
+   */
+  async function mountFocused() {
+    const mounted = await mountStandardViewEditor(inlineUsj);
+    act(() => {
+      mounted.lexical.getRootElement()?.focus();
+    });
+    return mounted;
+  }
+
+  /** Types `literal` one character at a time with the caret at the end of `match`'s text node. */
+  async function typeAtEndOf(
+    lexical: LexicalEditor,
+    match: string,
+    literal: string,
+  ): Promise<void> {
+    await act(async () => {
+      lexical.update(() => {
+        const body = $bodyTextContaining(match);
+        body.select(body.getTextContentSize(), body.getTextContentSize());
+      });
+      await Promise.resolve();
+    });
+    for (const character of literal)
+      await act(async () => {
+        lexical.update(() => $typeAtCaret(character));
+        await Promise.resolve();
+      });
+  }
+
+  /** Retypes the one glyph whose bytes start with `prefix`, leaving the caret at its end. */
+  async function retypeGlyphStartingWith(
+    lexical: LexicalEditor,
+    prefix: string,
+    text: string,
+  ): Promise<void> {
+    await act(async () => {
+      lexical.update(() => {
+        const glyph = requireDefined(
+          $getRoot()
+            .getAllTextNodes()
+            .find((node) => $isMarkerNode(node) && node.getTextContent().startsWith(prefix)),
+          `glyph starting "${prefix}" not found`,
+        );
+        $retypeGlyph(glyph, text);
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  /** Departs the caret to the parking paragraph and lets the deferred settle run. */
+  async function departAndSettle(lexical: LexicalEditor): Promise<void> {
+    await act(async () => {
+      lexical.update(() => $bodyTextContaining("second").select(0, 0));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => Promise.resolve());
+  }
+
+  /** Every root-level paragraph's marker, in document order. */
+  function paraMarkers(lexical: LexicalEditor): string[] {
+    return lexical.getEditorState().read(() =>
+      $getRoot()
+        .getChildren()
+        .filter($isParaNode)
+        .map((para) => para.getMarker()),
+    );
+  }
+
+  it("folds a milestone back into the paragraph above — the reported six-step gesture", async () => {
+    const { ref, lexical } = await mountFocused();
+    // The tokenizer over the displayed bytes is the authority for what those bytes mean.
+    const milestoneOracle = usfmFragmentToUsjContent("\\p before \\qt-s\\*", {});
+
+    // 1-2. Type `\qt-s\*` at the paragraph's end; it settles to a milestone in that paragraph.
+    await typeAtEndOf(lexical, "before ", "\\qt-s\\*");
+    await departAndSettle(lexical);
+    expect(paraMarkers(lexical)).toEqual(["p", "p"]);
+    expect(ref.current?.getUsj()?.content.slice(2, 3)).toEqual(milestoneOracle);
+
+    // 3-4. Change the `-` to a `1`. `qt1s` is genuinely unknown — no stylesheet entry and not a
+    // milestone name — so the tokenizer's unknown-token default makes it block-shaped and it
+    // correctly settles onto a line of its own, its `\*` left over as an unmatched closer.
+    await retypeGlyphStartingWith(lexical, "\\qt", "\\qt1s");
+    await departAndSettle(lexical);
+    expect(paraMarkers(lexical)).toEqual(["p", "qt1s", "p"]);
+    expect(ref.current?.getUsj()?.content.slice(3, 4)).toEqual(
+      usfmFragmentToUsjContent("\\qt1s \\*", {}),
+    );
+
+    // 5-6. Change the `1` back to a `-`. `qt-s` is a milestone again — inline, so the split has
+    // no reason left to exist and the bytes rejoin the paragraph above. No fabricated `\p`.
+    await retypeGlyphStartingWith(lexical, "\\qt", "\\qt-s");
+    await departAndSettle(lexical);
+    expect(paraMarkers(lexical)).toEqual(["p", "p"]);
+    lexical.getEditorState().read(() => {
+      expect($paraAt(0).getChildren().some($isMilestoneNode)).toBe(true);
+    });
+    // Both settle legs, byte-exactly the tokenizer over the joined displayed bytes — and exactly
+    // where step 2 left the document, so the round trip lost and invented nothing.
+    expect(ref.current?.getUsj()?.content.slice(2, 3)).toEqual(milestoneOracle);
+    expect(usjOf(lexical)?.content.slice(2, 3)).toEqual(milestoneOracle);
+  });
+
+  it("the read-only settle leg reports the rejoined milestone while the glyph is still pending", async () => {
+    // Invariant IV: `getUsj()` runs the SAME settle computation the caret-departure settle runs,
+    // so a host save landing inside the pend window must already read the rejoined document. A
+    // gate only the mutating leg knew about is how the save path once wrote a `\p` the screen
+    // never showed.
+    const { ref, lexical } = await mountFocused();
+    const milestoneOracle = usfmFragmentToUsjContent("\\p before \\qt-s\\*", {});
+
+    await typeAtEndOf(lexical, "before ", "\\qt-s\\*");
+    await departAndSettle(lexical);
+    await retypeGlyphStartingWith(lexical, "\\qt", "\\qt1s");
+    await departAndSettle(lexical);
+
+    // Retype the `-` back and read the save path INSIDE the same act(): the pend only survives up
+    // to this commit.
+    let pendedUsj: Usj | undefined;
+    await act(async () => {
+      lexical.update(() => {
+        const glyph = requireDefined(
+          $getRoot()
+            .getAllTextNodes()
+            .find((node) => $isMarkerNode(node) && node.getTextContent().startsWith("\\qt")),
+          'glyph starting "\\qt" not found',
+        );
+        $retypeGlyph(glyph, "\\qt-s");
+      });
+      await Promise.resolve();
+      // Vacuity guard: with nothing pending, `getUsj()` takes its cached fast path and the read
+      // below would prove nothing about the settle computation at all.
+      expect(getPendedDisplayOwners(lexical)?.size).toBeGreaterThan(0);
+      pendedUsj = ref.current?.getUsj();
+    });
+    expect(pendedUsj?.content.slice(2, 3)).toEqual(milestoneOracle);
+    // The artifact paragraph is not in the read-only leg's output at all.
+    expect(pendedUsj?.content).toHaveLength(4);
+
+    // And the screen, one settle later, agrees with what the save path already reported.
+    await departAndSettle(lexical);
+    expect(paraMarkers(lexical)).toEqual(["p", "p"]);
+    expect(ref.current?.getUsj()?.content.slice(2, 3)).toEqual(milestoneOracle);
+    expect(usjOf(lexical)?.content.slice(2, 3)).toEqual(milestoneOracle);
+  });
+
+  it("folds a NOTE back the same way: \\ff corrected to \\f rejoins the paragraph above", async () => {
+    // Measured, not assumed — the gate's own history says notes and milestones once kept a
+    // narrower routing deliberately. A note is inline exactly as a char span is, and the joined
+    // bytes are what the file would carry, so the rejoin is what the tokenizer already says.
+    const { ref, lexical } = await mountFocused();
+
+    // `ff` is unknown to the stylesheet, so the terminated marker splits off its own paragraph.
+    await typeAtEndOf(lexical, "before ", "\\ff ");
+    await departAndSettle(lexical);
+    expect(paraMarkers(lexical)).toEqual(["p", "ff", "p"]);
+
+    // Correct it to `\f`: a note marker, and the split's only reason to exist is gone.
+    await retypeGlyphStartingWith(lexical, "\\ff", "\\f");
+    await departAndSettle(lexical);
+
+    expect(paraMarkers(lexical)).toEqual(["p", "p"]);
+    lexical.getEditorState().read(() => {
+      expect($paraAt(0).getChildren().some($isNoteNode)).toBe(true);
+    });
+    // Byte-exactly the tokenizer over the joined displayed bytes — an unclosed `\f` whose caller
+    // takes the leading-attribute default, which is what `\p before \f ` genuinely means.
+    const noteOracle = usfmFragmentToUsjContent("\\p before \\f ", {});
+    expect(ref.current?.getUsj()?.content.slice(2, 3)).toEqual(noteOracle);
+    expect(usjOf(lexical)?.content.slice(2, 3)).toEqual(noteOracle);
+  });
+
+  it("does NOT rejoin when the glyph names another UNKNOWN marker", async () => {
+    // The arm the widening must not touch. An unknown name has no declared kind, and the
+    // tokenizer's unknown-token default is exactly what makes it block-shaped — so the split it
+    // produces is the document, not an artifact of the editor.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("some"),
+        ),
+        $createParaNode("qt1s").append(
+          $createMarkerNode("qt1s"),
+          $createMarkerTrailingSeparator(),
+          $createTextNode("stuff"),
+        ),
+      );
+    });
+
+    await act(async () => editor.update(() => $retypeGlyph($glyphOfPara(1), "\\zzz")));
+    await act(async () =>
+      editor.update(() => {
+        const body = $paraAt(0)
+          .getChildren()
+          .find(
+            (node) => $isTextNode(node) && !$isMarkerNode(node) && node.getTextContent() === "some",
+          );
+        if (!$isTextNode(body)) throw new Error("first paragraph body not found");
+        body.select(0, 0);
+      }),
+    );
+    await act(async () => Promise.resolve());
+
+    editor.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras).toHaveLength(2);
+      expect(paras[0].getTextContent()).not.toContain("stuff");
+      expect(paras[1].getMarker()).toBe("zzz");
     });
   });
 });

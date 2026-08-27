@@ -31,7 +31,9 @@ describe("derived regexes are byte-identical to the literals they replaced", () 
     [CLOSER_FORM_REGEX, String.raw`^\\\+?[\w-]*\*$`, ""],
     [OPENER_NAME_REGEX, String.raw`^\\(\+?[\w-]+)(?:[ \u00A0]|$)`, ""],
     [OPENER_NAME_SPAN_REGEX, String.raw`^\\(\+?)([\w-]+)`, ""],
-    [TERMINATED_MARKER_IN_TEXT_REGEX, String.raw`\\\+?[\w-]+(?:\*|[ \u00A0])`, ""],
+    // The two-spellings closer (`\\?\*`) is a deliberate semantic change from the historical
+    // literal: the standalone milestone closer `\*` terminates too, not just the attached `nd*`.
+    [TERMINATED_MARKER_IN_TEXT_REGEX, String.raw`\\\+?[\w-]+(?:\\?\*|[ \u00A0])`, ""],
     [UNTERMINATED_MARKER_TAIL, String.raw`\\\+?[\w-]*$`, ""],
     [LINE_LEADING_MARKER_REGEX, String.raw`^\\([a-z][a-z0-9]*)( |$)`, ""],
     [LITERAL_TRIGGER_PREFIX_REGEX, String.raw`\\[a-z0-9+*]*$`, "i"],
@@ -82,6 +84,8 @@ describe("engine-class variants (liberal [\\w-] byte class)", () => {
   it("TERMINATED_MARKER_IN_TEXT fires only once a separator or closer lands", () => {
     expect(TERMINATED_MARKER_IN_TEXT_REGEX.test("foo \\nd bar")).toBe(true);
     expect(TERMINATED_MARKER_IN_TEXT_REGEX.test("foo \\nd*")).toBe(true);
+    // The standalone milestone closer terminates too — a complete `\qt1-s\*` needs no separator.
+    expect(TERMINATED_MARKER_IN_TEXT_REGEX.test("foo \\qt1-s\\*")).toBe(true);
     expect(TERMINATED_MARKER_IN_TEXT_REGEX.test("foo \\nd")).toBe(false);
   });
 
