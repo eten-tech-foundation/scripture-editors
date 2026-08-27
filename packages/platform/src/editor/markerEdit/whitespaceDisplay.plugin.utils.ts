@@ -160,7 +160,8 @@ export function getPastePayload(
   // NBSP in its `text/html`, and preferring html there would keep a data-NBSP this loses. But it
   // is not usable here, because it inverts on this editor's OWN copy: Standard view's `text/plain`
   // deliberately carries no NBSP at all (display ones invert to spaces, a data NBSP displays and
-  // copies as `~`), while its `text/html` still ships NBSPs — so "the plain text has no NBSP" is
+  // copies as `~`), while its `text/html` still ships NBSPs wherever a plain space would not
+  // survive a rich consumer ({@link invertDisplayNbspInHtml}) — so "the plain text has no NBSP" is
   // TRUE of every P10 copy, and an
   // NBSP-presence test would route P10's own round trip through html, whose decoded text drops a
   // collapsed note's caller entirely (it rides as a `data-caller` attribute, never as text). A
