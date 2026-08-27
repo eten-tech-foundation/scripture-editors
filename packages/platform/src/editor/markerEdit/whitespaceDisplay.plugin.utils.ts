@@ -619,14 +619,34 @@ export function $getStandardViewClipboardData(
   return data;
 }
 
-/** Clipboard text carries plain spaces where the display shows NBSP. */
+/**
+ * Clipboard text carries plain spaces where the display shows NBSP.
+ *
+ * Also the last line of defense for an EMPTY copy. A dispatch with no clipboard event of its own
+ * cannot simply be declined: `@lexical/rich-text` picks it up and has `@lexical/clipboard`
+ * synthesize an event — a hidden placeholder element is appended to the editor, the DOM selection
+ * pointed at it, and `document.execCommand("copy")` run to provoke a real clipboard event to fill
+ * in. With nothing selected, the filling step bails BEFORE it suppresses the browser's own copy,
+ * and the browser copies the placeholder, replacing the clipboard's real contents with a character
+ * that was never in the document. Standard view is where a caret most often has nothing copyable
+ * around it — a click on a read-only construct (a figure, a table) leaves the caret beside it
+ * rather than inside — so a null-payload dispatch with no content behind it is CLAIMED here and
+ * does nothing, which is what copying an empty selection means. Callers that can decline earlier
+ * do (`copySelection`, shared-react); this covers the ones that reach the command anyway.
+ *
+ * A selection that is merely not a RANGE (a node selection) is still declined: it has real content,
+ * and the synthesized-event path copies it correctly.
+ */
 export function $handleCopyForStandardView(
   event: ClipboardEvent | null | undefined,
   editor: LexicalEditor,
   isCut: boolean,
 ): boolean {
   const selection = $getSelection();
-  if (!$isRangeSelection(selection) || selection.isCollapsed()) return false;
+  if (!$isRangeSelection(selection) || selection.isCollapsed()) {
+    const isNullPayloadDispatch = !event || !("clipboardData" in event);
+    return isNullPayloadDispatch && (!selection || selection.isCollapsed());
+  }
   const data = $getStandardViewClipboardData(editor);
   if (!data) return false;
   if (!event || !("clipboardData" in event)) {

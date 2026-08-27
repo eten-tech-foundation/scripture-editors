@@ -52,8 +52,6 @@ import {
   $isRangeSelection,
   $isTextNode,
   $setSelection,
-  COPY_COMMAND,
-  CUT_COMMAND,
   EditorState,
   LexicalEditor,
   HISTORIC_TAG,
@@ -107,6 +105,8 @@ import {
   ClipboardPlugin,
   CommandMenuPlugin,
   ContextMenuPlugin,
+  copySelection,
+  cutSelection,
   DeltaOnChangePlugin,
   DeltaOp,
   DisableHistoryShortcutsPlugin,
@@ -392,11 +392,13 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     redo() {
       editorRef.current?.dispatchCommand(REDO_COMMAND, undefined);
     },
+    // Both leave the clipboard untouched when nothing is selected, rather than asking the browser
+    // to synthesize a clipboard event for an empty copy — see `copySelection` (shared-react).
     cut() {
-      editorRef.current?.dispatchCommand(CUT_COMMAND, null);
+      if (editorRef.current) cutSelection(editorRef.current);
     },
     copy() {
-      editorRef.current?.dispatchCommand(COPY_COMMAND, null);
+      if (editorRef.current) copySelection(editorRef.current);
     },
     paste() {
       if (editorRef.current) pasteSelection(editorRef.current);

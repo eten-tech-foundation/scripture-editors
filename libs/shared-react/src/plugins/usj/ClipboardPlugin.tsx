@@ -1,7 +1,11 @@
-import { pasteSelection, pasteSelectionAsPlainText } from "./clipboard.utils";
+import {
+  copySelection,
+  cutSelection,
+  pasteSelection,
+  pasteSelectionAsPlainText,
+} from "./clipboard.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { IS_APPLE } from "@lexical/utils";
-import { COPY_COMMAND, CUT_COMMAND } from "lexical";
 import { useEffect } from "react";
 
 export function ClipboardPlugin(): null {
@@ -12,12 +16,14 @@ export function ClipboardPlugin(): null {
       const { key, shiftKey, metaKey, ctrlKey, altKey } = event;
       if (!(IS_APPLE ? metaKey : ctrlKey) || altKey) return;
 
+      // Copy/cut suppress the browser's own handling only when this plugin actually replaces it.
+      // With nothing selected there is nothing to replace, and leaving the browser to it is what
+      // keeps the clipboard untouched — see `copySelection` for what happens when a copy with no
+      // content behind it is synthesized anyway.
       if (!shiftKey && key.toLowerCase() === "c") {
-        event.preventDefault();
-        editor.dispatchCommand(COPY_COMMAND, null);
+        if (copySelection(editor)) event.preventDefault();
       } else if (!shiftKey && key.toLowerCase() === "x") {
-        event.preventDefault();
-        editor.dispatchCommand(CUT_COMMAND, null);
+        if (cutSelection(editor)) event.preventDefault();
       } else if (key.toLowerCase() === "v") {
         event.preventDefault();
         if (shiftKey) pasteSelectionAsPlainText(editor);

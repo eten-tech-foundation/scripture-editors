@@ -1,5 +1,6 @@
 import Editor from "./Editor";
 import { EditorRef } from "./editor.model";
+import { execCommandSpy } from "./markerEdit/markerEdit.test-helpers";
 import { act, render } from "@testing-library/react";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { createRef } from "react";
@@ -15,7 +16,7 @@ import {
 } from "lexical";
 import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 import { FORMATTED_VIEW_MODE, getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The Editor-level gate controls shared-react's `CommandMenuPlugin`, which `preventDefault`s a
 // typed or pasted `\` and `/` so those characters never land in the document. Editable marker
@@ -275,5 +276,58 @@ describe("MarkerEditPlugin's Standard-view clipboard handlers do not leak into F
     editor.getEditorState().read(() => {
       expect($getRoot().getTextContent()).toBe(before);
     });
+  });
+});
+
+/**
+ * The empty-copy rule is not Standard view's. It lives in `ClipboardPlugin` (shared-react), which
+ * every view mounts, and this view has no Standard-view copy handler registered at all — so a
+ * regression here would leak the same way the reported one did, in a view where nothing else is
+ * watching. `Ctrl+C` is pressed on the editor's root element, where that plugin listens, rather
+ * than through a command dispatch, so what runs is the whole real path from key to clipboard.
+ */
+describe("copying an empty selection leaves the clipboard alone in a hidden-marker view", () => {
+  // `execCommandSpy` supplies the `document.execCommand` jsdom lacks and reports whether anything
+  // was written. `ClipboardEvent` is stubbed for the same reason `formattedViewCopyEvent` stubs
+  // it: without it a regression would die on Lexical's own bare reference to the missing global
+  // before reaching the clipboard, hiding what actually got written.
+  const execCommand = execCommandSpy();
+
+  beforeEach(() => {
+    vi.stubGlobal("ClipboardEvent", StubClipboardEvent);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("Ctrl+C at a collapsed caret in Formatted view writes nothing and leaves the key unclaimed", async () => {
+    const editor = await renderEditor(FORMATTED_VIEW_MODE);
+    await act(async () =>
+      editor.update(() => {
+        const last = $getRoot().getLastDescendant();
+        if (!last) throw new Error("expected the loaded document to have content");
+        const lastSize = "getTextContentSize" in last ? last.getTextContentSize() : 0;
+        const point = $createPoint(last.getKey(), lastSize, "text");
+        const selection = $createRangeSelection();
+        selection.anchor = point;
+        selection.focus = point;
+        $setSelection(selection);
+      }),
+    );
+
+    const rootElement = editor.getRootElement();
+    if (!rootElement) throw new Error("editor has no root element to press a key on");
+    const event = new KeyboardEvent("keydown", {
+      key: "c",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      rootElement.dispatchEvent(event);
+    });
+
+    expect(execCommand()).not.toHaveBeenCalled();
+    // Unclaimed, so the browser's own copy of an empty selection runs — and writes nothing.
+    expect(event.defaultPrevented).toBe(false);
   });
 });

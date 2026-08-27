@@ -1,6 +1,7 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
 import {
   copyEvent,
+  execCommandSpy,
   findOnlyNote,
   pasteEvent,
   serializedState,
@@ -43,6 +44,7 @@ import {
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
+  $isUnknownNode,
   NBSP,
   NoteNode,
   ParaNode,
@@ -240,17 +242,45 @@ function $selectAcrossFigure(): void {
   $setSelection(selection);
 }
 
-async function copyAcrossFigure() {
-  const { editor } = await baseTestEnvironment(
+/**
+ * Selects the figure and nothing else, as the two element points on its parent paragraph that sit
+ * either side of it — the shape a browser resolves a drag or click over a `contentEditable=false`
+ * block into, since it will not put a selection endpoint inside one.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+function $selectOnlyTheFigure(): void {
+  const para = $getRoot()
+    .getChildren()
+    .find((node) => $isParaNode(node));
+  if (!para) throw new Error("Expected the loaded document to have a paragraph");
+  const figureIndex = para.getChildren().findIndex((child) => $isUnknownNode(child));
+  if (figureIndex < 0) throw new Error("Expected the paragraph to contain the figure");
+  const selection = $createRangeSelection();
+  selection.anchor = $createPoint(para.getKey(), figureIndex, "element");
+  selection.focus = $createPoint(para.getKey(), figureIndex + 1, "element");
+  $setSelection(selection);
+}
+
+async function copyEnvironmentWithFigure() {
+  return baseTestEnvironment(
     serializedState(usxStringToUsj(FIGURE_USX)),
     <MarkerEditPlugin viewOptions={viewOptions} />,
   );
-  await act(async () => editor.update(() => $selectAcrossFigure()));
+}
+
+async function copyFigureWith($select: () => void) {
+  const { editor } = await copyEnvironmentWithFigure();
+  await act(async () => editor.update($select));
   const { event, getData } = copyEvent();
   await act(async () => {
     editor.dispatchCommand(COPY_COMMAND, event);
   });
   return getData;
+}
+
+async function copyAcrossFigure() {
+  return copyFigureWith($selectAcrossFigure);
 }
 
 describe("copy across an UnknownNode (figure) — full USFM byte display", () => {
@@ -286,6 +316,19 @@ describe("copy across an UnknownNode (figure) — full USFM byte display", () =>
     expect(html).toContain(" after.");
     expect(html).not.toContain("fig");
     expect(html).not.toContain("caption");
+  });
+
+  it("copies the figure's own bytes when the selection covers the figure alone", async () => {
+    const getData = await copyFigureWith($selectOnlyTheFigure);
+
+    // The answer to "how does a user copy a read-only construct's marker text": by selecting the
+    // construct, from outside it. Its glyphs cannot take a caret or a keyboard selection of their
+    // own, but a selection that CONTAINS the block reaches every one of them through the same
+    // walker the surrounding prose goes through, so the copied bytes are the figure's real USFM
+    // with nothing of the neighbouring paragraph attached.
+    expect(getData("text/plain")).toBe(
+      '\\fig caption|src="cn01617.jpg" size="span" ref="1.18"\\fig*',
+    );
   });
 });
 
@@ -580,13 +623,53 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}${NBSP}b`));
   });
 
-  it("returns false (does not call copyToClipboard) for a collapsed selection", async () => {
-    // Calls the handler directly rather than via editor.dispatchCommand: a `false` return here
-    // falls through to Lexical's own RichText copy fallback, which — in real browsers — is fine,
-    // but under jsdom crashes on a bare `ClipboardEvent` reference (jsdom doesn't implement the
-    // class; verified above) regardless of this plugin's code. That's a pre-existing jsdom gap
-    // in Lexical's own fallback, orthogonal to what's under test here (the collapsed-selection
-    // decline), so it's sidestepped by unit-testing the handler in isolation.
+  it("declines a real clipboard event at a collapsed caret, writing nothing and suppressing nothing", async () => {
+    // A native copy event needs no help with an empty selection: the browser's own copy of an
+    // empty DOM selection writes nothing, so declining — and NOT calling preventDefault — is what
+    // leaves the clipboard exactly as the user left it.
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 1)));
+    const { event, getData } = copyEvent();
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () =>
+      editor.update(() => {
+        handled = $handleCopyForStandardView(event, editor, false);
+      }),
+    );
+    expect(handled).toBe(false);
+    expect(getData("text/plain")).toBe("");
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A copy with nothing selected must leave the clipboard holding whatever it already held.
+ *
+ * These dispatch the real command rather than calling the handler directly, because what matters
+ * is what happens when the handler DECLINES: the command carries on to `@lexical/rich-text`, which
+ * asks `@lexical/clipboard` to synthesize the clipboard event a null-payload dispatch never had —
+ * appending a hidden placeholder element to the editor, pointing the DOM selection at it, and
+ * running `document.execCommand("copy")` to provoke a real event to fill in. With nothing
+ * selected, that filling step bails before it can suppress the browser's own copy, so the browser
+ * copies the placeholder and whatever the user had on the clipboard is gone. Live report
+ * (2026-08-26): trying to copy the marker text of a read-only construct put a single stray
+ * character on the clipboard; a plain collapsed caret anywhere in the view does the same, and so
+ * does cut.
+ *
+ * `document.execCommand` — which jsdom does not implement, so these tests supply it — is the
+ * observable: called means a write reached the browser, not called means the clipboard is
+ * untouched. The placeholder's own content belongs to `@lexical/clipboard` and is not pinned here.
+ */
+describe("copying an empty selection leaves the clipboard alone", () => {
+  const execCommand = execCommandSpy();
+
+  it("COPY_COMMAND(null) at a collapsed caret is claimed and writes nothing", async () => {
     let text: TextNode;
     const { editor } = await testEnvironment(() => {
       text = $createTextNode(`a${NBSP}b`);
@@ -595,13 +678,57 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
     await act(async () => editor.update(() => text.select(1, 1)));
     copyToClipboardSpy.mockClear();
     let handled: boolean | undefined;
+    await act(async () => {
+      handled = editor.dispatchCommand(COPY_COMMAND, null);
+    });
+    expect(execCommand()).not.toHaveBeenCalled();
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
+    // Claimed, so nothing downstream gets the chance to synthesize the copy this declined to make.
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}b`));
+  });
+
+  it("CUT_COMMAND(null) at a collapsed caret is claimed, writes nothing and removes nothing", async () => {
+    let text: TextNode;
+    const { editor } = await testEnvironment(() => {
+      text = $createTextNode(`a${NBSP}b`);
+      $appendMarkerAndText(text);
+    });
+    await act(async () => editor.update(() => text.select(1, 1)));
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () => {
+      handled = editor.dispatchCommand(CUT_COMMAND, null);
+    });
+    expect(execCommand()).not.toHaveBeenCalled();
+    expect(copyToClipboardSpy).not.toHaveBeenCalled();
+    expect(handled).toBe(true);
+    editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}b`));
+  });
+
+  it("COPY_COMMAND(null) with the caret beside a read-only figure is claimed and writes nothing", async () => {
+    // The reported shape: a figure renders `contentEditable="false"` and its marker/attribute
+    // glyphs are display decorators that are not keyboard-selectable, so an attempt to select the
+    // marker text inside one leaves the caret in the prose beside it rather than in the figure.
+    const { editor } = await copyEnvironmentWithFigure();
     await act(async () =>
       editor.update(() => {
-        handled = $handleCopyForStandardView(null, editor, false);
+        const before = $dfs($getRoot())
+          .map(({ node }) => node)
+          .filter($isTextNode)
+          .find((node) => node.getTextContent() === "Before ");
+        if (!before) throw new Error("expected the text before the figure to exist");
+        before.select(before.getTextContentSize(), before.getTextContentSize());
       }),
     );
-    expect(handled).toBe(false);
+    copyToClipboardSpy.mockClear();
+    let handled: boolean | undefined;
+    await act(async () => {
+      handled = editor.dispatchCommand(COPY_COMMAND, null);
+    });
+    expect(execCommand()).not.toHaveBeenCalled();
     expect(copyToClipboardSpy).not.toHaveBeenCalled();
+    expect(handled).toBe(true);
   });
 });
 

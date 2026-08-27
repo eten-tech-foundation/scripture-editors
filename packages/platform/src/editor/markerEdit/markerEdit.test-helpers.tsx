@@ -541,6 +541,34 @@ export function copyEvent(): { event: ClipboardEvent; getData: (type: string) =>
 }
 
 /**
+ * Puts a spy where `document.execCommand` would be, for the duration of each test in the calling
+ * describe, and returns a getter for it (a getter, not the spy itself, because a fresh one is
+ * installed per test).
+ *
+ * `execCommand("copy")` is how a clipboard write reaches the browser when there is no real
+ * clipboard event to fill in — `@lexical/clipboard` runs it to provoke one. jsdom implements no
+ * `execCommand` at all, so a suite that needs to know whether anything was written has to supply
+ * it: called means a write reached the browser, not called means the clipboard is untouched.
+ *
+ * Registers its own `beforeEach`/`afterEach`; call it at describe scope.
+ */
+export function execCommandSpy(): () => ReturnType<typeof vi.fn> {
+  let spy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    spy = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      writable: true,
+      value: spy,
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(document, "execCommand");
+  });
+  return () => spy;
+}
+
+/**
  * jsdom-safe paste-event stub carrying an arbitrary clipboard MIME payload. `types`/`files` are
  * populated so Lexical's own default paste handling (reached whenever a Standard-view/protection
  * handler declines and the dispatch falls through to a lower-priority `PASTE_COMMAND` listener)
