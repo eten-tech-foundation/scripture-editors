@@ -33,15 +33,17 @@ function readFixture(name: string): string {
   return readFileSync(join(CORPUS_DIR, name), "utf8");
 }
 
-/** Minimal normalization so the diff measures STRUCTURE and content bytes: collapse
- * whitespace runs (raw-USFM line joins) and drop Paratext's positional attributes
+/** Minimal normalization so the diff measures STRUCTURE and content bytes: collapse runs of
+ * ASCII whitespace (raw-USFM line joins) and drop Paratext's positional attributes
  * (sid/eid/vid), which are derived metadata the writer never outputs. No edge trimming —
- * content whitespace must match the oracle exactly. */
+ * content whitespace must match the oracle exactly. Only ASCII whitespace is collapsed: NBSP,
+ * ZWSP, and the other Unicode spaces are authored content that Paratext preserves verbatim, so
+ * folding them in here would hide exactly the corruption this comparison exists to catch. */
 function normalizeContent(items: MarkerContent[]): MarkerContent[] {
   const out: MarkerContent[] = [];
   for (const item of items) {
     if (typeof item === "string") {
-      const text = item.replace(/[ \t\r\n\u200B]+/g, " ");
+      const text = item.replace(/[ \t\r\n]+/g, " ");
       if (typeof out[out.length - 1] === "string") {
         out[out.length - 1] = (out[out.length - 1] as string) + text;
       } else if (text !== "") out.push(text);
