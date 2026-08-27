@@ -295,8 +295,8 @@ importers:
         specifier: workspace:~
         version: link:../../packages/utilities
       '@sillsdev/scripture':
-        specifier: ^2.0.5
-        version: 2.0.5
+        specifier: ^2.1.0
+        version: 2.1.0
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
@@ -329,8 +329,8 @@ importers:
         specifier: ^0.43.0
         version: 0.43.0
       '@sillsdev/scripture':
-        specifier: ^2.0.5
-        version: 2.0.5
+        specifier: ^2.1.0
+        version: 2.1.0
       lexical:
         specifier: ^0.43.0
         version: 0.43.0
@@ -439,8 +439,8 @@ importers:
         specifier: ^0.43.0
         version: 0.43.0(yjs@13.6.30)
       '@sillsdev/scripture':
-        specifier: ^2.0.5
-        version: 2.0.5
+        specifier: ^2.1.0
+        version: 2.1.0
       fast-equals:
         specifier: ^5.4.0
         version: 5.4.0
@@ -3143,8 +3143,8 @@ packages:
   '@rushstack/ts-command-line@5.3.5':
     resolution: {integrity: sha512-ToJQu3+o6aEdDoApGrwb/RsbwDi/NSC7jIEaAezzWM470TRrsXfSHoYAm1eWkhh34xJ+kZxU1ZzKSHiOMlOFPA==}
 
-  '@sillsdev/scripture@2.0.5':
-    resolution: {integrity: sha512-t+oCpAJoEdLqBTN6LUzcZ0ueaq/N3U7ohg+PtoNL9bgqdOb7oVkEu0KVS8U5UkjvzileG6+uG9Zo7UW8JfayrA==}
+  '@sillsdev/scripture@2.1.0':
+    resolution: {integrity: sha512-jj5mMMCvhjsFW87H8WkIkG/lM6kp/k/vC6bk+hxwvU08NaffmgyAU+kDasNhIiViYvZ96JPUjwPl+z7doDLx9g==}
 
   '@sinclair/typebox@0.34.40':
     resolution: {integrity: sha512-gwBNIP8ZAYev/ORDWW0QvxdwPXwxBtLsdsJgSc7eDIRt8ubP+rxUBzPsrwnu16fgEF8Bx4lh/+mvQvJzcTM6Kw==}
@@ -11184,7 +11184,7 @@ snapshots:
     transitivePeerDependencies:
       - '@types/node'
 
-  '@sillsdev/scripture@2.0.5': {}
+  '@sillsdev/scripture@2.1.0': {}
 
   '@sinclair/typebox@0.34.40': {}
 
