@@ -63,7 +63,6 @@ import {
 import {
   ForwardedRef,
   forwardRef,
-  MutableRefObject,
   PropsWithChildren,
   ReactElement,
   useCallback,
@@ -269,11 +268,16 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // implementation. It only ever reaches the screen while `hasExternalUI` is false: the plugin
   // this feeds is rendered under that condition, so a host with its own marker-menu UI
   // (Platform.Bible, whose overlay service renders them) never mounts the in-editor menu.
+  // Mirror of the handle handed to `ref` below, so the editor's own internals can reach its API
+  // whichever ref form the consumer passed. `ref` itself cannot be read back: a callback ref has no
+  // `.current`, and a consumer that passes no ref at all makes `ref` null, so reading `.current` off
+  // it throws on the first marker keystroke.
+  const editorApiRef = useRef<EditorRef | null>(null);
+
   const editableMarkerMenuHarness = useMemo<EditableMarkerMenuHarness | undefined>(() => {
     if (viewOptions.markerMode !== "editable") return undefined;
 
     const menuStyleInfo = styleInfo ?? defaultStyleInfo;
-    const editorApiRef = ref as MutableRefObject<EditorRef | null>;
     return {
       getContext: () => editorApiRef.current?.getMarkerMenuContext(),
       // The context object is always one this same harness produced via `getContext()` above
@@ -301,7 +305,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         editorApiRef.current?.commitTypedCloser(typedMarker);
       },
     };
-  }, [viewOptions, styleInfo, ref, nodeOptions.extraValidMarkers]);
+  }, [viewOptions, styleInfo, nodeOptions.extraValidMarkers]);
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
@@ -362,7 +366,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     );
   }, [viewOptions, markerLookup, stableLogger]);
 
-  useImperativeHandle(ref, () => ({
+  useImperativeHandle(ref, () => (editorApiRef.current = {
     focus() {
       editorRef.current?.focus();
     },
@@ -871,7 +875,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <div className={"editor-toolbar-container" + (isReadonly ? "-readonly" : "-editable")}>
             <ToolbarPlugin
               ref={toolbarEndRef}
-              editorRef={ref as MutableRefObject<EditorRef | null>}
+              editorRef={editorApiRef}
               isReadonly={isReadonly}
               onStateChange={handleStateChange}
             />
