@@ -11,7 +11,7 @@
  */
 
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
-import { isParaKindMarker } from "./markerEditTier1.utils";
+import { isParaKindMarker } from "./markerKind.utils";
 import { UNTERMINATED_MARKER_TAIL } from "./markerName.pattern";
 import {
   $serializeExpandedNoteContent,
@@ -1051,7 +1051,7 @@ const LEADING_MARKER_LITERAL = /^\\\+?([\w-]+)(?:\*|[ \u00A0])/;
  * `$buildParaFragment`'s `isPasteRebuild` parameter; typing the same shape keeps the engine's
  * existing split-with-empty behavior, which this function never runs for.
  *
- * The embedded literal's marker-kind check uses `isParaKindMarker` (markerEditTier1.utils.ts) —
+ * The embedded literal's marker-kind check uses `isParaKindMarker` (markerKind.utils.ts) —
  * stylesheet-first, UNKNOWN-AS-PARAGRAPH, the same classification `$buildParaFragment`'s own guard
  * below applies to the paragraph's own marker — rather than a bare `type === MarkerType.Paragraph`
  * comparison, which rejected every unknown/custom.sty marker and left the stray-empty-paragraph

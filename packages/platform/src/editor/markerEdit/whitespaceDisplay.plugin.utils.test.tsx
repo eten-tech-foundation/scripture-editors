@@ -891,16 +891,20 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     // gets its fresh paragraphs correctly prefixed when it goes through MarkerEditPlugin's own
     // registration, which arms `context.splitExpected` before inserting — see "multi-line paste
     // interplay" below.
+    let handled: boolean | undefined;
     await act(async () =>
       editor.update(() => {
         text.select(7, 7); // between "before " and "after"
-        editor.dispatchCommand(
+        handled = editor.dispatchCommand(
           PASTE_COMMAND,
           pasteEvent({ "text/html": "<p>one&nbsp;two</p><p>three<br>four</p>" }).event,
         );
       }),
     );
 
+    // Claimed, so Lexical's own html import never gets the payload. The content assertion below
+    // cannot tell the two paths apart on its own — both would produce plausible text.
+    expect(handled).toBe(true);
     editor.getEditorState().read(() => {
       // Block boundaries and <br> become newlines, so "two"/"three" don't fuse into one word —
       // and each newline is then replayed as a real paragraph split (see the line-replay

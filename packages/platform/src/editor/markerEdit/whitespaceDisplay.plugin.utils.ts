@@ -104,16 +104,15 @@ export function htmlPasteText(html: string): string {
 
 /** The text of a paste, read the one way every `PASTE_COMMAND` claim in this editor reads it. */
 export interface PastePayload {
-  /** `text/plain`, line endings normalized. */
-  plainText: string;
-  /** `text/html` as the clipboard carries it — markup, not text; an NBSP may be a `&nbsp;` here. */
-  html: string;
-  /** `text/html` decoded to text ({@link htmlPasteText}), line endings normalized. */
-  htmlText: string;
   /**
    * What a claim replays: `text/plain` when it carries anything, else the decoded `text/html`.
    * Some sources (word processors, intermediaries) ship html alone, and those pastes otherwise
    * reach the generic handling this editor's claims exist to pre-empt.
+   *
+   * The unresolved carriers (`text/plain`, the raw `text/html`, and its decoded text) are
+   * deliberately not exposed alongside it: every claim must replay the SAME bytes, and a second
+   * carrier within reach is an invitation for one of them to pick differently. A claim that ever
+   * genuinely needs one can read the clipboard for it, at its own site, with its own reason.
    */
   text: string;
   /**
@@ -121,7 +120,9 @@ export interface PastePayload {
    * (`application/x-lexical-editor`), whose real nodes a line-by-line replay would flatten.
    * Deliberately NOT acted on here: the claims disagree about it on purpose — the in-note `\fp`
    * claim covers internal pastes (an internal multi-paragraph copy is exactly the split it
-   * prevents), while the char-stack and NBSP claims decline them — so each one applies its own
+   * prevents), the char-stack claim declines them outright, and the Standard-view claim declines
+   * them EXCEPT when the selection touches an attribute display run, where plain-text insertion
+   * is the only safe shape whatever else the clipboard carries — so each one applies its own
    * rule, in view, at its own site.
    */
   isInternal: boolean;
@@ -132,13 +133,14 @@ export interface PastePayload {
  * clipboard at all (a KeyboardEvent-shaped dispatch, or an event whose data store is
  * inaccessible), which every claim reads as "not mine".
  *
- * Three handlers race on `PASTE_COMMAND` — the in-note `\fp` claim at CRITICAL, the NBSP display
- * normalization and the char-stack replay at HIGH — and they must agree byte-for-byte on what was
- * pasted, or the same clipboard is one thing to one of them and another to the next. So the
- * extraction lives here once: the jsdom-safe duck-check for the clipboard (jsdom implements no
- * `ClipboardEvent`, so `instanceof` against the undefined global throws), the plain-then-decoded-
- * html preference, and line-ending normalization BEFORE any caller tests for a line break — so
- * `\r\n` and bare-`\r` clipboards break correctly and no `\r` ever reaches content on any path.
+ * Four handlers race on `PASTE_COMMAND` — the in-note `\fp` claim at CRITICAL, the Standard-view
+ * external-paste claim and the char-stack line replay at HIGH, the paragraph-split arm at LOW —
+ * and they must agree byte-for-byte on what was pasted, or the same clipboard is one thing to one
+ * of them and another to the next. So the extraction lives here once: the jsdom-safe duck-check
+ * for the clipboard (jsdom implements no `ClipboardEvent`, so `instanceof` against the undefined
+ * global throws), the carrier choice below, and line-ending normalization BEFORE any caller tests
+ * for a line break — so `\r\n` and bare-`\r` clipboards break correctly and no `\r` ever reaches
+ * content on any path.
  */
 export function getPastePayload(
   event: PasteCommandType | null | undefined,
@@ -152,10 +154,19 @@ export function getPastePayload(
   const plainText = normalizeLineEndings(clipboardData.getData("text/plain"));
   const html = clipboardData.getData("text/html");
   const htmlText = html ? normalizeLineEndings(htmlPasteText(html)) : "";
+  // The carrier is chosen by PRESENCE — plain text whenever the clipboard carries any — and not
+  // by which carrier an NBSP survived in. The stronger rule is genuinely better for a foreign
+  // clipboard: a source whose `text/plain` collapsed `&nbsp;` to a plain space still has the real
+  // NBSP in its `text/html`, and preferring html there would keep a data-NBSP this loses. But it
+  // is not usable here, because it inverts on this editor's OWN copy: Standard view's `text/plain`
+  // deliberately carries no NBSP at all (display ones invert to spaces, a data NBSP displays and
+  // copies as `~`), while its `text/html` still ships NBSPs — so "the plain text has no NBSP" is
+  // TRUE of every P10 copy, and an
+  // NBSP-presence test would route P10's own round trip through html, whose decoded text drops a
+  // collapsed note's caller entirely (it rides as a `data-caller` attribute, never as text). A
+  // lost note caller on the editor's own copy is a worse, far likelier loss than a foreign
+  // clipboard's data-NBSP. Recorded in the semantics doc's accepted asymmetries.
   return {
-    plainText,
-    html,
-    htmlText,
     text: plainText || htmlText,
     isInternal: !!clipboardData.getData("application/x-lexical-editor"),
   };
@@ -308,8 +319,9 @@ function $isSelectionInAttributeContext(selection: RangeSelection): boolean {
  * two spaces, matching what two individual Enter-less keystrokes over an attribute run would
  * produce — attribute values are single-line, so there is no multi-line attribute byte shape to
  * collapse INTO). `text` arrives with bare `\n` line endings ({@link getPastePayload} normalizes
- * them for every paste claim) — no `\r` reaches this function. The result is inserted via the exact `selection.insertText` a keystroke
- * uses — no chapter/book-id strip, no positional NBSP mapping, no marker tokenization, all of which
+ * them for every paste claim) — no `\r` reaches this function. The result is inserted via the exact
+ * `selection.insertText` a keystroke uses — no chapter/book-id strip, no positional NBSP mapping,
+ * no marker tokenization, all of which
  * exist for BODY content's marker-recognition and whitespace-display invariants and apply to none
  * of it: a pasted `\c 5` or `\p` here is literal value text, not a structural marker, and
  * `$displayWhitespaceTransform` (this file) already skips textType "attribute" nodes outright, so a
@@ -397,6 +409,10 @@ function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: 
  * and still wins for a multi-line payload whose selection touches EXPANDED note content — an
  * attribute run that happens to sit inside an expanded note's content is reached by this handler
  * (and this suspension) only when that in-note claim itself declines.
+ *
+ * Mutating: call inside `editor.update()`. It inserts text, removes the selected range, and
+ * dispatches `INSERT_PARAGRAPH_COMMAND` against the editor it reads from `$getEditor()` — none of
+ * which has an editor state to act on outside an update.
  */
 export function $handlePasteForStandardView(
   event: ClipboardEvent | null | undefined,

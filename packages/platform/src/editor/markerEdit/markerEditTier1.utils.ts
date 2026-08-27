@@ -4,6 +4,7 @@
  * Everything Tier 1 cannot express routes to Tier 2 ($requestTier2ForNode).
  */
 
+import { isCharKindMarker, isParaKindMarker } from "./markerKind.utils";
 import {
   BARE_OPENER_REGEX,
   CLOSER_FORM_REGEX,
@@ -63,7 +64,6 @@ import {
   getEditableCallerText,
   getVisibleOpenMarkerText,
   ImmutableUnmatchedNode,
-  isMilestoneHeuristicName,
   leadingAttributeNames,
   MarkerLookup,
   MarkerNode,
@@ -143,40 +143,6 @@ export interface MarkerEditContext extends Tier2Context {
    * Reset every commit by the plugin's update listener.
    */
   rebuildAttempted: Set<string>;
-}
-
-// Milestone-name heuristic shared with the fragment tokenizer (`isMilestoneHeuristicName`):
-// only stylesheet-family milestone names (`\qt#-s/-e`, `\ts-s/-e`) plus annotation comment
-// markers — see its doc comment for why bare `ts`/`t-s`/`t-e` and the z-prefix wildcard are
-// deliberately excluded. Keeping one predicate here and in the tokenizer means Tier-1 kind
-// guards and Tier-2 re-tokenization can never disagree about what is positionally a milestone.
-
-/** Same-positional-kind rule for paragraph openers. Stylesheet-first:
- * a marker the effective sheet KNOWS classifies by its styleType; heuristics
- * cover only markers absent from the sheet. Unknown markers stay as typed
- * (Tier-1 renames to unknown markers stay in place). Exported for
- * `tier2Rebuild.utils.ts`'s own-marker-prefix dedup, which needs the SAME
- * stylesheet-first/unknown-as-paragraph classification `$buildParaFragment`
- * already uses for the paragraph's own marker — a second, narrower
- * `type === MarkerType.Paragraph` check there disagreed with it for any
- * unknown/custom.sty marker. */
-export function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
-  const clean = marker.replace(/^\+/, "");
-  if (clean === "v" || clean === "c") return false;
-  const kind = getMarkerFn(clean)?.type;
-  if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Paragraph;
-  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
-  return true;
-}
-
-/** Same-positional-kind rule for char openers (see isParaKindMarker). */
-function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
-  const clean = marker.replace(/^\+/, "");
-  if (clean === "v" || clean === "c") return false;
-  const kind = getMarkerFn(clean)?.type;
-  if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Character;
-  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
-  return true;
 }
 
 /**
