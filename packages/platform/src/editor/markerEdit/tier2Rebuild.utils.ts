@@ -57,9 +57,11 @@ import {
   closingMarkerText,
   getEditableCallerText,
   getMarker as bundledGetMarker,
+  isAttributeMarker,
   isMilestoneHeuristicName,
   openingMarkerText,
   ChapterNode,
+  CharNode,
   ImpliedParaNode,
   LoggerBasic,
   MarkerLookup,
@@ -396,9 +398,33 @@ export function $isRebuildSentinel(node: LexicalNode, getMarkerFn: MarkerLookup)
   if ($isMilestoneNode(node)) return !$isReTokenizableMilestone(node.getMarker(), getMarkerFn);
   if ($isNoteNode(node) || $isUnknownNode(node)) return true;
   if ($isVerseNode(node)) return verseNeedsSentinel(node);
-  if ($isCharNode(node))
-    return $hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined;
+  if ($isCharNode(node)) return $charNeedsSentinel(node, getMarkerFn);
   return false;
+}
+
+/**
+ * Whether a char span must be preserved whole rather than re-tokenized — the one authority for
+ * that question, shared with the fragment builder's own CharNode branch. The two decide the same
+ * thing about the same node and MUST agree: the builder replaces a sentinel span with a single
+ * placeholder character, and {@link $isRebuildSentinel} is what tells the signature and the
+ * read-only settle's live walk to stop at exactly that boundary.
+ *
+ * Two shapes are not text-recoverable. A span carrying attribute bytes with nowhere visible to
+ * re-derive them from ({@link $hasUnrecoverableAttributes}), and a span whose marker the
+ * stylesheet does not declare — a custom.sty marker the tokenizer would degrade to literal text.
+ *
+ * An ATTRIBUTE marker is exempt from the stylesheet test, because for those the stylesheet is
+ * not the authority: the tokenizer's own table folds them onto their host, so the round trip is
+ * defined without a stylesheet entry. `\cat` is the case this exists for — the only attribute
+ * marker usfm.sty omits, and so the only one a stylesheet-keyed test mistakes for a custom
+ * marker. Preserved as a sentinel it can never settle: its bytes stop reaching the tokenizer, the
+ * category fold never fires, and every later pass reports a fixed point, so a typed `\cat` run
+ * becomes a category only by round-tripping through the file.
+ */
+function $charNeedsSentinel(char: CharNode, getMarkerFn: MarkerLookup): boolean {
+  if ($hasUnrecoverableAttributes(char)) return true;
+  const marker = char.getMarker();
+  return !isAttributeMarker(marker) && getMarkerFn(marker) === undefined;
 }
 
 /**
@@ -953,9 +979,9 @@ function $appendNodesFragment(
       // closing glyph to anchor a display run (`$hasUnrecoverableAttributes`) carries bytes with
       // no visible representation to re-derive from. Otherwise a KNOWN marker's attribute display
       // run (if any) is ordinary text among its children — it re-tokenizes and re-derives via
-      // `extractAttributes` like the rest of the span's content.
-      if ($hasUnrecoverableAttributes(node) || getMarkerFn(node.getMarker()) === undefined)
-        pushSentinel(out, [node]);
+      // `extractAttributes` like the rest of the span's content. `$charNeedsSentinel` is the
+      // shared authority, so this branch and `$isRebuildSentinel` cannot drift apart.
+      if ($charNeedsSentinel(node, getMarkerFn)) pushSentinel(out, [node]);
       else $appendChildrenFragment(node, out, getMarkerFn, viewOptions, { pending: true });
     } else if ($isLineBreakNode(node)) {
       consumeCharLead();

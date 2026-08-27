@@ -148,6 +148,24 @@ the marker and caller are governed by dropdowns and should not be typeable, and 
 Markers view, which has no such UI and wants direct caller editing. Any rule about editing a note's
 shell has to be keyed on a view option, never on `noteMode: "expanded"` alone.
 
+### `\cat` is the attribute marker the stylesheet does not declare
+
+`ATTRIBUTE_MARKERS` holds `ca`, `cp`, `va`, `vp`, and `cat`. All but `cat` are also usfm.sty
+entries, so `cat` is the single marker for which "is this in the stylesheet?" and "can the tokenizer
+re-derive this?" give different answers.
+
+Any re-derivability test keyed on the stylesheet must therefore exempt attribute markers
+(`isAttributeMarker`): for those the parser's own table is the authority, because the fold is what
+defines the round trip. Tier-2's `$charNeedsSentinel` is the one that matters. Classified as an
+unknown custom marker, a first-class `\cat` span is preserved as an opaque sentinel — its bytes stop
+reaching the tokenizer, the category fold never fires, and every later pass reports a fixed point,
+so a `\cat` run typed after a note's caller becomes a `category` only by round-tripping through the
+file. That also strands the caret: with the span opaque, a byte anchor captured inside it resolves
+past the following marker glyph, so the rest of what the user types lands in the NEXT span.
+
+Keep that predicate in ONE place. The fragment builder and the signature/live-walk classification
+decide the same thing about the same node, and silently corrupt the rebuild if they disagree.
+
 ### Prefer a declared property over a new exception list
 
 Before adding a per-marker special case, check whether the host's markers map already declares the
