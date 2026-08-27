@@ -138,8 +138,9 @@ export function ContextMenuPlugin({
 
   const options = useMemo(() => {
     const builtIn = [
-      // Cut/Copy are no-ops with nothing selected rather than dispatches the browser would have to
-      // synthesize a clipboard event for — see `copySelection`. They are not disabled instead,
+      // Cut/Copy with nothing selected leave the clipboard alone rather than writing a placeholder
+      // over it — `ClipboardPlugin`'s guard claims the command (see `registerEmptyCopyGuard`), so
+      // this plugin needs no selection check of its own. They are not disabled in that case,
       // because this option list is built once per editor rather than per menu opening, so its
       // `isDisabled` flags cannot track the live selection.
       new ContextMenuOption(`Cut`, {

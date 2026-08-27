@@ -1,25 +1,24 @@
 import { ClipboardPlugin } from "./ClipboardPlugin";
+import { copySelection } from "./clipboard.utils";
 import { baseTestEnvironment } from "./react-test.utils";
 import { act } from "@testing-library/react";
 import {
+  $createNodeSelection,
   $createTextNode,
   $getRoot,
-  COMMAND_PRIORITY_CRITICAL,
-  COPY_COMMAND,
-  CUT_COMMAND,
+  $setSelection,
   LexicalEditor,
   TextNode,
 } from "lexical";
-import { $createParaNode } from "shared";
+import { $createImmutableTypedTextNode, $createParaNode } from "shared";
 
 /**
- * `document.execCommand` is the mechanism a clipboard write ultimately runs through when no real
- * clipboard event exists: `@lexical/clipboard` points the DOM selection at a hidden placeholder it
- * appends to the editor and calls `execCommand("copy")` to provoke one. jsdom implements no
- * `execCommand` at all, so these tests install a spy in its place — a call to it means a clipboard
- * write reached the browser, and no call means the clipboard was left exactly as the user left it.
- * That is the observable these tests pin: what does or does not get written, never the placeholder
- * itself, which lives in `@lexical/clipboard` and is not ours to depend on.
+ * `document.execCommand("copy")` is how a clipboard write reaches the browser when there is no real
+ * clipboard event to fill in: `@lexical/clipboard` points the DOM selection at a hidden placeholder
+ * element it appends to the editor and runs it to provoke one. jsdom implements no `execCommand` at
+ * all, so these tests install a spy in its place — **called means a write reached the browser, not
+ * called means the clipboard is untouched**. That is the observable throughout; the placeholder's
+ * own content belongs to `@lexical/clipboard` and is never asserted on here.
  */
 let execCommand: ReturnType<typeof vi.fn>;
 
@@ -39,7 +38,13 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // `@lexical/clipboard` keeps a MODULE-level timer handle while it waits for the clipboard event
+  // its `execCommand` call should provoke, and refuses to start another copy until that handle
+  // clears. A test that reaches the real copy path therefore silences the `execCommand` assertion
+  // in the NEXT test unless the window is drained here — which would make a failure show up only in
+  // whichever test happens to run first. The window is `EVENT_LATENCY`, 50ms.
+  await new Promise((resolve) => setTimeout(resolve, 60));
   Reflect.deleteProperty(document, "execCommand");
   vi.unstubAllGlobals();
 });
@@ -79,76 +84,94 @@ async function pressShortcut(
   return event;
 }
 
-/**
- * Watches a clipboard command without claiming it, so a regression runs the whole real chain —
- * `@lexical/rich-text`'s fallback and the synthesized-copy machinery behind it — and trips the
- * `execCommand` assertion instead of being masked by the watcher itself.
- */
-function watchCommand(editor: LexicalEditor, command: typeof COPY_COMMAND) {
-  const seen = vi.fn(() => false);
-  const unregister = editor.registerCommand(command, seen, COMMAND_PRIORITY_CRITICAL);
-  return { seen, unregister };
-}
-
 describe("ClipboardPlugin — copy/cut with nothing selected", () => {
   it("leaves the clipboard untouched on Ctrl+C at a collapsed caret", async () => {
     const { editor, text } = await clipboardEnvironment();
     await act(async () => editor.update(() => text.select(3, 3)));
-    const { seen, unregister } = watchCommand(editor, COPY_COMMAND);
 
-    const event = await pressShortcut(editor, "c");
-    unregister();
+    await pressShortcut(editor, "c");
 
-    // No copy is synthesized at all, so nothing can be written over what the clipboard holds.
     expect(execCommand).not.toHaveBeenCalled();
-    expect(seen).not.toHaveBeenCalled();
-    // The browser's own copy is left to run: for an empty selection it writes nothing, which is
-    // the behavior this plugin's `preventDefault` would otherwise have suppressed.
-    expect(event.defaultPrevented).toBe(false);
   });
 
   it("leaves the clipboard untouched on Ctrl+X at a collapsed caret, and removes nothing", async () => {
     const { editor, text } = await clipboardEnvironment();
     await act(async () => editor.update(() => text.select(3, 3)));
-    const { seen, unregister } = watchCommand(editor, CUT_COMMAND);
 
-    const event = await pressShortcut(editor, "x");
-    unregister();
+    await pressShortcut(editor, "x");
 
     expect(execCommand).not.toHaveBeenCalled();
-    expect(seen).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe("In the beginning"));
   });
 });
 
 describe("ClipboardPlugin — copy/cut with a selection", () => {
-  it("copies on Ctrl+C and claims the key", async () => {
+  it("copies on Ctrl+C", async () => {
     const { editor, text } = await clipboardEnvironment();
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
-    // Claimed here so the copy stops at this assertion instead of running the real clipboard
-    // machinery, whose synthesized-event timer would outlive the test.
-    const seen = vi.fn(() => true);
-    const unregister = editor.registerCommand(COPY_COMMAND, seen, COMMAND_PRIORITY_CRITICAL);
 
-    const event = await pressShortcut(editor, "c");
-    unregister();
+    await pressShortcut(editor, "c");
 
-    expect(seen).toHaveBeenCalledTimes(1);
-    expect(event.defaultPrevented).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith("copy");
   });
 
-  it("cuts on Ctrl+X and claims the key", async () => {
+  it("cuts on Ctrl+X", async () => {
     const { editor, text } = await clipboardEnvironment();
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
-    const seen = vi.fn(() => true);
-    const unregister = editor.registerCommand(CUT_COMMAND, seen, COMMAND_PRIORITY_CRITICAL);
 
-    const event = await pressShortcut(editor, "x");
-    unregister();
+    await pressShortcut(editor, "x");
 
-    expect(seen).toHaveBeenCalledTimes(1);
-    expect(event.defaultPrevented).toBe(true);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("copies a node selection — the guard is about having nothing to copy, not about ranges", async () => {
+    // A node selection covers real content and is not collapsed, so it copies like any other. The
+    // guard tests "is there anything here", NOT "is this a range": narrowing it to range selections
+    // would silently swallow this copy.
+    const { editor } = await clipboardEnvironment();
+    await act(async () =>
+      editor.update(() => {
+        const decorator = $createImmutableTypedTextNode("marker", "\\p");
+        $getRoot().getFirstChild()?.insertBefore?.($createParaNode("p").append(decorator));
+        const nodeSelection = $createNodeSelection();
+        nodeSelection.add(decorator.getKey());
+        $setSelection(nodeSelection);
+      }),
+    );
+
+    await pressShortcut(editor, "c");
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+});
+
+describe("ClipboardPlugin — the guard reads the live selection, not the committed one", () => {
+  // Lexical commits on a microtask, so the last COMMITTED selection lags a selection made earlier
+  // in the same synchronous tick. A guard that read the committed state would see "nothing
+  // selected" here and silently copy nothing — and this is the ordinary shape of the public
+  // `EditorRef.copy()` path: select something programmatically, then copy it.
+  it("copies a selection made earlier in the same synchronous tick", async () => {
+    const { editor, text } = await clipboardEnvironment();
+
+    await act(async () => {
+      editor.update(() => text.select(0, text.getTextContentSize()));
+      copySelection(editor);
+    });
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("copies a selection made inside the same editor.update() as the copy call", async () => {
+    const { editor, text } = await clipboardEnvironment();
+
+    await act(async () =>
+      editor.update(() => {
+        text.select(0, text.getTextContentSize());
+        copySelection(editor);
+      }),
+    );
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
   });
 });
 

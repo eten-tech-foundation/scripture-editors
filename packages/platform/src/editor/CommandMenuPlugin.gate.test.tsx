@@ -3,7 +3,7 @@ import { EditorRef } from "./editor.model";
 import { execCommandSpy } from "./markerEdit/markerEdit.test-helpers";
 import { act, render } from "@testing-library/react";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
-import { createRef } from "react";
+import { createRef, RefObject } from "react";
 import {
   $createPoint,
   $createRangeSelection,
@@ -47,7 +47,9 @@ const sampleUsj: Usj = {
 /** Renders the real Editor in `viewMode` and returns its underlying Lexical editor. The editor
  * is captured through a child `EditorRefPlugin` (which `<Editor>` renders inside its composer)
  * rather than a `.__lexicalEditor` DOM reach-in. */
-async function renderEditor(viewMode: string): Promise<LexicalEditor> {
+async function renderEditorWithRef(
+  viewMode: string,
+): Promise<{ editor: LexicalEditor; ref: RefObject<EditorRef | null> }> {
   const ref = createRef<EditorRef>();
   const lexicalRef = createRef<LexicalEditor>();
   await act(async () => {
@@ -58,7 +60,11 @@ async function renderEditor(viewMode: string): Promise<LexicalEditor> {
     );
   });
   if (!lexicalRef.current) throw new Error("lexical editor was not captured");
-  return lexicalRef.current;
+  return { editor: lexicalRef.current, ref };
+}
+
+async function renderEditor(viewMode: string): Promise<LexicalEditor> {
+  return (await renderEditorWithRef(viewMode)).editor;
 }
 
 /**
@@ -283,24 +289,31 @@ describe("MarkerEditPlugin's Standard-view clipboard handlers do not leak into F
  * The empty-copy rule is not Standard view's. It lives in `ClipboardPlugin` (shared-react), which
  * every view mounts, and this view has no Standard-view copy handler registered at all — so a
  * regression here would leak the same way the reported one did, in a view where nothing else is
- * watching. `Ctrl+C` is pressed on the editor's root element, where that plugin listens, rather
- * than through a command dispatch, so what runs is the whole real path from key to clipboard.
+ * watching. These exercise the whole real path from the public surface to the clipboard: a keydown
+ * on the root element where the plugin listens, and `EditorRef.copy()`/`.cut()`, the API a host
+ * app drives the editor through.
+ *
+ * `execCommandSpy` supplies the `document.execCommand` jsdom lacks and reports whether anything was
+ * written. `ClipboardEvent` is stubbed for the same reason `formattedViewCopyEvent` stubs it:
+ * without it a regression would die on Lexical's own bare reference to the missing global before
+ * reaching the clipboard, hiding what actually got written.
  */
 describe("copying an empty selection leaves the clipboard alone in a hidden-marker view", () => {
-  // `execCommandSpy` supplies the `document.execCommand` jsdom lacks and reports whether anything
-  // was written. `ClipboardEvent` is stubbed for the same reason `formattedViewCopyEvent` stubs
-  // it: without it a regression would die on Lexical's own bare reference to the missing global
-  // before reaching the clipboard, hiding what actually got written.
   const execCommand = execCommandSpy();
 
   beforeEach(() => {
     vi.stubGlobal("ClipboardEvent", StubClipboardEvent);
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(async () => {
+    // Drain `@lexical/clipboard`'s module-level `EVENT_LATENCY` (50ms) handle so a test that
+    // reached the real copy path cannot silence the next test's assertion.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    vi.unstubAllGlobals();
+  });
 
-  it("Ctrl+C at a collapsed caret in Formatted view writes nothing and leaves the key unclaimed", async () => {
-    const editor = await renderEditor(FORMATTED_VIEW_MODE);
+  /** Collapses the selection at the end of the loaded document. */
+  async function collapseCaretAtEnd(editor: LexicalEditor): Promise<void> {
     await act(async () =>
       editor.update(() => {
         const last = $getRoot().getLastDescendant();
@@ -313,21 +326,56 @@ describe("copying an empty selection leaves the clipboard alone in a hidden-mark
         $setSelection(selection);
       }),
     );
+  }
+
+  it("Ctrl+C at a collapsed caret in Formatted view writes nothing", async () => {
+    const { editor } = await renderEditorWithRef(FORMATTED_VIEW_MODE);
+    await collapseCaretAtEnd(editor);
 
     const rootElement = editor.getRootElement();
     if (!rootElement) throw new Error("editor has no root element to press a key on");
-    const event = new KeyboardEvent("keydown", {
-      key: "c",
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
     await act(async () => {
-      rootElement.dispatchEvent(event);
+      rootElement.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true, cancelable: true }),
+      );
     });
 
     expect(execCommand()).not.toHaveBeenCalled();
-    // Unclaimed, so the browser's own copy of an empty selection runs — and writes nothing.
-    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("EditorRef.copy() at a collapsed caret writes nothing", async () => {
+    const { editor, ref } = await renderEditorWithRef(FORMATTED_VIEW_MODE);
+    await collapseCaretAtEnd(editor);
+
+    await act(async () => ref.current?.copy());
+
+    expect(execCommand()).not.toHaveBeenCalled();
+  });
+
+  it("EditorRef.cut() at a collapsed caret writes nothing and removes nothing", async () => {
+    const { editor, ref } = await renderEditorWithRef(FORMATTED_VIEW_MODE);
+    await collapseCaretAtEnd(editor);
+    let before = "";
+    editor.getEditorState().read(() => {
+      before = $getRoot().getTextContent();
+    });
+
+    await act(async () => ref.current?.cut());
+
+    expect(execCommand()).not.toHaveBeenCalled();
+    editor.getEditorState().read(() => expect($getRoot().getTextContent()).toBe(before));
+  });
+
+  it("EditorRef.copy() right after a programmatic selection still copies", async () => {
+    // The public API's ordinary shape — select, then copy — and the case a guard reading the last
+    // COMMITTED selection would silently turn into a no-op, since Lexical commits on a microtask.
+    const { editor, ref } = await renderEditorWithRef(FORMATTED_VIEW_MODE);
+
+    await act(async () => {
+      selectWholeDocument(editor);
+      ref.current?.copy();
+    });
+
+    expect(execCommand()).toHaveBeenCalledWith("copy");
   });
 });

@@ -76,9 +76,17 @@ export interface EditorRef {
   undo(): void;
   /** Redo the last undone action. */
   redo(): void;
-  /** Cut the selected text. */
+  /**
+   * Cut the selected text. With nothing selected it does nothing and the clipboard keeps whatever
+   * it already held — see {@link EditorRef.copy}.
+   */
   cut(): void;
-  /** Copy the selected text. */
+  /**
+   * Copy the selected text. With nothing selected — no selection, or a collapsed caret — it does
+   * nothing and the clipboard keeps whatever it already held, rather than receiving a placeholder
+   * character the editor never contained. A selection made programmatically immediately before this
+   * call still copies: the guard reads the live selection, not the last committed one.
+   */
   copy(): void;
   /** Paste text at the current cursor position. */
   paste(): void;

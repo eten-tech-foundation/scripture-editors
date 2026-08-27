@@ -133,14 +133,20 @@ export interface PastePayload {
  * clipboard at all (a KeyboardEvent-shaped dispatch, or an event whose data store is
  * inaccessible), which every claim reads as "not mine".
  *
- * Four handlers race on `PASTE_COMMAND` — the in-note `\fp` claim at CRITICAL, the Standard-view
- * external-paste claim and the char-stack line replay at HIGH, the paragraph-split arm at LOW —
- * and they must agree byte-for-byte on what was pasted, or the same clipboard is one thing to one
- * of them and another to the next. So the extraction lives here once: the jsdom-safe duck-check
- * for the clipboard (jsdom implements no `ClipboardEvent`, so `instanceof` against the undefined
- * global throws), the carrier choice below, and line-ending normalization BEFORE any caller tests
- * for a line break — so `\r\n` and bare-`\r` clipboards break correctly and no `\r` ever reaches
- * content on any path.
+ * THREE handlers replay the pasted bytes and so must agree on them byte-for-byte, or the same
+ * clipboard is one thing to one of them and another to the next: the in-note `\fp` claim at
+ * CRITICAL, and the Standard-view external-paste claim and the char-stack line replay at HIGH
+ * (`MarkerEditPlugin.tsx`). All three read the clipboard only through here: the jsdom-safe
+ * duck-check (jsdom implements no `ClipboardEvent`, so `instanceof` against the undefined global
+ * throws), the carrier choice below, and line-ending normalization BEFORE any caller tests for a
+ * line break — so `\r\n` and bare-`\r` clipboards break correctly and no `\r` ever reaches content
+ * on any path.
+ *
+ * Other handlers race on the same command without going through this, correctly: the LOW
+ * paragraph-split arm (`MarkerEditPlugin.tsx`) only sets a flag and never looks at the payload,
+ * and shared-react's `StructureKeyboardPlugin` (HIGH) and `CommandMenuPlugin` (NORMAL) read the
+ * clipboard directly for their own decisions — sanitizing and gating, not replaying — so they have
+ * nothing to agree with the three about.
  */
 export function getPastePayload(
   event: PasteCommandType | null | undefined,
@@ -162,11 +168,10 @@ export function getPastePayload(
   // deliberately carries no NBSP at all (display ones invert to spaces, a data NBSP displays and
   // copies as `~`), while its `text/html` still ships NBSPs wherever a plain space would not
   // survive a rich consumer ({@link invertDisplayNbspInHtml}) — so "the plain text has no NBSP" is
-  // TRUE of every P10 copy, and an
-  // NBSP-presence test would route P10's own round trip through html, whose decoded text drops a
-  // collapsed note's caller entirely (it rides as a `data-caller` attribute, never as text). A
-  // lost note caller on the editor's own copy is a worse, far likelier loss than a foreign
-  // clipboard's data-NBSP. Recorded in the semantics doc's accepted asymmetries.
+  // TRUE of every P10 copy, and an NBSP-presence test would route P10's own round trip through
+  // html, whose decoded text drops a collapsed note's caller entirely (it rides as a `data-caller`
+  // attribute, never as text). A lost note caller on the editor's own copy is a worse, far likelier
+  // loss than a foreign clipboard's data-NBSP. Recorded in the semantics doc's deferred list.
   return {
     text: plainText || htmlText,
     isInternal: !!clipboardData.getData("application/x-lexical-editor"),
@@ -322,9 +327,9 @@ function $isSelectionInAttributeContext(selection: RangeSelection): boolean {
  * collapse INTO). `text` arrives with bare `\n` line endings ({@link getPastePayload} normalizes
  * them for every paste claim) — no `\r` reaches this function. The result is inserted via the exact
  * `selection.insertText` a keystroke uses — no chapter/book-id strip, no positional NBSP mapping,
- * no marker tokenization, all of which
- * exist for BODY content's marker-recognition and whitespace-display invariants and apply to none
- * of it: a pasted `\c 5` or `\p` here is literal value text, not a structural marker, and
+ * no marker tokenization, all of which exist for BODY content's marker-recognition and
+ * whitespace-display invariants and apply to none of it: a pasted `\c 5` or `\p` here is literal
+ * value text, not a structural marker, and
  * `$displayWhitespaceTransform` (this file) already skips textType "attribute" nodes outright, so a
  * literal NBSP a user TYPES into an attribute run is never touched — a pasted one must not be
  * treated any differently. For a non-collapsed (mixed or fully-inside) selection,
@@ -384,9 +389,9 @@ function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: 
  * unconditionally, per the doc comment above, and the "private Lexical flavor is dead on Ctrl+V"
  * fact recorded in the semantics doc's S3 still holds for the reconstructed-`DataTransfer` paste
  * path this repro most likely used). What both mechanisms — the old NBSP gate and this file's own
- * same-namespace-flavor decline — share is the SAME failure shape once either one declines: Lexical's
- * default rich-paste node insertion has no notion that an attribute run's text must stay inside its
- * one tagged TextNode, and (reproduced directly on THIS branch, see
+ * same-namespace-flavor decline — share is the SAME failure shape once either one declines:
+ * Lexical's default rich-paste node insertion has no notion that an attribute run's text must stay
+ * inside its one tagged TextNode, and (reproduced directly on THIS branch, see
  * `attributeContextPasteFidelity.test.tsx`'s "root cause" describe) merges the run, the closing
  * glyph, and even the FOLLOWING paragraph's own sibling text into one plain node: the attribute
  * display and the closing marker both vanish, and the pasted bytes end up loose in body content.
@@ -648,8 +653,9 @@ export function $getStandardViewClipboardData(
  * that was never in the document. Standard view is where a caret most often has nothing copyable
  * around it — a click on a read-only construct (a figure, a table) leaves the caret beside it
  * rather than inside — so a null-payload dispatch with no content behind it is CLAIMED here and
- * does nothing, which is what copying an empty selection means. Callers that can decline earlier
- * do (`copySelection`, shared-react); this covers the ones that reach the command anyway.
+ * does nothing, which is what copying an empty selection means. shared-react's
+ * `registerEmptyCopyGuard` states the same rule for every view, one priority lower; claiming here
+ * too keeps the rule from depending on which plugins a host happens to mount.
  *
  * A selection that is merely not a RANGE (a node selection) is still declined: it has real content,
  * and the synthesized-event path copies it correctly.

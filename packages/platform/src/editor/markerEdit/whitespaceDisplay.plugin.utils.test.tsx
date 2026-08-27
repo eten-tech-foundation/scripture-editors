@@ -22,8 +22,9 @@ import { LexicalClipboardData } from "@lexical/clipboard";
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 import { Usj, usxStringToUsj } from "@eten-tech-foundation/scripture-utilities";
-import { $dfs } from "@lexical/utils";
+import { $dfs, mergeRegister } from "@lexical/utils";
 import {
+  $createNodeSelection,
   $createPoint,
   $createRangeSelection,
   $createTextNode,
@@ -31,6 +32,7 @@ import {
   $isTextNode,
   $setSelection,
   $setState,
+  COMMAND_PRIORITY_NORMAL,
   COPY_COMMAND,
   CUT_COMMAND,
   LexicalEditor,
@@ -39,6 +41,7 @@ import {
 } from "lexical";
 import {
   $createCharNode,
+  $createImmutableTypedTextNode,
   $createMarkerNode,
   $createParaNode,
   $isCharNode,
@@ -244,8 +247,13 @@ function $selectAcrossFigure(): void {
 
 /**
  * Selects the figure and nothing else, as the two element points on its parent paragraph that sit
- * either side of it — the shape a browser resolves a drag or click over a `contentEditable=false`
- * block into, since it will not put a selection endpoint inside one.
+ * either side of it.
+ *
+ * That is ASSUMED to be what a browser resolves a real drag or click over a
+ * `contentEditable=false` block into, on the reasoning that it will not put a selection
+ * endpoint inside one — but jsdom cannot observe DOM-range → Lexical selection resolution, so
+ * the assumption is untested here and the pin below states only what the copy walker does with
+ * such a selection once it exists.
  *
  * Mutating: call inside `editor.update()`.
  */
@@ -662,12 +670,42 @@ describe("clipboard normalization — null-event leg (ClipboardPlugin/ContextMen
  * character on the clipboard; a plain collapsed caret anywhere in the view does the same, and so
  * does cut.
  *
- * `document.execCommand` — which jsdom does not implement, so these tests supply it — is the
- * observable: called means a write reached the browser, not called means the clipboard is
- * untouched. The placeholder's own content belongs to `@lexical/clipboard` and is not pinned here.
+ * Two observables, because either alone can lie. `belowTheClaim` watches at a priority between this
+ * handler's HIGH and rich-text's EDITOR: reached means the command was NOT claimed here, which is
+ * the leak's first step and is immune to any module state. `document.execCommand` — which jsdom
+ * does not implement, so `execCommandSpy` supplies it — is the clipboard outcome itself: called
+ * means a write reached the browser. Note what is NOT asserted: the dispatch's own return value
+ * says nothing (rich-text's handlers return `true` unconditionally, so a leaked copy still reports
+ * "handled"), and `copyToClipboardSpy` says nothing either (`@lexical/rich-text` is externalized
+ * and imports the REAL `@lexical/clipboard`, which this file's `vi.mock` cannot reach). The
+ * placeholder's own content belongs to `@lexical/clipboard` and is not pinned here.
  */
 describe("copying an empty selection leaves the clipboard alone", () => {
   const execCommand = execCommandSpy();
+
+  /**
+   * Watches for the dispatch reaching PAST the Standard-view claim, without consuming it — so a
+   * regression runs the whole real chain and trips this AND the clipboard assertion, rather than
+   * being masked by the watcher itself. NORMAL sits below the claim's HIGH and above rich-text's
+   * EDITOR.
+   */
+  function watchBelowTheClaim(editor: LexicalEditor) {
+    const reached = vi.fn(() => false);
+    const unregister = mergeRegister(
+      editor.registerCommand(COPY_COMMAND, reached, COMMAND_PRIORITY_NORMAL),
+      editor.registerCommand(CUT_COMMAND, reached, COMMAND_PRIORITY_NORMAL),
+    );
+    return { reached, unregister };
+  }
+
+  afterEach(async () => {
+    // `@lexical/clipboard` keeps a MODULE-level timer handle while it waits for the clipboard event
+    // its `execCommand` call should provoke, and refuses to start another copy until that handle
+    // clears. A test that reaches the real copy path therefore silences the `execCommand` assertion
+    // in the NEXT test unless the window is drained here — which would make a regression fail only
+    // the first of these pins. The window is `EVENT_LATENCY`, 50ms.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
 
   it("COPY_COMMAND(null) at a collapsed caret is claimed and writes nothing", async () => {
     let text: TextNode;
@@ -676,15 +714,14 @@ describe("copying an empty selection leaves the clipboard alone", () => {
       $appendMarkerAndText(text);
     });
     await act(async () => editor.update(() => text.select(1, 1)));
-    copyToClipboardSpy.mockClear();
-    let handled: boolean | undefined;
+    const { reached, unregister } = watchBelowTheClaim(editor);
     await act(async () => {
-      handled = editor.dispatchCommand(COPY_COMMAND, null);
+      editor.dispatchCommand(COPY_COMMAND, null);
     });
+    unregister();
+    // Claimed here, so nothing downstream gets the chance to synthesize the copy this declined.
+    expect(reached).not.toHaveBeenCalled();
     expect(execCommand()).not.toHaveBeenCalled();
-    expect(copyToClipboardSpy).not.toHaveBeenCalled();
-    // Claimed, so nothing downstream gets the chance to synthesize the copy this declined to make.
-    expect(handled).toBe(true);
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}b`));
   });
 
@@ -695,14 +732,13 @@ describe("copying an empty selection leaves the clipboard alone", () => {
       $appendMarkerAndText(text);
     });
     await act(async () => editor.update(() => text.select(1, 1)));
-    copyToClipboardSpy.mockClear();
-    let handled: boolean | undefined;
+    const { reached, unregister } = watchBelowTheClaim(editor);
     await act(async () => {
-      handled = editor.dispatchCommand(CUT_COMMAND, null);
+      editor.dispatchCommand(CUT_COMMAND, null);
     });
+    unregister();
+    expect(reached).not.toHaveBeenCalled();
     expect(execCommand()).not.toHaveBeenCalled();
-    expect(copyToClipboardSpy).not.toHaveBeenCalled();
-    expect(handled).toBe(true);
     editor.getEditorState().read(() => expect(text.getTextContent()).toBe(`a${NBSP}b`));
   });
 
@@ -721,14 +757,41 @@ describe("copying an empty selection leaves the clipboard alone", () => {
         before.select(before.getTextContentSize(), before.getTextContentSize());
       }),
     );
-    copyToClipboardSpy.mockClear();
-    let handled: boolean | undefined;
+    const { reached, unregister } = watchBelowTheClaim(editor);
     await act(async () => {
-      handled = editor.dispatchCommand(COPY_COMMAND, null);
+      editor.dispatchCommand(COPY_COMMAND, null);
     });
+    unregister();
+    expect(reached).not.toHaveBeenCalled();
     expect(execCommand()).not.toHaveBeenCalled();
-    expect(copyToClipboardSpy).not.toHaveBeenCalled();
-    expect(handled).toBe(true);
+  });
+
+  it("does NOT claim a node selection — it has content, and Lexical's own copy handles it", async () => {
+    // The deliberate carve-out in the claim's condition, pinned because it is the one way this
+    // guard could go wrong in the other direction: narrowing the test to "is this a RANGE
+    // selection" would swallow a copy that has real content behind it. The opposite outcome to
+    // every pin above — the dispatch passes through and the copy is made.
+    let decorator: ReturnType<typeof $createImmutableTypedTextNode>;
+    const { editor } = await testEnvironment(() => {
+      const text = $createTextNode(`a${NBSP}b`);
+      $appendMarkerAndText(text);
+      decorator = $createImmutableTypedTextNode("marker", "\\p");
+      $getRoot().append($createParaNode("p").append(decorator));
+    });
+    await act(async () =>
+      editor.update(() => {
+        const nodeSelection = $createNodeSelection();
+        nodeSelection.add(decorator.getKey());
+        $setSelection(nodeSelection);
+      }),
+    );
+    const { reached, unregister } = watchBelowTheClaim(editor);
+    await act(async () => {
+      editor.dispatchCommand(COPY_COMMAND, null);
+    });
+    unregister();
+    expect(reached).toHaveBeenCalled();
+    expect(execCommand()).toHaveBeenCalledWith("copy");
   });
 });
 

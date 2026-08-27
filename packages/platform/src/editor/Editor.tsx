@@ -392,8 +392,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     redo() {
       editorRef.current?.dispatchCommand(REDO_COMMAND, undefined);
     },
-    // Both leave the clipboard untouched when nothing is selected, rather than asking the browser
-    // to synthesize a clipboard event for an empty copy — see `copySelection` (shared-react).
+    // Both leave the clipboard untouched when nothing is selected, rather than writing a
+    // placeholder over it — `ClipboardPlugin`'s guard claims the command (shared-react's
+    // `registerEmptyCopyGuard`). Going through `copySelection`/`cutSelection` rather than
+    // dispatching here keeps that one seam named.
     cut() {
       if (editorRef.current) cutSelection(editorRef.current);
     },
