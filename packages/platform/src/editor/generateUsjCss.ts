@@ -81,6 +81,23 @@ function hasValue(value: number | undefined): value is number {
   return value !== undefined && value !== null;
 }
 
+/**
+ * `text-align` for each stylesheet justification. A closed table, so only these four values can
+ * ever reach the emitted CSS; anything else the wire delivers is dropped rather than interpolated.
+ */
+const JUSTIFICATION_TO_TEXT_ALIGN: Readonly<{ [justification: string]: string | undefined }> = {
+  left: "left",
+  right: "right",
+  center: "center",
+  both: "justify",
+};
+
+/** Justifications that swap sides in a right-to-left project; the rest are direction-neutral. */
+const MIRRORED_JUSTIFICATION: Readonly<{ [justification: string]: string | undefined }> = {
+  left: "right",
+  right: "left",
+};
+
 /** The scope prefix used when none is supplied — see {@link UsjCssOptions.containerSelector}. */
 const DEFAULT_CONTAINER_SELECTOR = ".editor-input.usfm";
 
@@ -154,15 +171,17 @@ function markerDeclarations(
   if (entry.underline) decls.push("text-decoration: underline");
   if (entry.smallCaps) decls.push("font-variant: small-caps");
   if (entry.justification) {
+    // Mapped through a fixed table rather than interpolated: the declared union is a compile-time
+    // claim about a value that crosses the JSON wire from a project's stylesheet, so an unexpected
+    // string would otherwise land verbatim in `text-align: <value>` and could close the rule (the
+    // same reason `color` and `containerSelector` are guarded above). An unmapped value is dropped.
     const align =
-      entry.justification === "both"
-        ? "justify"
-        : rtl && entry.justification === "left"
-          ? "right"
-          : rtl && entry.justification === "right"
-            ? "left"
-            : entry.justification;
-    decls.push(`text-align: ${align}`);
+      JUSTIFICATION_TO_TEXT_ALIGN[
+        rtl
+          ? (MIRRORED_JUSTIFICATION[entry.justification] ?? entry.justification)
+          : entry.justification
+      ];
+    if (align) decls.push(`text-align: ${align}`);
   }
   if (entry.textProperties?.includes("verse"))
     decls.push("white-space: nowrap", "unicode-bidi: embed");

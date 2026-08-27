@@ -37,8 +37,14 @@ export interface ParaStackEntry {
   occursUnder: readonly string[];
 }
 
+/**
+ * The `+` nesting prefix. Hoisted because `getEntry` runs once per paragraph, char span and verse
+ * of the whole document on every commit, and a regex literal allocates a fresh RegExp per call.
+ */
+const NESTING_PREFIX_REGEX = /^\+/;
+
 function getEntry(styleInfo: StyleInfo, marker: string): MarkerStyleInfo | undefined {
-  const name = marker.replace(/^\+/, "");
+  const name = marker.replace(NESTING_PREFIX_REGEX, "");
   // Own-property guard: `markers` is a plain object, so a bare index resolves Object.prototype
   // members (`constructor`, `toString`, `valueOf`, …) as if they were stylesheet entries — a
   // marker named after one would never be flagged unknown.

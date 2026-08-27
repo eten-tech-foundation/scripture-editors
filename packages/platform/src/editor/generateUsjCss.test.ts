@@ -290,3 +290,34 @@ describe("generateUsjCss (PT9 CSSCreator port)", () => {
     ).toBe(".x .usfm_p { font-weight: bold; }");
   });
 });
+
+describe("generateUsjCss justification safety", () => {
+  const injectedStyleInfo = {
+    markers: {
+      zz: {
+        marker: "zz",
+        styleType: "paragraph",
+        // The declared union is a compile-time claim only; this value really can arrive over the
+        // JSON wire from a project's stylesheet.
+        justification: "left; } .usfm { display: none; } .x {",
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately off-contract wire data
+  } as any as StyleInfo;
+
+  it("drops a justification that is not one of the known values instead of emitting it", () => {
+    const css = generateUsjCss(injectedStyleInfo);
+
+    expect(css).not.toContain("display: none");
+    expect(css).not.toContain("text-align: left;");
+  });
+
+  it("still mirrors left/right in a right-to-left project", () => {
+    const rtlStyleInfo: StyleInfo = {
+      markers: { zz: { marker: "zz", styleType: "paragraph", justification: "left" } },
+    };
+
+    expect(generateUsjCss(rtlStyleInfo, { rtl: true })).toContain("text-align: right");
+    expect(generateUsjCss(rtlStyleInfo)).toContain("text-align: left");
+  });
+});
