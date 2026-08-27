@@ -295,7 +295,7 @@ export function ScriptureReferencePlugin({
       );
       // Defer one microtask: dispatching synchronously inside a mutation listener runs a reentrant
       // update while the triggering edit's history entry is still being recorded, corrupting the
-      // undo stack (PT-4102: undo did nothing after a verse-spanning delete). Same deferral rule as
+      // undo stack (undo then did nothing after a verse-spanning delete). Same deferral rule as
       // schedulePlacingCaretAtVerseStart below.
       // INVARIANT this now relies on: no SELECTION_CHANGE_COMMAND listener may create or destroy a
       // verse node. If one did, this would loop (verse mutation -> microtask -> dispatch -> verse

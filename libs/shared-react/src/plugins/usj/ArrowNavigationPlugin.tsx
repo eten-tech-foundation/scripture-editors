@@ -86,7 +86,7 @@ export function hasVisualLineBeyondCaret(
 /**
  * Whether the current verse's text has a wrapped line beyond the caret in `direction`. Custom
  * verse-to-verse navigation only fires from a verse's first visual line, so this stops ArrowDown
- * from skipping the rest of a wrapped verse and jumping to the next one (PT-4308).
+ * from skipping the rest of a wrapped verse and jumping to the next one.
  *
  * The verse's content is measured across blocks — bounded by the surrounding `[data-marker="v"]`
  * verse markers — because a verse can wrap across several `\q` poetry paragraphs; measuring only the
@@ -149,7 +149,7 @@ function $caretHasVisualLineBeyond(editor: LexicalEditor, direction: "up" | "dow
 /**
  * Handles an ArrowUp/ArrowDown press for verse-to-verse navigation. Intercepts only when the caret
  * is at a verse boundary and native movement would leave the verse; when the verse wraps onto
- * further lines it yields to the browser's visual-line movement instead (PT-4308).
+ * further lines it yields to the browser's visual-line movement instead.
  *
  * @returns `true` (and prevents default) when it moved the caret to an adjacent verse; otherwise
  *   `false` so Lexical/the browser handles the key.

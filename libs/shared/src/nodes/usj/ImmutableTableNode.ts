@@ -69,8 +69,8 @@ export class ImmutableTableNode extends ElementNode {
     // one `UnknownNode` still gives the other Tier-3 kinds (figures, sidebars, periph) — visible
     // and byte-preserved, but not editable. contentEditable=false stops the browser from placing a
     // native caret inside, so caret navigation skips the table like a decorator node. Set on the
-    // container so it covers every row and cell. Editing tables is not supported yet; PT-4198 owns
-    // whether and how they become editable. Set as an ATTRIBUTE rather than via the
+    // container so it covers every row and cell. Editing tables is not supported yet; whether and
+    // how they become editable is still open. Set as an ATTRIBUTE rather than via the
     // `contentEditable` IDL property (which `UnknownNode` uses): the two are equivalent in a
     // browser, but jsdom does not reflect the property back to the attribute, so only this form is
     // assertable in tests.
