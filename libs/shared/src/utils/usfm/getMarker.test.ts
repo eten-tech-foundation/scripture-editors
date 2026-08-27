@@ -48,3 +48,23 @@ describe("getMarker (add-only overwrite shape guard)", () => {
     expect(p?.type).toBe(MarkerType.Paragraph);
   });
 });
+
+describe("getMarker inherited-property safety", () => {
+  it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__", "isPrototypeOf"])(
+    "returns undefined for the Object.prototype member name %s",
+    (name) => {
+      // Both marker tables are plain object literals. A bare index answered these with a Function,
+      // which spread into a truthy Marker with no category/type/hasEndMarker — and every caller
+      // that tests `getMarker(x) !== undefined` read that as "this marker is known".
+      expect(getMarker(name)).toBeUndefined();
+    },
+  );
+
+  it("hands back a copy of a stand-alone overwrite, not the shared table entry", () => {
+    const first = getMarker("zztestcomplete");
+    expect(first).toBeDefined();
+    if (first) first.description = "mutated by a caller";
+
+    expect(getMarker("zztestcomplete")?.description).toBe("a complete add-only overwrite");
+  });
+});

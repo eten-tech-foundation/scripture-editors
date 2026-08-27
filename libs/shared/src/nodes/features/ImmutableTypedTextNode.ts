@@ -238,6 +238,14 @@ export function $isGutterMarkerNode(
 }
 
 function isTypedTextElement(node: HTMLElement | null | undefined): boolean {
+  // NOTE: `tagName` is upper-cased for HTML-namespace elements, so this comparison never matches
+  // and the `span` conversion above is unreachable. Correcting the case ALONE is not the fix: this
+  // predicate's only discriminator is the tag, so a case-insensitive compare makes this node claim
+  // EVERY pasted `<span>` at priority 1 — including the verse spans that
+  // `StructureKeyboardPlugin`'s paste sanitizer expects to strip down to text. A real fix also has
+  // to narrow the predicate (the `data-text-type` attribute `exportDOM` emits is the natural
+  // discriminator) and decide what pasting a marker glyph should do, which is a behavior decision
+  // rather than a typo fix.
   return node?.tagName === "span";
 }
 

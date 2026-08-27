@@ -578,8 +578,9 @@ function scanMilestone(
 ): { token: Token; next: number; ejectedText?: string } | undefined {
   const closeIndex = fragment.indexOf("\\", index);
   if (closeIndex === -1 || fragment.slice(closeIndex, closeIndex + 2) !== "\\*") return undefined;
+  // Slices up to the FIRST backslash at or after `index`, so `between` cannot contain one: the
+  // milestone's attribute region ends at whatever markup follows it.
   const between = fragment.slice(index, closeIndex);
-  if (between.includes("\\")) return undefined;
   const pipeIndex = between.indexOf("|");
   let attributes: { [attributeName: string]: string } | undefined;
   if (pipeIndex >= 0) {

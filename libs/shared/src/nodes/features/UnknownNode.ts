@@ -226,7 +226,8 @@ export function $createUnknownNode(
 }
 
 function isUnknownElement(node: HTMLElement | null | undefined): boolean {
-  return node?.tagName === UNKNOWN_TAG_NAME;
+  // `tagName` is upper-cased for HTML-namespace elements, so compare case-insensitively.
+  return node?.tagName.toLowerCase() === UNKNOWN_TAG_NAME;
 }
 
 export function $isUnknownNode(node: LexicalNode | null | undefined): node is UnknownNode {

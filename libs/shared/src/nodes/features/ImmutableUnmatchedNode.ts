@@ -198,7 +198,8 @@ export function $createImmutableUnmatchedNode(marker?: string): ImmutableUnmatch
 }
 
 function isUnmatchedElement(node: HTMLElement | null | undefined): boolean {
-  return node?.tagName === UNMATCHED_TAG_NAME;
+  // `tagName` is upper-cased for HTML-namespace elements, so compare case-insensitively.
+  return node?.tagName.toLowerCase() === UNMATCHED_TAG_NAME;
 }
 
 export function $isImmutableUnmatchedNode(

@@ -98,8 +98,11 @@ export function canonicalAttributeText(
  * DISPLAYED BYTES, so an edit can drop a name the order still lists or add one it never knew
  * about, and the surviving names must keep their authored positions either way.
  *
- * Membership is tested with `in`, not against `undefined`, so a genuinely empty value (`sid=""`)
- * keeps its authored slot rather than being silently relocated to the end.
+ * Membership is tested by presence, not against `undefined`, so a genuinely empty value (`sid=""`)
+ * keeps its authored slot rather than being silently relocated to the end. `Object.hasOwn` rather
+ * than `in`: USFM attribute names are unconstrained, so an attribute literally named `toString` or
+ * `constructor` reads as already-present on a plain object and would be dropped from the output —
+ * deleting the author's bytes — while `in attributes` would copy a native function into the bag.
  */
 export function orderedAttributes<T extends UnknownAttributes>(
   attributes: T,
@@ -108,10 +111,10 @@ export function orderedAttributes<T extends UnknownAttributes>(
   if (!attributeOrder || attributeOrder.length === 0) return attributes;
   const ordered: UnknownAttributes = {};
   attributeOrder.forEach((name) => {
-    if (name in attributes) ordered[name] = attributes[name];
+    if (Object.hasOwn(attributes, name)) ordered[name] = attributes[name];
   });
   Object.entries(attributes).forEach(([name, value]) => {
-    if (!(name in ordered)) ordered[name] = value;
+    if (!Object.hasOwn(ordered, name)) ordered[name] = value;
   });
   return ordered as T;
 }

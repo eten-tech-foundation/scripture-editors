@@ -4,6 +4,7 @@ import {
   $verseOfAttributeSourceText,
   canonicalAttributeText,
   milestoneAttributes,
+  orderedAttributes,
 } from "./attributeDisplay.utils.js";
 import {
   $createAttributeRunNode,
@@ -1197,5 +1198,25 @@ describe("AttributeRunNode wrapper recognition (dual-read)", () => {
         expect($caretHoldsRunSite(displayRunDescriptor("va"), verse)).toBe(true);
       });
     });
+  });
+});
+
+describe("orderedAttributes inherited-property safety", () => {
+  it("keeps an attribute whose name is an Object.prototype member", () => {
+    // USFM attribute names are unconstrained. `"toString" in {}` is true before anything is
+    // written, so a presence test using `in` dropped the attribute from the output — and the
+    // settle re-derives node state from the emitted bytes, so the author's attribute was deleted.
+    const attributes = { who: "x", toString: "y" };
+
+    expect(orderedAttributes(attributes, ["who"])).toEqual({ who: "x", toString: "y" });
+  });
+
+  it("does not copy a native prototype member in when the order names one that is absent", () => {
+    const attributes = { who: "x" };
+
+    const result = orderedAttributes(attributes, ["constructor", "who"]);
+
+    expect(result).toEqual({ who: "x" });
+    expect(Object.hasOwn(result, "constructor")).toBe(false);
   });
 });

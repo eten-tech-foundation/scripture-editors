@@ -18,6 +18,21 @@ describe("UnknownNode", () => {
   // block in standard view, gated purely by CSS (packages/platform/src/usj-nodes.css). createDOM
   // must NOT hard-code display:none (that hid the content in every view) — it emits a class and
   // data-marker attribute instead, and the CSS decides visibility per view mode.
+  describe("importDOM()", () => {
+    it("accepts the element createDOM emits, whose tagName is upper-cased", () => {
+      // `document.createElement("unknown")` yields tagName "UNKNOWN"; a case-sensitive compare
+      // against the lowercase tag constant rejected every candidate, so the conversion never ran.
+      const element = document.createElement("unknown");
+      element.setAttribute("data-tag", "figure");
+      element.setAttribute("data-marker", "fig");
+
+      const conversion = UnknownNode.importDOM()?.unknown?.(element);
+
+      expect(conversion).not.toBeNull();
+      expect(conversion?.priority).toBe(1);
+    });
+  });
+
   describe("createDOM()", () => {
     it("adds the 'unknown-block' class and data-marker attribute for a block-level construct", () => {
       const { editor } = createBasicTestEnvironment([UnknownNode]);
