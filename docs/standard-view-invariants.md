@@ -46,10 +46,12 @@ rendered bytes are display by the property that _a node's text is a picture of i
 re-expresses a point so no glyph is an operand of the edit about to run. Three separately-reported
 bugs turned out to be one cut reached from three gestures.
 
-**The collab half is still outstanding** — the ops stream
+The collab half is not unified yet: the ops stream
 (`libs/shared-react/src/plugins/usj/collab/editor-delta.adaptor.ts`) and the delta-doc length side
-(`delta-common.utils.ts`) maintain separate exclusion predicates that already differ by one arm.
-Tracked as PT-4399. Do not add a third private exclusion; extend the shared one.
+(`delta-common.utils.ts`) still keep separate exclusion predicates, and they already differ by one
+arm. **Do not add a third private exclusion; extend the shared one** — the reason this invariant is
+written down is that every display-byte class which got its own exclusion had to be found and fixed
+separately, once per consumer, each after a bug.
 
 ### III. One lifecycle for engine-owned display things
 

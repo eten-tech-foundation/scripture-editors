@@ -361,10 +361,16 @@ export function $createWholeNote(
   const note = $createNoteNode(marker, caller, isCollapsed);
   if (segment) $setState(note, segmentState, () => segment);
 
+  // The note's shell — its opening glyph and its caller — is atomic when the host governs those
+  // two through its own UI (see ViewOptions.isNoteShellEditable). Mirrors the load path
+  // (`createNote`, usj-editor.adaptor): an INSERTED note must be shaped like a reloaded one.
+  const isShellAtomic = viewOptions?.isNoteShellEditable === false;
+
   let openingMarkerNode: MarkerNode | ImmutableTypedTextNode | undefined;
   let closingMarkerNode: MarkerNode | ImmutableTypedTextNode | undefined;
   if (viewOptions?.markerMode === "editable") {
     openingMarkerNode = $createMarkerNode(marker);
+    if (isShellAtomic) openingMarkerNode.setMode("token");
     // An unclosed note has no closer to display.
     if (!isUnclosed) closingMarkerNode = $createMarkerNode(marker, "closing");
   } else if (viewOptions?.markerMode === "visible") {
@@ -387,6 +393,7 @@ export function $createWholeNote(
     if (caller === "") note.append(...contentNodes);
     else {
       callerNode = $createTextNode(getEditableCallerText(note.__caller));
+      if (isShellAtomic) callerNode.setMode("token");
       note.append(callerNode, ...contentNodes);
     }
   } else {

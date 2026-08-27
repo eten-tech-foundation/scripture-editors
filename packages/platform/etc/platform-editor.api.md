@@ -611,6 +611,7 @@ export interface ViewOptions {
     hasGutterParaMarkers?: boolean;
     hasSpacing: boolean;
     isFormattedFont: boolean;
+    isNoteShellEditable?: boolean;
     markerMode: MarkerMode;
     noteMode?: NoteMode;
     showCharMarkerTitles?: boolean;

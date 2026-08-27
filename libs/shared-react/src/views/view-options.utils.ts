@@ -63,6 +63,22 @@ export interface ViewOptions {
   /** Is the text in a formatted font. */
   isFormattedFont: boolean;
   /**
+   * When false, an expanded note's SHELL — its opening marker glyph and its caller — is rendered
+   * atomic: the caret cannot enter it and typing cannot change it. Only meaningful in `editable`
+   * marker mode with an expanded note, which is the one shape that renders those bytes as ordinary
+   * editable text.
+   *
+   * For a host that governs the marker and the caller through its own UI (Paratext 10's footnote
+   * editor has a dropdown for each, and Paratext 9 works the same way), leaving them typeable is a
+   * trap: the edit looks accepted, does not persist, and — because the note-scoped rebuild refuses
+   * a caller it cannot recognize — takes anything else typed into that slot down with it.
+   *
+   * Default (undefined or true) keeps the shell editable, which is what a view with no such UI
+   * needs: the main editor's Markers view expands notes precisely so the whole note can be edited
+   * as text.
+   */
+  isNoteShellEditable?: boolean;
+  /**
    * When false, `CharNode.createDOM` skips setting the `title=__marker` attribute on rendered
    * char spans. Useful for consumers that don't want the USFM marker name surfaced as a browser
    * tooltip. Default (undefined or true) preserves the marker hint for consumers authoring USFM.
