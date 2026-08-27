@@ -119,6 +119,7 @@ import {
   getViewClassList,
   LoadStatePlugin,
   NoteNodePlugin,
+  NoteShellCaretGuardPlugin,
   OnSelectionChangePlugin,
   OpaqueBlockGuardPlugin,
   ParaMarkerPrefixCursorGuardPlugin,
@@ -965,6 +966,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           {/* Not gated on viewOptions: a construct the editor cannot model is read-only in every
               marker mode, so the guard that keeps edits out of one is too. */}
           <OpaqueBlockGuardPlugin />
+          {/* Not gated on viewOptions either: it reads the note shell's own node mode, so it is
+              structurally a no-op wherever the shell is built editable. */}
+          <NoteShellCaretGuardPlugin />
           <ParaMarkerPrefixCursorGuardPlugin />
           <ParaMarkerPrefixGuardPlugin viewOptions={viewOptions} logger={stableLogger} />
           <ParaNodePlugin />

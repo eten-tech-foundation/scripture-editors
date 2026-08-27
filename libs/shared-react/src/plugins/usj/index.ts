@@ -12,6 +12,7 @@ export * from "./EditablePlugin";
 export * from "./EmptyVerseCaretGuardPlugin";
 export * from "./LoadStatePlugin";
 export * from "./NoteNodePlugin";
+export * from "./NoteShellCaretGuardPlugin";
 export * from "./OnSelectionChangePlugin";
 export * from "./OpaqueBlockGuardPlugin";
 export * from "./ParaMarkerPrefixCursorGuardPlugin";

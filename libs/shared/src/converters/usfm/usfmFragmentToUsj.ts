@@ -378,6 +378,19 @@ function attributeMarker(marker: string): (typeof ATTRIBUTE_MARKERS)[string] | u
   return Object.hasOwn(ATTRIBUTE_MARKERS, marker) ? ATTRIBUTE_MARKERS[marker] : undefined;
 }
 
+/**
+ * Whether `marker` is one this parser folds onto a host node ({@link ATTRIBUTE_MARKERS}).
+ *
+ * The distinction a stylesheet cannot make: an attribute marker's round trip is defined by this
+ * table, not by usfm.sty, so the tokenizer re-derives one whether or not the stylesheet declares
+ * it. `\cat` is the case that matters — it is the only attribute marker usfm.sty omits, so a
+ * stylesheet-keyed "can the engine re-derive this span?" test is the one place the two records
+ * disagree, and it reads `\cat` as an unknown custom marker.
+ */
+export function isAttributeMarker(marker: string): boolean {
+  return attributeMarker(marker) !== undefined;
+}
+
 const ATTRIBUTE_PAIR_REGEX = /([-\w]+)\s*=\s*"(.*?)"/g;
 
 /**
