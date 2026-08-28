@@ -3,10 +3,12 @@
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import Editor from "./Editor";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
+import { MarkerMenuItem } from "./markerMenu/markerItemSource";
 import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
 import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { EditorRefPlugin } from "@lexical/react/LexicalEditorRefPlugin";
 // Deep import: the marker-menu list component isn't exposed from shared-react's package entry.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { NodeSelectionMenu, OptionItem } from "../../../../libs/shared-react/src/plugins/NodesMenu";
@@ -16,6 +18,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import {
   $createPoint,
   $createRangeSelection,
+  $getNodeByKey,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -28,17 +31,23 @@ import {
   LexicalNode,
   TextNode,
 } from "lexical";
-import { createRef, PropsWithChildren, RefObject, useEffect, useState } from "react";
+import { createRef, PropsWithChildren, ReactElement, RefObject, useEffect, useState } from "react";
 import {
   $isCharNode,
+  $isMarkerNode,
   $isNoteNode,
+  $isParaNode,
   $isSomeParaNode,
   $isSynthesizedMarkerNode,
+  $isVerseNode,
   closingMarkerText,
   LoggerBasic,
+  MarkerNode,
   NBSP,
   openingMarkerText,
+  StyleInfo,
 } from "shared";
+import { getViewOptions, STANDARD_VIEW_MODE } from "shared-react";
 import { vi } from "vitest";
 
 /** USJ with book PSA for Editor sync effect test (clone of usjGen1v1 with book code changed) */
@@ -162,6 +171,22 @@ function triggerMouseEnterOnMark(): void {
   act(() => {
     element.dispatchEvent(new window.MouseEvent("mouseenter"));
   });
+}
+
+/** Captures the `LexicalEditor` from inside a black-box `<Editor>` without reaching for
+ * `.__lexicalEditor` on the DOM. `<Editor>` renders its `children` inside its own composer, so
+ * dropping Lexical's `EditorRefPlugin` in as a child reads the editor straight from composer
+ * context. Returns the element to render inside `<Editor>` and a getter for the captured editor
+ * (call it after the render has flushed). */
+function lexicalCapture(): { plugin: ReactElement; get: () => LexicalEditor } {
+  const ref = createRef<LexicalEditor>();
+  return {
+    plugin: <EditorRefPlugin editorRef={ref} />,
+    get: () => {
+      if (!ref.current) throw new Error("lexical editor was not captured");
+      return ref.current;
+    },
+  };
 }
 
 describe("setAnnotation overload", () => {
@@ -1455,5 +1480,523 @@ describe("applyUpdate('local') undo-history retention", () => {
     await flushQueuedEvents();
 
     expect(canUndo).toBe(true);
+  });
+});
+
+describe("isFocused()", () => {
+  // Editor-owned focus predicate: hosts must be able to ask THIS editor instance whether its
+  // content-editable root holds DOM focus, instead of guessing via a global
+  // `document.querySelector('.editor-input')` (which is coupled to the CSS class name and to the
+  // main editor being the first `.editor-input` in document order — a footnote-editor popover
+  // renders its own). `isFocused()` resolves the actual root of this instance and compares it to
+  // the active element.
+  it("is true only when the editor's own root holds DOM focus", async () => {
+    const ref = createRef<EditorRef>();
+    await act(async () => {
+      render(<Editor ref={ref} defaultUsj={sampleUsj} />);
+    });
+    const editor = ref.current;
+    if (!editor) throw new Error("Editor not mounted");
+
+    const root = document.querySelector<HTMLElement>(".editor-input");
+    if (!root) throw new Error("Editor root not found");
+
+    // An unrelated element holds focus: this editor is not focused.
+    const other = document.createElement("input");
+    document.body.appendChild(other);
+    await act(async () => other.focus());
+    expect(editor.isFocused()).toBe(false);
+
+    // The editor root holds focus: isFocused() is true.
+    await act(async () => root.focus());
+    expect(editor.isFocused()).toBe(true);
+
+    // Focus leaves the editor again: isFocused() is false.
+    await act(async () => other.focus());
+    expect(editor.isFocused()).toBe(false);
+
+    document.body.removeChild(other);
+  });
+});
+
+describe("insertMarker return value", () => {
+  // GEN 1:1 with a verse preceding the seed text - the shape that historically made the host's
+  // "delta-doc" `getInsertedNodeKey` derivation (used only for the popover auto-open path, not
+  // here) land past the note. `insertMarker` reports the key directly, so it never depended on
+  // that derivation being right.
+  const noteReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
+
+  /** Finds the first TextNode whose content includes `substring`. `getAllTextNodes()` is the
+   * walk the sibling marker tests use; MarkerNode extends TextNode so markers are included too,
+   * but the seed text searched for here lives in a plain TextNode. */
+  function $findTextNodeContaining(substring: string): LexicalNode | undefined {
+    return $getRoot()
+      .getAllTextNodes()
+      .find((node) => node.getTextContent().includes(substring));
+  }
+
+  /** Mounts a standard-view (markerMode "editable") `Editor` with `MarkerEditPlugin` active
+   * (always mounted - see `Editor.tsx`), the same path `insertMarker` uses in the real app. */
+  async function renderEditorWithVerseText() {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          scrRef={noteReference}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    return { ref, lexical: capture.get() };
+  }
+
+  /** Collapses the caret right after "first" in the seed verse text. */
+  function selectAfterFirstWord(lexical: LexicalEditor): void {
+    act(() => {
+      lexical.update(() => {
+        const textNode = $findTextNodeContaining("first verse text");
+        if (!textNode || !$isTextNode(textNode)) throw new Error("seed text node not found");
+        textNode.select(5, 5);
+      });
+    });
+  }
+
+  it("returns the inserted note's true Lexical key for a note marker", async () => {
+    const { ref, lexical } = await renderEditorWithVerseText();
+    selectAfterFirstWord(lexical);
+
+    let key: string | undefined;
+    await act(async () => {
+      // `insertMarker`'s return is populated synchronously (the note branch's `editor.update()`
+      // callback runs synchronously - only the DOM reconciliation/commit is deferred), so `key`
+      // doesn't need to wait for anything. The note itself only becomes visible via
+      // `getEditorState()`/`$getNodeByKey` once Lexical's (microtask-deferred, non-discrete)
+      // commit runs - flush it (and any state updates it cascades into, e.g. `ToolbarPlugin`)
+      // before reading, still inside `act`.
+      key = ref.current?.insertMarker("f");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    if (!key) throw new Error("insertMarker did not return a key");
+    const noteKey = key;
+
+    lexical.getEditorState().read(() => {
+      expect($isNoteNode($getNodeByKey(noteKey))).toBe(true);
+    });
+  });
+
+  it("returns undefined for a non-note marker", async () => {
+    const { ref, lexical } = await renderEditorWithVerseText();
+    selectAfterFirstWord(lexical);
+
+    let key: string | undefined;
+    await act(async () => {
+      key = ref.current?.insertMarker("wj");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(key).toBeUndefined();
+  });
+});
+
+describe("formatPara (standard view)", () => {
+  // `$setBlocksType` MOVES the old paragraph's children into the fresh ParaNode, so in editable
+  // marker mode the old marker's prefix glyph migrates over still reading the old marker.
+  // Without a glyph sync the paragraph then claims one marker while its visible (and
+  // serialized) glyph text says another.
+  it("rewrites the migrated prefix glyph to the new block marker", async () => {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+
+    // Park the caret in the paragraph's verse text, then format the block to `\m`.
+    act(() => {
+      lexical.update(() => {
+        const textNode = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent().includes("first verse text"));
+        if (!textNode || !$isTextNode(textNode)) throw new Error("seed text node not found");
+        textNode.select(0, 0);
+      });
+    });
+    await act(async () => {
+      ref.current?.formatPara("m");
+      // Flush Lexical's microtask-deferred commit (and the React updates it cascades into)
+      // so the committed state below includes the format and any transform reactions to it.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    lexical.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      expect(para.getMarker()).toBe("m");
+      const glyph = para.getFirstChild();
+      if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+      expect(glyph.getMarker()).toBe("m");
+      expect(glyph.getTextContent()).toBe("\\m");
+      // Content survived the block conversion.
+      expect(para.getTextContent()).toContain("first verse text");
+    });
+  });
+
+  // The host's paragraph dropdown is a popover: opening it takes focus off the editor, and
+  // Lexical's blur processing can NULL the editor-state selection. `formatPara` then has nothing
+  // to retag. It must still say so — a marker pick that changes nothing and logs nothing is
+  // indistinguishable from a broken dropdown, and every sibling ref method that can refuse either
+  // throws or warns.
+  it("warns instead of silently doing nothing when the selection is gone", async () => {
+    const warn = vi.fn();
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+          logger={{ warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+    act(() => {
+      // Lexical's own "no selection" value is `null`.
+      lexical.update(() => $setSelection(null));
+    });
+
+    await act(async () => {
+      ref.current?.formatPara("m");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("formatPara"));
+    lexical.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      expect(para.getMarker()).toBe("p"); // untouched
+    });
+  });
+});
+
+describe("commitPendingMarkerEdits (abandonment window)", () => {
+  /** Marker of the `\p` para in a USJ doc shaped like `sampleUsj` (book, chapter, para). */
+  function paraMarkerOf(usj: Usj | undefined): string | undefined {
+    const para = usj?.content[2];
+    if (!para || typeof para === "string") return undefined;
+    return (para as { marker?: string }).marker;
+  }
+
+  it("settles an abandoned mid-rename in the output, leaving the editor pending", async () => {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE) }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+
+    // Nothing pending yet: two successive reads return the EXACT SAME reference, not just an
+    // equal one. This protects host memoization (a deepEqual/identity short-circuit keyed on
+    // the returned object) - an accidental allocation ahead of the pend check would break that
+    // silently, since a deepEqual comparison would still pass while identity-keyed memoization
+    // would not.
+    expect(ref.current?.getUsj()).toBe(ref.current?.getUsj());
+
+    // Rename the `\p` glyph in place to `\q1` (no terminator typed) with the caret left
+    // inside the glyph, then walk away (blur): the rename stays pending - the exact
+    // window where a host save would serialize the OLD marker.
+    await act(async () => {
+      lexical.update(() => {
+        const glyph = $getRoot()
+          .getAllTextNodes()
+          .find((node): node is MarkerNode => $isMarkerNode(node) && node.getMarker() === "p");
+        if (!glyph) throw new Error("para marker glyph not found");
+        glyph.setTextContent("\\q1");
+        glyph.select(3, 3);
+      });
+      // Flush Lexical's microtask-deferred commit so the in-place rename lands in the editor
+      // state before we blur: once for the (non-discrete) state commit, once for the React
+      // state updates that commit cascades into. Only then does getUsj() reflect the edit.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const root = lexical.getRootElement();
+    if (!root) throw new Error("editor root not found");
+    act(() => root.blur());
+    // Settled without settling: the host reads the canonical marker even though the rename is
+    // still pending.
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("q1");
+
+    // ...and the editor still shows the pending literal — reading the USJ mutated nothing.
+    lexical.getEditorState().read(() => {
+      const para = $getRoot().getChildren().find($isParaNode);
+      if (!para) throw new Error("expected a ParaNode");
+      expect(para.getMarker()).toBe("p");
+      expect(para.getTextContent()).toContain("\\q1");
+    });
+
+    act(() => {
+      ref.current?.commitPendingMarkerEdits();
+    });
+
+    // Synchronously fresh - the host save reads getUsj() right after committing.
+    expect(paraMarkerOf(ref.current?.getUsj())).toBe("q1");
+  });
+});
+
+describe("options.styleInfo threading (marker validation)", () => {
+  /** `sampleUsj` with the verse text wrapped in a `\wj` char span — the marker whose presence
+   * in (or absence from) the effective stylesheet the tests below observe. */
+  const usjWithWjSpan: Usj = {
+    type: "USJ",
+    version: "3.1",
+    content: [
+      { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+      { type: "chapter", marker: "c", number: "1" },
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          { type: "char", marker: "wj", content: ["red letter text"] },
+        ],
+      },
+    ],
+  };
+
+  /** A project sheet covering everything the document uses EXCEPT `wj` (entries without
+   * `occursUnder` are valid anywhere, so nothing else gets flagged). */
+  const sheetWithoutWj: StyleInfo = {
+    markers: {
+      id: { marker: "id", styleType: "paragraph" },
+      c: { marker: "c", styleType: "paragraph" },
+      p: { marker: "p", styleType: "paragraph" },
+      v: { marker: "v", styleType: "character" },
+    },
+  };
+
+  /** Mounts a standard-view `Editor` and returns the DOM element of the `\wj` opener glyph, the
+   * decoration target of `MarkerValidationPlugin`'s validation pass. */
+  async function renderAndGetWjGlyphElement(styleInfo?: StyleInfo): Promise<HTMLElement> {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={usjWithWjSpan}
+          options={{ view: getViewOptions(STANDARD_VIEW_MODE), styleInfo }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    const lexical = capture.get();
+    // Flush Lexical's microtask-deferred commit and the validation pass it triggers.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const glyphKey = lexical.getEditorState().read(() => {
+      const glyph = $getRoot()
+        .getAllTextNodes()
+        .find((node): node is MarkerNode => $isMarkerNode(node) && node.getMarker() === "wj");
+      if (!glyph) throw new Error("wj marker glyph not found");
+      return glyph.getKey();
+    });
+    const element = lexical.getElementByKey(glyphKey);
+    if (!element) throw new Error("wj glyph element not found");
+    return element;
+  }
+
+  it("decorates a marker missing from a custom options.styleInfo as unknown", async () => {
+    const element = await renderAndGetWjGlyphElement(sheetWithoutWj);
+    expect(element.classList.contains("status_unknown")).toBe(true);
+  });
+
+  it("leaves the same marker undecorated under the bundled default stylesheet", async () => {
+    // Positive control for the custom-sheet test: `wj` is a known marker valid under `\p` in
+    // the default sheet, so a flag here would mean validation is not reading the right sheet.
+    const element = await renderAndGetWjGlyphElement(undefined);
+    expect(element.classList.contains("status_unknown")).toBe(false);
+    expect(element.classList.contains("status_invalid")).toBe(false);
+  });
+});
+
+describe("marker-menu ref methods (standard view)", () => {
+  const menuReference = { book: "GEN", chapterNum: 1, verseNum: 1 };
+  const backslashOpts = { trigger: "backslash", literalPrefixLanded: false } as const;
+  const q1Item: MarkerMenuItem = { marker: "q1", kind: "paragraph", isBasic: false };
+
+  async function renderStandardEditor(options?: { isReadonly?: boolean; withScrRef?: boolean }) {
+    const ref = createRef<EditorRef>();
+    const capture = lexicalCapture();
+    await act(async () => {
+      render(
+        <Editor
+          ref={ref}
+          defaultUsj={sampleUsj}
+          scrRef={options?.withScrRef === false ? undefined : menuReference}
+          options={{
+            view: getViewOptions(STANDARD_VIEW_MODE),
+            isReadonly: options?.isReadonly ?? false,
+          }}
+        >
+          {capture.plugin}
+        </Editor>,
+      );
+    });
+    if (!ref.current) throw new Error("EditorRef did not mount");
+    return { editor: ref.current, lexical: capture.get() };
+  }
+
+  /** Collapses the caret right after "first" in the seed verse text (mid-content), flushing
+   * Lexical's microtask-deferred commit so `getEditorState()` reads see the selection. */
+  async function selectMidVerseText(lexical: LexicalEditor): Promise<void> {
+    await act(async () => {
+      lexical.update(() => {
+        const textNode = $getRoot()
+          .getAllTextNodes()
+          .find((node) => node.getTextContent().includes("first verse text"));
+        if (!textNode || !$isTextNode(textNode)) throw new Error("seed text node not found");
+        textNode.select(5, 5);
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("getMarkerMenuContext returns a character-source snapshot mid-verse-text", async () => {
+    const { editor, lexical } = await renderStandardEditor();
+    await selectMidVerseText(lexical);
+
+    const context = editor.getMarkerMenuContext();
+
+    if (!context) throw new Error("expected a marker-menu context");
+    expect(context.source).toBe("character");
+    expect(context.paraMarker).toBe("p");
+    expect(context.previousParaMarkers).toEqual(["id", "c"]);
+    expect(context.openCharMarkers).toEqual([]);
+    expect(context.noteMarker).toBeUndefined();
+    expect(context.hasTextSelection).toBe(false);
+    expect(context.inMarkerText).toBe(false);
+  });
+
+  it("getMarkerMenuContext returns undefined in readonly mode", async () => {
+    // Same seeded selection as the happy path above (its defined result is the positive
+    // control), so the only variable is the readonly gate.
+    const { editor, lexical } = await renderStandardEditor({ isReadonly: true });
+    await selectMidVerseText(lexical);
+
+    expect(editor.getMarkerMenuContext()).toBeUndefined();
+  });
+
+  it("applyMarkerMenuSelection retags the paragraph for a paragraph pick at content start", async () => {
+    const { editor, lexical } = await renderStandardEditor();
+    // Park the caret at offset 0 of the verse glyph — the paragraph's visible content start,
+    // where PT9 semantics retag the current paragraph instead of splitting it.
+    act(() => {
+      lexical.update(() => {
+        const verse = $getRoot().getAllTextNodes().find($isVerseNode);
+        if (!verse) throw new Error("verse node not found");
+        verse.select(0, 0);
+      });
+    });
+
+    let insertedNoteKey: string | undefined;
+    await act(async () => {
+      insertedNoteKey = editor.applyMarkerMenuSelection(q1Item, backslashOpts);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Only note-inserting items return a key.
+    expect(insertedNoteKey).toBeUndefined();
+    lexical.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.length).toBe(1); // retagged in place, not split
+      expect(paras[0].getMarker()).toBe("q1");
+      const glyph = paras[0].getFirstChild();
+      if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+      expect(glyph.getTextContent()).toBe("\\q1");
+      expect(paras[0].getTextContent()).toContain("first verse text");
+    });
+  });
+
+  it("splitParagraphWithMarker splits at the caret and prefixes the new paragraph", async () => {
+    const { editor, lexical } = await renderStandardEditor();
+    await selectMidVerseText(lexical);
+
+    await act(async () => {
+      editor.splitParagraphWithMarker("q1");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    lexical.getEditorState().read(() => {
+      const paras = $getRoot().getChildren().filter($isParaNode);
+      expect(paras.length).toBe(2);
+      expect(paras[0].getMarker()).toBe("p");
+      expect(paras[0].getTextContent()).toContain("first");
+      expect(paras[0].getTextContent()).not.toContain("verse text");
+      expect(paras[1].getMarker()).toBe("q1");
+      const glyph = paras[1].getFirstChild();
+      if (!$isMarkerNode(glyph)) throw new Error("expected a MarkerNode prefix glyph");
+      expect(glyph.getTextContent()).toBe("\\q1");
+      expect(paras[1].getTextContent()).toContain(" verse text");
+    });
+  });
+
+  it("applyMarkerMenuSelection throws in readonly mode", async () => {
+    const { editor } = await renderStandardEditor({ isReadonly: true });
+
+    expect(() => editor.applyMarkerMenuSelection(q1Item, backslashOpts)).toThrow(
+      "Cannot apply marker menu selection in readonly mode",
+    );
+  });
+
+  it("applyMarkerMenuSelection throws without a scripture reference", async () => {
+    const { editor } = await renderStandardEditor({ withScrRef: false });
+
+    expect(() => editor.applyMarkerMenuSelection(q1Item, backslashOpts)).toThrow(
+      "Cannot apply marker menu selection without a scripture reference (scrRef)",
+    );
+  });
+
+  it("splitParagraphWithMarker throws in readonly mode", async () => {
+    const { editor } = await renderStandardEditor({ isReadonly: true });
+
+    expect(() => editor.splitParagraphWithMarker("q1")).toThrow(
+      "Cannot split paragraph in readonly mode",
+    );
   });
 });

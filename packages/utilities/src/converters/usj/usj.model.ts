@@ -82,6 +82,12 @@ export interface MarkerObject {
   align?: string;
   /** Category of extended study bible sections */
   category?: string;
+  /**
+   * `"false"` when a character marker has no explicit closing marker in the USFM source (allowed
+   * through USFM 3.0; ParatextData writes `closed="false"` for such spans). Omitted entirely when
+   * the marker is explicitly closed.
+   */
+  closed?: string;
 }
 
 /**

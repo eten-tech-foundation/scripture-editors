@@ -274,7 +274,16 @@ export class CharNode extends ElementNode {
   // Mutation
 
   override insertNewAfter(_selection: RangeSelection, restoreSelection: boolean): CharNode {
-    const newElement = $createCharNode(this.getMarker());
+    // The continuation span keeps the implicit-close convention when this span has it: splitting
+    // an unclosed (closed="false") span yields two unclosed spans — the same structural-state rule
+    // as the marker-edit split paths ($splitCharNodeAt, $liftOutOfChar). Other unknownAttributes
+    // are deliberately NOT copied (duplicating them would double the `|name="value"` bytes on
+    // serialization).
+    const isUnclosed = this.getUnknownAttributes()?.closed === "false";
+    const newElement = $createCharNode(
+      this.getMarker(),
+      isUnclosed ? { closed: "false" } : undefined,
+    );
     newElement.setDirection(this.getDirection());
     newElement.setFormat(this.getFormatType());
     newElement.setStyle(this.getTextStyle());
@@ -310,6 +319,9 @@ function applyMarkerToDom(dom: HTMLElement, marker: string, config: EditorConfig
   // the marker hint for consumers that want it while authoring USFM.
   if (config.theme?.showCharMarkerTitles !== false) {
     dom.setAttribute("title", marker);
+  } else {
+    // Clear any title a previous render left behind; on a reused element the gate can flip.
+    dom.removeAttribute("title");
   }
   dom.classList.add(`usfm_${marker}`);
 }

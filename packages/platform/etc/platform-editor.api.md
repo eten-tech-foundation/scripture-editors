@@ -22,6 +22,52 @@ export interface AnnotationRange {
     start: UsjDocumentLocation;
 }
 
+// @public (undocumented)
+export enum CategoryType {
+    // (undocumented)
+    Breaks = "Breaks",
+    // (undocumented)
+    CenterTables = "CenterTables",
+    // (undocumented)
+    CharacterStyling = "CharacterStyling",
+    // (undocumented)
+    CrossReferences = "CrossReferences",
+    // (undocumented)
+    DivisionMarks = "DivisionMarks",
+    // (undocumented)
+    FileIdentification = "FileIdentification",
+    // (undocumented)
+    Footnotes = "Footnotes",
+    // (undocumented)
+    Headers = "Headers",
+    // (undocumented)
+    Introduction = "Introduction",
+    // (undocumented)
+    Lists = "Lists",
+    // (undocumented)
+    Paragraphs = "Paragraphs",
+    // (undocumented)
+    PeripheralMaterials = "PeripheralMaterials",
+    // (undocumented)
+    PeripheralReferences = "PeripheralReferences",
+    // (undocumented)
+    Poetry = "Poetry",
+    // (undocumented)
+    Remarks = "Remarks",
+    // (undocumented)
+    RightTables = "RightTables",
+    // (undocumented)
+    SpecialFeatures = "SpecialFeatures",
+    // (undocumented)
+    SpecialText = "SpecialText",
+    // (undocumented)
+    Tables = "Tables",
+    // (undocumented)
+    TitlesHeadings = "TitlesHeadings",
+    // (undocumented)
+    Uncategorized = "Uncategorized"
+}
+
 // @public
 export interface CommentBase {
     author: string;
@@ -36,11 +82,19 @@ export interface CommentBase {
 export type Comments = (Thread | CommentBase)[];
 
 // @public
+export interface CommitTypedMarkerOptions {
+    trailingSpace?: boolean;
+}
+
+// @public
 export interface ContextMenuOptionConfig {
     isDisabled?: boolean;
     onSelect: () => void;
     title: string;
 }
+
+// @public
+export const defaultStyleInfo: StyleInfo;
 
 // @public
 export type DeltaOp = Op;
@@ -74,8 +128,10 @@ export interface EditorOptions {
     hasSpellCheck?: boolean;
     isReadonly?: boolean;
     markerMenuTrigger?: string;
+    markerSettleDelayMs?: number;
     nodes?: UsjNodeOptions;
     structureProtectionMode?: StructureProtectionMode;
+    styleInfo?: StyleInfo;
     textDirection?: TextDirection;
     view?: ViewOptions;
 }
@@ -94,19 +150,35 @@ export interface EditorProps<TLogger extends LoggerBasic> {
 
 // @public
 export interface EditorRef {
+    applyMarkerMenuSelection(item: MarkerMenuItem, opts: {
+        trigger: "backslash" | "enter";
+        literalPrefixLanded: boolean;
+    }): string | undefined;
     applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
+    commitPendingMarkerEdits(): void;
+    commitTypedCloser(typedMarker: string): boolean;
+    commitTypedMarker(typedMarker: string, options?: CommitTypedMarkerOptions): boolean;
     copy(): void;
     cut(): void;
     extendCharacterMarker(marker: string, conflictingMarkers?: readonly string[]): boolean;
     focus(): void;
     formatPara(blockMarker: string): void;
     getElementByKey(nodeKey: string): HTMLElement | undefined;
+    getMarkerMenuContext(): (MarkerMenuContext & {
+        anchorRect?: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+    }) | undefined;
     getNoteOps(noteKeyOrIndex: string | number): DeltaOp[] | undefined;
     getSelection(): SelectionRange | undefined;
     getUsj(): Usj | undefined;
-    insertMarker(marker: string): void;
+    insertMarker(marker: string): string | undefined;
     // @deprecated
     insertNote(marker: string, caller?: string, selection?: SelectionRange): void;
+    isFocused(): boolean;
     paste(): void;
     pastePlainText(): void;
     redo(): void;
@@ -124,19 +196,53 @@ export interface EditorRef {
     // @deprecated
     setAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
     setSelection(selection: SelectionRange): void;
+    setTransientInput(input: TransientInput | undefined): void;
     setUsj(usj: Usj): void;
+    splitParagraphWithMarker(marker: string): void;
     toolbarEndRef: RefObject<HTMLElement | null> | null;
     undo(): void;
 }
 
 // @public
+export interface FilterAndRankItems<T extends Item> {
+    // (undocumented)
+    filter?: (item: T, query: string) => boolean;
+    // (undocumented)
+    filterBy?: keyof Pick<T, string>;
+    // (undocumented)
+    items: T[];
+    // (undocumented)
+    query: string;
+    // (undocumented)
+    sortBy?: keyof Pick<T, string>;
+    // (undocumented)
+    sortingOptions?: SortingOptions;
+}
+
+// @public
+export function filterAndRankItems<T extends Item>(options: (Omit<FilterAndRankItems<T>, "filter"> & {
+    filterBy: keyof Pick<T, string>;
+}) | (Omit<FilterAndRankItems<T>, "filterBy"> & {
+    filter: (item: T, query: string) => boolean;
+}) | FilterAndRankItems<T>): T[];
+
+// @public
+export function generateUsjCss(styleInfo: StyleInfo, options?: UsjCssOptions): string;
+
+// @public
 export const GENERATOR_NOTE_CALLER = "+";
 
 // @public
-export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure";
+export const getDefaultViewMode: () => "formatted" | "unformatted" | "paragraph-structure" | "standard";
 
 // @public
 export const getDefaultViewOptions: () => ViewOptions;
+
+// @public
+export function getEnterMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext, extraValidMarkers?: readonly string[]): MarkerMenuItem[];
+
+// @public
+export function getMarkerMenuItems(styleInfo: StyleInfo, context: MarkerMenuContext, extraValidMarkers?: readonly string[]): MarkerMenuItem[];
 
 // @public
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined;
@@ -153,6 +259,12 @@ export function isInsertEmbedOpOfType<T extends keyof OTEmbedTypes>(embedType: T
         [K in T]: OTEmbedTypes[K] | null;
     };
 };
+
+// @public
+export interface Item {
+    // (undocumented)
+    [key: string]: unknown;
+}
 
 // @public
 export interface LoggerBasic {
@@ -177,6 +289,44 @@ export interface MarginalRef extends EditorRef {
     setComments?(comments: Comments): void;
 }
 
+// @public (undocumented)
+export interface Marker {
+    // (undocumented)
+    category: CategoryType;
+    // (undocumented)
+    children?: Partial<{
+        [K in CategoryType]: string[];
+    }>;
+    // (undocumented)
+    description: string;
+    // (undocumented)
+    hasEndMarker: boolean;
+    // (undocumented)
+    type: MarkerType;
+}
+
+// @public
+export type MarkerLookup = (marker: string) => Marker | undefined;
+
+// @public
+export interface MarkerMenuContext {
+    hasTextSelection: boolean;
+    inMarkerText: boolean;
+    noteMarker?: string;
+    openCharMarkers: string[];
+    paraMarker?: string;
+    previousParaMarkers: string[];
+    source: "paragraph" | "character";
+}
+
+// @public
+export interface MarkerMenuItem {
+    description?: string;
+    isBasic: boolean;
+    kind: "paragraph" | "character" | "note" | "closeTag";
+    marker: string;
+}
+
 // @public
 export type MarkerMode =
 /** USFM markers are visible. */
@@ -187,12 +337,79 @@ export type MarkerMode =
 | "hidden";
 
 // @public
+export interface MarkerStyleInfo {
+    // (undocumented)
+    bold?: boolean;
+    // (undocumented)
+    color?: string;
+    // (undocumented)
+    description?: string;
+    // (undocumented)
+    endMarker?: string;
+    // (undocumented)
+    firstLineIndent?: number;
+    // (undocumented)
+    fontName?: string;
+    // (undocumented)
+    fontSize?: number;
+    // (undocumented)
+    italic?: boolean;
+    // (undocumented)
+    justification?: "left" | "center" | "right" | "both";
+    // (undocumented)
+    leftMargin?: number;
+    // (undocumented)
+    lineSpacing?: number;
+    // (undocumented)
+    marker: string;
+    // (undocumented)
+    notRepeatable?: boolean;
+    occursUnder?: string[];
+    // (undocumented)
+    rank?: number;
+    // (undocumented)
+    rightMargin?: number;
+    // (undocumented)
+    smallCaps?: boolean;
+    // (undocumented)
+    spaceAfter?: number;
+    // (undocumented)
+    spaceBefore?: number;
+    // (undocumented)
+    styleType: StyleType;
+    // (undocumented)
+    subscript?: boolean;
+    // (undocumented)
+    superscript?: boolean;
+    // (undocumented)
+    textProperties?: string[];
+    // (undocumented)
+    textType?: string;
+    // (undocumented)
+    underline?: boolean;
+}
+
+// @public (undocumented)
+export enum MarkerType {
+    // (undocumented)
+    Character = "Character",
+    // (undocumented)
+    Milestone = "Milestone",
+    // (undocumented)
+    Note = "Note",
+    // (undocumented)
+    Paragraph = "Paragraph",
+    // (undocumented)
+    Unknown = "Unknown"
+}
+
+// @public
 export interface NodeOptions {
     [prop: string]: unknown;
 }
 
 // @public
-export type NoteCallerOnClick = (event: MouseEvent_2<HTMLButtonElement>, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined) => void;
+export type NoteCallerOnClick = (event: MouseEvent_2<HTMLButtonElement>, noteNodeKey: string, isCollapsed: boolean | undefined, getCaller: () => string, setCaller: (caller: string) => void, getNoteOps: () => DeltaOpInsertNoteEmbed[] | undefined, getNoteIndex: () => number | undefined) => void;
 
 // @public
 export type NoteMode =
@@ -228,6 +445,7 @@ export interface OTEmbedTypes {
 
 // @public
 export interface OTMilestoneEmbed extends OTParaAttribute {
+    attributeOrder?: string[];
     eid?: string;
     sid?: string;
     status?: "start" | "end";
@@ -280,6 +498,17 @@ export interface SelectionRange {
 }
 
 // @public
+export interface SortingOptions {
+    // (undocumented)
+    caseSensitive?: boolean;
+    // (undocumented)
+    priorityOrder?: ("exact" | "startsWith" | "contains")[];
+}
+
+// @public
+export const STANDARD_VIEW_MODE = "standard";
+
+// @public
 export interface StateChangeSnapshot {
     blockMarker: string | undefined;
     canRedo: boolean;
@@ -291,6 +520,20 @@ export interface StateChangeSnapshot {
 export type StructureProtectionMode = "off" | "guarded" | "protected";
 
 // @public
+export interface StyleInfo {
+    defaultFont?: string;
+    // (undocumented)
+    defaultFontSize?: number;
+    // (undocumented)
+    markers: {
+        [marker: string]: MarkerStyleInfo;
+    };
+}
+
+// @public
+export type StyleType = "paragraph" | "character" | "note" | "milestone";
+
+// @public
 export type TextDirection = "ltr" | "rtl" | "auto";
 
 // @public
@@ -299,6 +542,14 @@ export interface Thread {
     id: string;
     quote: string;
     type: "thread";
+}
+
+// @public
+export interface TransientInput {
+    // (undocumented)
+    kind: "marker-literal";
+    // (undocumented)
+    run: string;
 }
 
 // @public
@@ -316,6 +567,13 @@ export type TypedMarkOnRemove = (type: string, id: string, cause: TypedMarkRemov
 // @public
 export type TypedMarkRemovalCause = "removed" | "destroyed";
 
+// @public
+export interface UsjCssOptions {
+    containerSelector?: string;
+    rtl?: boolean;
+    zoom?: number;
+}
+
 // @public @deprecated
 export interface UsjLocation {
     jsonPath: string;
@@ -326,9 +584,14 @@ export interface UsjLocation {
 export interface UsjNodeOptions extends NodeOptions {
     // @deprecated
     addMissingComments?: AddMissingComments;
+    chapterVerseSeparator?: string;
+    crossRefCallers?: string[];
+    defaultCrossRefCaller?: string;
+    defaultFootnoteCaller?: string;
     extraValidMarkers?: readonly string[];
     noteCallerOnClick?: NoteCallerOnClick;
     noteCallers?: string[];
+    verseRangeSeparator?: string;
 }
 
 // @public
@@ -339,6 +602,7 @@ export const viewModeToViewNames: {
     formatted: string;
     unformatted: string;
     "paragraph-structure": string;
+    standard: string;
 };
 
 // @public
@@ -347,9 +611,11 @@ export interface ViewOptions {
     hasGutterParaMarkers?: boolean;
     hasSpacing: boolean;
     isFormattedFont: boolean;
+    isNoteShellEditable?: boolean;
     markerMode: MarkerMode;
     noteMode?: NoteMode;
     showCharMarkerTitles?: boolean;
+    showParaMarkerPrefixes?: boolean;
 }
 
 ```

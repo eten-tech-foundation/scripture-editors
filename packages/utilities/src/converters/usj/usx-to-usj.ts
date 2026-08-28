@@ -72,7 +72,7 @@ function convertUsxRecurse<T extends Usj | MarkerObject = Usj>(
     inputUsxElement.firstChild &&
     inputUsxElement.firstChild.nodeType === inputUsxElement.firstChild.TEXT_NODE &&
     inputUsxElement.firstChild.nodeValue &&
-    asciiTrim(inputUsxElement.firstChild.nodeValue) !== ""
+    isDocumentText(inputUsxElement.firstChild.nodeValue)
   ) {
     text = inputUsxElement.firstChild.nodeValue;
   }
@@ -110,7 +110,7 @@ function convertUsxRecurse<T extends Usj | MarkerObject = Usj>(
       child.nextSibling &&
       child.nextSibling.nodeType === child.nextSibling.TEXT_NODE &&
       child.nextSibling.nodeValue &&
-      (asciiTrim(child.nextSibling.nodeValue) !== "" || child.nextSibling.nodeValue === " ")
+      isDocumentText(child.nextSibling.nodeValue)
     ) {
       outObj.content.push(child.nextSibling.nodeValue);
     }
@@ -127,6 +127,24 @@ function convertUsxRecurse<T extends Usj | MarkerObject = Usj>(
   }
 
   return [outObj, action];
+}
+
+/**
+ * Whether a USX text node's value is document content to keep, as opposed to XML formatting
+ * whitespace to drop.
+ *
+ * A node with any non-whitespace character is always content and is kept verbatim. A
+ * whitespace-only node is content iff it contains no line break: USX running text never contains
+ * line breaks (USFM is line-based — a line break in the file introduces a marker), so a run of
+ * plain spaces is document bytes (the space between two char spans, a note's leading space, an
+ * empty span's single space — dropping one deletes text the serializer faithfully wrote), while a
+ * whitespace-only node WITH a line break is pretty-printing (newline + indent between block
+ * elements, or before a paragraph's first inline element) and must not become USJ text.
+ * @param str - The text node value to classify.
+ * @returns `true` when the value is document content, `false` when it is formatting whitespace.
+ */
+function isDocumentText(str: string): boolean {
+  return asciiTrim(str) !== "" || !/[\r\n]/.test(str);
 }
 
 /**

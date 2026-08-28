@@ -3,3 +3,4 @@ export * from "./TypedMarkNode.js";
 export * from "./ImmutableTypedTextNode.js";
 export * from "./ImmutableUnmatchedNode.js";
 export * from "./UnknownNode.js";
+export * from "./unknownUsfm.utils.js";

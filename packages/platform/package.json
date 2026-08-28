@@ -27,7 +27,8 @@
     "dist",
     "src",
     "!src/**/*.test.ts",
-    "!src/**/*.test.tsx"
+    "!src/**/*.test.tsx",
+    "!src/**/*.test-helpers.*"
   ],
   "scripts": {
     "generate:test-data": "cross-env GENERATE_TEST_DATA=1 pnpm vitest run generate-2sa-lexical-states",
@@ -50,6 +51,7 @@
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@floating-ui/dom": "^1.7.6",
+    "@lexical/clipboard": "^0.43.0",
     "@lexical/html": "^0.43.0",
     "@lexical/react": "^0.43.0",
     "@lexical/selection": "^0.43.0",

@@ -1,8 +1,10 @@
+import { MarkerMenuContext, MarkerMenuItem } from "./markerMenu/markerItemSource";
 import { Usj } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
 import { RefObject } from "react";
 import {
   LoggerBasic,
+  StyleInfo,
   TypedMarkOnClick,
   TypedMarkOnMouseEnter,
   TypedMarkOnMouseLeave,
@@ -22,6 +24,38 @@ import {
 } from "shared-react";
 
 /**
+ * In-progress input an in-editor command surface has declared to the editor. `kind` names the shape
+ * of the claim so more can be added without widening the method; `run` is the exact byte sequence
+ * the surface expects to find immediately before the caret.
+ *
+ * @public
+ */
+export interface TransientInput {
+  kind: "marker-literal";
+  run: string;
+}
+
+/**
+ * Options for {@link EditorRef.commitTypedMarker}.
+ *
+ * @public
+ */
+export interface CommitTypedMarkerOptions {
+  /**
+   * Whether to emit the terminating space after the materialized marker. Defaults to `true`, the
+   * palette's Space commit, which is byte-identical to passive typing.
+   *
+   * `false` is the palette's `\` commit: it commits what was typed and immediately reopens the
+   * palette for the backslash the user just pressed, so the separator is unnecessary — a
+   * marker-name scan terminates at the next `\`, and the reopened session's own commit supplies
+   * it. The one shape where the two differ is mid-text with marker-name characters immediately
+   * following the caret, where the unseparated literal glues onto them until the next commit
+   * lands.
+   */
+  trailingSpace?: boolean;
+}
+
+/**
  * Forward reference for the editor.
  *
  * @public
@@ -29,6 +63,15 @@ import {
 export interface EditorRef {
   /** Focus the editor. */
   focus(): void;
+  /**
+   * Whether this editor's content-editable root currently holds DOM focus (i.e. the user is
+   * actively editing in it). Resolves the actual root element of THIS editor instance, so hosts
+   * do not have to guess it from a global `document.querySelector('.editor-input')` — a query
+   * coupled to the CSS class name and to the main editor being the first `.editor-input` in
+   * document order (a footnote-editor popover renders its own). Returns `false` when the editor
+   * is unmounted or its root is not attached.
+   */
+  isFocused(): boolean;
   /** Undo the last action. */
   undo(): void;
   /** Redo the last undone action. */
@@ -41,8 +84,55 @@ export interface EditorRef {
   paste(): void;
   /** Paste text as plain text at the current cursor position. */
   pastePlainText(): void;
-  /** Get USJ Scripture data. */
+  /**
+   * Get USJ Scripture data — always SETTLED, whatever the screen currently shows mid-edit. In
+   * editable marker modes a marker rename, a typed marker literal, or an edited display run stays
+   * pending in the document until the caret departs; this returns the document those bytes MEAN
+   * (the same re-tokenization a departure settle performs), computed without touching the editor,
+   * so the user's edit stays pending on screen and their caret and undo history are untouched.
+   * Settling is uniform: a half-typed `|stuf` settles to literal content, because that is what
+   * those bytes mean to anything that parses them. While anything is pending, this settled
+   * structure can differ from the LIVE tree {@link EditorRef.getSelection}'s `jsonPath` addresses —
+   * do not resolve a live-selection `jsonPath` against a `getUsj()` snapshot without accounting for
+   * that.
+   */
   getUsj(): Usj | undefined;
+  /**
+   * Settle pending mid-edit marker text (Standard view's marker-editing engine) IN THE DOCUMENT,
+   * so the screen shows the finished structure. NOT required before reading the USJ to save —
+   * {@link EditorRef.getUsj} already returns settled output — so a host that only needs canonical
+   * USJ should not call this at all: it mutates the document, which pushes a history entry and can
+   * re-settle content the user just undid.
+   *
+   * Two carve-outs: while the app-placed-caret suppression window is armed (the caret was placed
+   * by a programmatic scrRef move or an undo/redo restore, with no user gesture since), NOTHING
+   * settles — the whole pending set stays pending, so a save-driven commit cannot re-settle
+   * content the user just undid; pending literals serialize as literal bytes, which ParatextData
+   * parses. Outside the window, everything settles except the node under a live caret (only while
+   * the editor holds DOM focus) — a mid-typing pause never settles under the user.
+   *
+   * Do NOT call while a marker-menu/palette session is open: the palette's apply must be the
+   * one to consume the typed literal. No-op outside editable marker modes.
+   */
+  commitPendingMarkerEdits(): void;
+  /**
+   * Declares in-progress input that an in-editor command surface (e.g. the marker palette) will
+   * consume or discard — analogous to an IME composition string. While declared,
+   * {@link EditorRef.getUsj} excludes these bytes from its settled output: the containing paragraph
+   * settles as if they were absent. Editor state, on-screen content, `onUsjChange`, and OT deltas
+   * are untouched. One declaration at a time; calling again replaces it; `undefined` clears it.
+   *
+   * The declaration is ADVISORY. It is anchored to the text node the caret sits in when declared,
+   * and re-verified against the live caret at every `getUsj()`: it is ignored whenever it does not
+   * hold — the caret moved off the anchoring node, the bytes immediately before the caret are not
+   * exactly `run`, the node is gone, or the caller forgot to clear. The anchor is what stops an
+   * uncleared declaration from re-verifying against unrelated bytes elsewhere that merely end with
+   * the same run. A stale declaration therefore costs at most one save carrying a visible phantom
+   * marker; it can never silently drop content the user typed. Callers should still clear it as
+   * soon as the input is consumed or the surface closes. A `setUsj` document replacement clears
+   * it implicitly.
+   */
+  setTransientInput(input: TransientInput | undefined): void;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
   /** EXPERIMENTAL: Apply Operational Transform delta update. */
@@ -60,7 +150,9 @@ export interface EditorRef {
   /**
    * Get the selection location or range.
    * @returns the selection location or range, or `undefined` if there is no selection. The
-   *   json-path in the selection assumes no comment Milestone nodes are present in the USJ.
+   *   json-path in the selection assumes no comment Milestone nodes are present in the USJ, and
+   *   addresses the LIVE tree, not {@link EditorRef.getUsj}'s settled output — while anything is
+   *   pending, resolving it against a `getUsj()` snapshot can land on shifted or stale content.
    */
   getSelection(): SelectionRange | undefined;
   /**
@@ -267,12 +359,134 @@ export interface EditorRef {
    * built-in marker menu. Works with both collapsed (insertion point) and range selections.
    *
    * @param marker - A USFM marker string, e.g. `"wj"`, `"p"`, `"f"`, `"v"`, `"c"`.
+   * @returns the freshly-inserted note's true Lexical node key when `marker` is a note marker
+   *   (e.g. `"f"`, `"x"`, `"fe"`); `undefined` for every other marker kind.
    * @throws Will throw an error if the editor is in readonly mode.
    * @throws Will throw an error if the `scrRef` prop was not provided to the editor.
    * @throws Will throw an error if the marker is not a supported para, char, note, chapter, or
    *   verse marker.
    */
-  insertMarker(marker: string): void;
+  insertMarker(marker: string): string | undefined;
+  /**
+   * Snapshot of the marker-menu context at the current selection (standard-view marker menus).
+   * Returns undefined when the editor is readonly or has no range selection.
+   */
+  getMarkerMenuContext():
+    | (MarkerMenuContext & { anchorRect?: { x: number; y: number; width: number; height: number } })
+    | undefined;
+  /**
+   * Apply a marker-menu selection at the current editor selection — the apply step for the
+   * BACKSLASH-triggered marker menu. Mirrors PT9's `MarkerDropdownEditHandler` apply step:
+   * paragraph kinds retag the paragraph in place when the caret is at paragraph content start
+   * and split otherwise; character/note kinds run the structural insert action used by
+   * {@link EditorRef.insertMarker}; `closeTag` kind closes the matching open character span.
+   * When `literalPrefixLanded` is set, the typed literal `\marker` trigger prefix is deleted
+   * before any of the above.
+   *
+   * Which method for which menu: route a backslash-menu selection here; route an
+   * Enter-menu selection through {@link EditorRef.splitParagraphWithMarker} instead — the Enter
+   * menu is paragraph-split-only (PT9 SmartEnter always starts a new paragraph, never retags),
+   * has no typed literal prefix to clean up, and never inserts notes/chars. A paragraph item
+   * passed here with `trigger: "enter"` does route to the split for that reason, but the
+   * narrower method is the honest contract for the Enter path.
+   *
+   * @param item - The selected marker-menu item (from {@link getMarkerMenuItems} /
+   *   {@link getEnterMenuItems}).
+   * @param opts - `trigger` is which UI trigger produced the menu (`"backslash"` or `"enter"`);
+   *   paragraph items with an `"enter"` trigger always split, never retag.
+   *   `literalPrefixLanded` is whether a literal `\marker` trigger prefix was typed before the
+   *   caret and must be deleted before applying the action; ignored for `closeTag` items.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @throws Will throw an error if the `scrRef` prop was not provided to the editor.
+   * @throws Will throw an error if `item.kind` is not `"closeTag"` and `item.marker` is not a
+   *   supported para, char, note, chapter, or verse marker.
+   *
+   * @returns the created note's TRUE Lexical node key when the applied item inserted a note
+   *   (hosts use it to track the note-editing session — the same contract as
+   *   {@link EditorRef.insertMarker}); `undefined` for every other item kind.
+   * @see {@link EditorRef.splitParagraphWithMarker} for the Enter-menu apply step.
+   */
+  applyMarkerMenuSelection(
+    item: MarkerMenuItem,
+    opts: { trigger: "backslash" | "enter"; literalPrefixLanded: boolean },
+  ): string | undefined;
+  /**
+   * Splits the paragraph at the current caret, giving the new paragraph `marker` with its
+   * visible prefix injected in the same update — the apply step for the ENTER-triggered
+   * paragraph-marker menu (PT9 SmartEnter semantics: Enter always starts a new paragraph, even
+   * at paragraph content start where the backslash menu would retag instead).
+   *
+   * This deliberately does NOT go through {@link EditorRef.applyMarkerMenuSelection}: the split
+   * calls `selection.insertParagraph()` directly (bypassing `INSERT_PARAGRAPH_COMMAND`, so the
+   * marker engine's split bookkeeping stays untouched) and sets the marker + visible prefix
+   * before the update commits, so the engine's deletion transform cannot misread the fresh
+   * paragraph as marker-less and merge it away. The Enter menu also has no literal `\marker`
+   * prefix to clean up and offers only paragraph items, so this narrower method is its whole
+   * contract.
+   *
+   * @param marker - A USFM paragraph marker string, e.g. `"q1"`, `"p"`.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @see {@link EditorRef.applyMarkerMenuSelection} for the backslash-menu apply step.
+   */
+  splitParagraphWithMarker(marker: string): void;
+  /**
+   * Commits the marker the user literally TYPED into a host-rendered marker palette, with the
+   * palette's Space semantics: materializes the same literal bytes passive typing would have put
+   * in the document (`\` + `typedMarker` + space) at the collapsed caret in ONE update, and lets
+   * the marker-edit engine resolve them. The Space end states therefore hold by construction,
+   * identical to the in-editor palette's own Space commit: an inline marker settles as an open
+   * span (`closed="false"`, no auto-closer), an unknown marker settles as typed, and a note
+   * marker tokenizes to the full note. An empty `typedMarker` materializes the bare trigger byte
+   * plus space, which stays literal — byte-identical to passive typing.
+   *
+   * Byte-fidelity is the whole contract, including its sharp edge: mid-text, a materialized note
+   * literal (`\f ` with content after the caret) absorbs the following word as the note's CALLER
+   * — the same end state passive typing produced, NOT the empty note an Enter commit inserts. A
+   * host that wants note markers to commit like Enter must route them through
+   * {@link EditorRef.applyMarkerMenuSelection} (the item commit) instead of this method.
+   *
+   * Collapsed caret only. With a non-collapsed selection the palette's Space commit must WRAP
+   * the selection in a specific offered item via {@link EditorRef.applyMarkerMenuSelection}
+   * (`trigger: "backslash"`) — materializing bytes here would replace the selected text — so
+   * this method refuses and returns `false`, leaving the document untouched. Also returns
+   * `false` when there is no range selection to materialize at.
+   *
+   * @param typedMarker - The palette query exactly as typed, without the leading `\` or the
+   *   terminating space (e.g. `"nd"`, `"zz"`, `"f"`).
+   * @param options - See {@link CommitTypedMarkerOptions}.
+   * @returns `true` when the literal was materialized (and resolved by the engine in the same
+   *   update); `false` when the selection shape refused the commit.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @see {@link EditorRef.applyMarkerMenuSelection} for the highlighted-item (Enter) apply and
+   *   the selection-wrap commit.
+   */
+  commitTypedMarker(typedMarker: string, options?: CommitTypedMarkerOptions): boolean;
+  /**
+   * Commits the CLOSING marker the user typed into a marker palette — the palette's `*` commit,
+   * the closing-marker counterpart to {@link EditorRef.commitTypedMarker}'s Space. Inserts NO
+   * opening glyph and NO terminating space: `\` + `typedMarker` + `*` is the whole of it, and the
+   * palette closes.
+   *
+   * What the closer MEANS is decided by the DOCUMENT, not the palette: the bytes LAND and the
+   * marker-edit engine re-tokenizes them (governing invariant I). Against a character span
+   * genuinely open there they settle as that span's real closer; with nothing matching open they
+   * settle as an unmatched closer, flagged as typed — the behavior of every typed closer, and what
+   * keeps this from silently swallowing the keystroke. Either way the caret ends up AFTER the
+   * closing marker.
+   *
+   * Over a NON-COLLAPSED selection the selected content is DELETED and the closer lands in its
+   * place — Paratext 9's behavior for typing `\nd*` with text selected. This never WRAPS the
+   * selection; wrapping is the palette's Space commit, via
+   * {@link EditorRef.applyMarkerMenuSelection}. Returns `false` only when there is no range
+   * selection at all to commit against.
+   *
+   * @param typedMarker - The palette query exactly as typed, without the leading `\` and without
+   *   the trailing `*` the user pressed to commit (e.g. `"nd"`, `"+wj"`).
+   * @returns `true` when a closing marker was committed; `false` when there was no range selection.
+   * @throws Will throw an error if the editor is in readonly mode.
+   * @see {@link EditorRef.commitTypedMarker} for the Space (opening-marker) commit.
+   */
+  commitTypedCloser(typedMarker: string): boolean;
   /**
    * Insert a note at the specified selection, e.g. footnote, cross-reference, endnote.
    * @param marker - The marker type for the note.
@@ -356,10 +570,25 @@ export interface EditorOptions {
   /** Additional items to append to the editor context menu. */
   contextMenu?: ContextMenuOptionConfig[];
   /**
-   * EXPERIMENTAL: View options. Defaults to the formatted view mode which is currently the only
-   * functional option.
+   * View options of the editor. Defaults to the formatted view mode. Named modes:
+   * "formatted", "unformatted", "paragraph-structure", "standard".
    */
   view?: ViewOptions;
+  /**
+   * Project stylesheet data (merged usfm.sty + custom.sty, serialized by the
+   * host). Drives marker classification, Tier-1 kind routing, and marker
+   * validation (flagging unknown or invalid markers) in editable marker modes.
+   * Falls back to the bundled default stylesheet data when absent.
+   */
+  styleInfo?: StyleInfo;
+  /**
+   * EXPERIMENTAL: Delay in milliseconds before pending marker edits settle in place while the
+   * user is idle (Paratext 9's debounced-reformat cadence), in editable marker modes. Defaults
+   * to 1000 when undefined. `0` settles on the first tick after each edit; `-1` disables the
+   * idle clock entirely — pending edits then settle only on caret departure, Enter, blur, or
+   * `getUsj()`.
+   */
+  markerSettleDelayMs?: number;
   /** EXPERIMENTAL: Is the editor being debugged using the TreeView. */
   debug?: boolean;
 }
