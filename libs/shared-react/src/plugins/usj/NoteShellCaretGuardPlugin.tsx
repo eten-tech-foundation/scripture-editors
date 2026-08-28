@@ -10,7 +10,7 @@ import {
   PointType,
   SELECTION_CHANGE_COMMAND,
 } from "lexical";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   $isMarkerNode,
   $isNoteNode,
@@ -75,9 +75,16 @@ function $noteChildContaining(note: NoteNode, node: LexicalNode): LexicalNode | 
  * out of the note looks like, and the one case where pushing it forward again would trap it.
  *
  * Taken from the PREVIOUS selection because the shell is crossed whole in either direction and the
- * landing point alone cannot say which way the user was going. Anything else — a click from
- * elsewhere, a rightward move from before the note, no previous selection at all — reads as
- * travelling forward, which is also the safe default: forward lands in editable content.
+ * landing point alone cannot say which way the user was going. Anything else — a rightward move
+ * from before the note, no previous selection at all — reads as travelling forward, which is also
+ * the safe default: forward lands in editable content.
+ *
+ * Only asked of a KEYBOARD move. A pointer is not travelling anywhere — it names a destination
+ * outright — so the previous caret says nothing about the user's intent, and reading it as a
+ * direction sends a click away from the note it landed in. That is not hypothetical: a popover
+ * that focuses its editor with no selection parks the caret at the document end, which for a
+ * document holding one note is that note's own closing glyph — so the FIRST click on the shell
+ * read as "coming from the content side" and threw the caret past the whole note.
  */
 function $arrivedFromContentSide(note: NoteNode): boolean {
   const previous = $getPreviousSelection();
@@ -128,8 +135,12 @@ function $placeAtShellTrailingEdge(note: NoteNode): void {
 
 /**
  * Move a caret that has come to rest inside an expanded note's protected shell to the nearest
- * position outside it: the note's content when the user is moving forward into the note, and the
- * position before the whole note when they are moving back out of it.
+ * position outside it: the start of the note's own content, or — for a KEYBOARD move coming back
+ * out of that content — the position before the whole note, so the shell can be crossed leftward
+ * instead of trapping the caret against it.
+ *
+ * `isPointerGesture` says the caret was placed by a pointer, which is a destination rather than a
+ * direction: such a caret always goes to the content, the position the user was pointing into.
  *
  * Returns `true` when the selection was corrected.
  *
@@ -138,7 +149,7 @@ function $placeAtShellTrailingEdge(note: NoteNode): void {
  *
  * Mutating (moves the selection): call inside `editor.update()` or a command handler.
  */
-export function $guardCaretOutOfNoteShell(): boolean {
+export function $guardCaretOutOfNoteShell(isPointerGesture = false): boolean {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return false;
 
@@ -146,7 +157,7 @@ export function $guardCaretOutOfNoteShell(): boolean {
 
   const note = $shellAt(selection.anchor);
   if (!note) return false;
-  if ($arrivedFromContentSide(note)) {
+  if (!isPointerGesture && $arrivedFromContentSide(note)) {
     const parent = note.getParent();
     if (!parent) return false;
     $placeCaretAtBoundary(parent, note.getIndexWithinParent());
@@ -197,10 +208,15 @@ function $movePointPastShell(point: PointType, note: NoteNode, toStart: boolean)
  * as deletion damage. Both read on screen as an edit that was accepted and then quietly reverted.
  *
  * So the caret is corrected the moment it comes to rest there, in the same update, before anything
- * can be typed. Forward — a click, or a move in from before the note — lands at the start of the
- * note's content, which is where the note IS editable and where a `\cat` category run belongs.
- * Backward out of the content lands before the whole note, so the shell is crossed in one hop
- * instead of trapping the caret against it.
+ * can be typed. It lands at the start of the note's content — where the note IS editable, and where
+ * a `\cat` category run belongs. The one exception is a KEYBOARD move coming back out of that
+ * content: that one lands before the whole note, so the shell is crossed in a single hop rather
+ * than trapping the caret against it.
+ *
+ * A pointer is held to a destination, never a direction. It is read from the pointer being DOWN
+ * when the selection lands, which is the order a click delivers (`pointerdown`, then the selection
+ * change, then `pointerup`) — the click event itself arrives too late to answer in the same update,
+ * and correcting twice would let other selection listeners see the wrong position in between.
  *
  * Not gated on view options: the rule reads the shell's own node mode, so it is structurally a
  * no-op in the views that build an editable shell (the main editor's Markers view expands notes
@@ -210,6 +226,30 @@ function $movePointPastShell(point: PointType, note: NoteNode, toStart: boolean)
  */
 export function NoteShellCaretGuardPlugin(): null {
   const [editor] = useLexicalComposerContext();
+  const isPointerDown = useRef(false);
+
+  useEffect(() => {
+    const markDown = () => {
+      isPointerDown.current = true;
+    };
+    const markUp = () => {
+      isPointerDown.current = false;
+    };
+    // Listened for on the DOCUMENT in the capture phase, and released on `pointercancel` as well
+    // as `pointerup`: a drag that starts in the editor can finish anywhere, and a pointer flag
+    // that fails to clear would make every later keyboard move read as a click.
+    return editor.registerRootListener((rootElement, prevRootElement) => {
+      const previous = prevRootElement?.ownerDocument;
+      previous?.removeEventListener("pointerdown", markDown, true);
+      previous?.removeEventListener("pointerup", markUp, true);
+      previous?.removeEventListener("pointercancel", markUp, true);
+      isPointerDown.current = false;
+      const current = rootElement?.ownerDocument;
+      current?.addEventListener("pointerdown", markDown, true);
+      current?.addEventListener("pointerup", markUp, true);
+      current?.addEventListener("pointercancel", markUp, true);
+    });
+  }, [editor]);
 
   useEffect(() => {
     return editor.registerCommand(
@@ -218,7 +258,7 @@ export function NoteShellCaretGuardPlugin(): null {
         // Command handlers already run inside an update, so the tag joins that commit rather than
         // opening a new one. Nothing here changes content, so tagging it costs nothing already
         // excluded from saved Scripture and collaborative traffic.
-        if ($guardCaretOutOfNoteShell()) $addUpdateTag(CURSOR_CHANGE_TAG);
+        if ($guardCaretOutOfNoteShell(isPointerDown.current)) $addUpdateTag(CURSOR_CHANGE_TAG);
         return false;
       },
       COMMAND_PRIORITY_EDITOR,
