@@ -1085,9 +1085,7 @@ describe("$textNodeTier2Transform on `//` inside a table", () => {
         cellText = $createTextNode("see https://example.org for more");
         $getRoot().append(
           $createImmutableTableNode().append(
-            $createImmutableTableRowNode().append(
-              $createImmutableTableCellNode().append(cellText),
-            ),
+            $createImmutableTableRowNode().append($createImmutableTableCellNode().append(cellText)),
           ),
         );
       },

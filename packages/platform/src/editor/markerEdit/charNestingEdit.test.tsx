@@ -21,7 +21,11 @@ const nestedUsj: Usj = {
       marker: "p",
       content: [
         "start ",
-        { type: "char", marker: "wj", content: [{ type: "char", marker: "nd", content: ["name"] }] },
+        {
+          type: "char",
+          marker: "wj",
+          content: [{ type: "char", marker: "nd", content: ["name"] }],
+        },
         " end",
       ],
     },
@@ -109,7 +113,11 @@ describe("editing the + on a char opener", () => {
         marker: "p",
         content: [
           "start ",
-          { type: "char", marker: "wj", content: [{ type: "char", marker: "bd", content: ["name"] }] },
+          {
+            type: "char",
+            marker: "wj",
+            content: [{ type: "char", marker: "bd", content: ["name"] }],
+          },
           " end",
         ],
       },
