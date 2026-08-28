@@ -565,34 +565,6 @@ export function $hasAttributeRunAncestor(node: LexicalNode): boolean {
 }
 
 /**
- * Calculate the OT length contribution of a single node.
- *
- * @param coordinates - The OT coordinate system to count in (see {@link OTCoordinateSystem}).
- *   A paragraph's own marker-prefix glyph and its NBSP separator are presentation scaffolding
- *   that `editor-delta.adaptor.ts`'s `$handleTextNodes` excludes from content ops — but ONLY in
- *   `"delta-doc"` coordinates, which must agree with that ops stream. `"apply"` coordinates are
- *   DEFINED as whatever `$applyUpdate`'s own insert/delete/attribute traversals do
- *   (delta-apply-update.utils.ts), and none of them skip these nodes — every one counts an OT
- *   text node's raw `getTextContentSize()` unconditionally. So `"apply"` coordinates must keep
- *   counting the prefix and separator too, or a replace-embed retain computed here would
- *   disagree with where `$applyUpdate` actually walks to (a note "replace" landing one-plus-
- *   prefix-length short of the note it meant to delete, deleting the wrong node and leaving the
- *   replacement appended instead). If `$applyUpdate`'s traversals are ever taught to skip these
- *   nodes too, this exclusion should extend to `"apply"` at the same time — not before.
- *
- *   The SAME reasoning governs the `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`'s
- *   own traversal functions (`$traverseAndApplyAttributesRecursive`, `$traverseAndDelete`,
- *   `$insertNodeAtCharacterOffset`) do not special-case `AttributeRunNode` at all — every
- *   editable-mode verse/milestone run the adaptor builds rides wrapped in one, so this traversal
- *   gap is live on every real document, not a hypothetical one. Each traversal treats a wrapper as
- *   an ordinary, un-special-cased `ElementNode` (zero contribution of its own, descend into
- *   children) and counts each child's raw text length exactly as it already does for a LOOSE run's
- *   pieces — i.e. wrapping changes nothing about what `$applyUpdate` actually does. `"apply"`
- *   coordinates must therefore keep counting a wrapped piece's text too, matching that (unchanged)
- *   traversal; only `"delta-doc"` excludes it, mirroring `editor-delta.adaptor.ts`'s existing ops
- *   exclusion for the identical bytes.
- */
-/**
  * Mirror of editor-delta.adaptor.ts's empty-char-placeholder skip, in delta-doc coordinates: the
  * lone stand-in text of an otherwise childless char span, which the ops stream never emits.
  */
@@ -642,6 +614,34 @@ export function $isFastPathContentText(node: TextNode): boolean {
   );
 }
 
+/**
+ * Calculate the OT length contribution of a single node.
+ *
+ * @param coordinates - The OT coordinate system to count in (see {@link OTCoordinateSystem}).
+ *   A paragraph's own marker-prefix glyph and its NBSP separator are presentation scaffolding
+ *   that `editor-delta.adaptor.ts`'s `$handleTextNodes` excludes from content ops — but ONLY in
+ *   `"delta-doc"` coordinates, which must agree with that ops stream. `"apply"` coordinates are
+ *   DEFINED as whatever `$applyUpdate`'s own insert/delete/attribute traversals do
+ *   (delta-apply-update.utils.ts), and none of them skip these nodes — every one counts an OT
+ *   text node's raw `getTextContentSize()` unconditionally. So `"apply"` coordinates must keep
+ *   counting the prefix and separator too, or a replace-embed retain computed here would
+ *   disagree with where `$applyUpdate` actually walks to (a note "replace" landing one-plus-
+ *   prefix-length short of the note it meant to delete, deleting the wrong node and leaving the
+ *   replacement appended instead). If `$applyUpdate`'s traversals are ever taught to skip these
+ *   nodes too, this exclusion should extend to `"apply"` at the same time — not before.
+ *
+ *   The SAME reasoning governs the `$hasAttributeRunAncestor` exclusion below: `$applyUpdate`'s
+ *   own traversal functions (`$traverseAndApplyAttributesRecursive`, `$traverseAndDelete`,
+ *   `$insertNodeAtCharacterOffset`) do not special-case `AttributeRunNode` at all — every
+ *   editable-mode verse/milestone run the adaptor builds rides wrapped in one, so this traversal
+ *   gap is live on every real document, not a hypothetical one. Each traversal treats a wrapper as
+ *   an ordinary, un-special-cased `ElementNode` (zero contribution of its own, descend into
+ *   children) and counts each child's raw text length exactly as it already does for a LOOSE run's
+ *   pieces — i.e. wrapping changes nothing about what `$applyUpdate` actually does. `"apply"`
+ *   coordinates must therefore keep counting a wrapped piece's text too, matching that (unchanged)
+ *   traversal; only `"delta-doc"` excludes it, mirroring `editor-delta.adaptor.ts`'s existing ops
+ *   exclusion for the identical bytes.
+ */
 function $getNodeOTContribution(node: LexicalNode, coordinates: OTCoordinateSystem): number {
   // Embeds are checked FIRST: an editable VerseNode is a TextNode subclass but counts as one
   // opaque OT unit (its glyph text is engine-owned display, excluded from content ops), the same

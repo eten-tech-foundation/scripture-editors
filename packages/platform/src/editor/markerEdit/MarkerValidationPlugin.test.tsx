@@ -1,4 +1,4 @@
-import { MarkerValidationPlugin } from "./MarkerValidationPlugin";
+import { computeDirtyParagraphScope, MarkerValidationPlugin } from "./MarkerValidationPlugin";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
@@ -8,7 +8,7 @@ import { InitialConfigType, LexicalComposer } from "@lexical/react/LexicalCompos
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { act, render } from "@testing-library/react";
-import { $createTextNode, $getRoot, LexicalEditor } from "lexical";
+import { $createTextNode, $getRoot, $isTextNode, LexicalEditor } from "lexical";
 import { useEffect } from "react";
 import {
   $createCharNode,
@@ -315,6 +315,132 @@ describe("MarkerValidationPlugin", () => {
       const classList = editor.getElementByKey(opener.getKey())?.classList;
       expect(classList?.contains("status_unknown")).toBe(false);
       expect(classList?.contains("status_invalid")).toBe(false);
+    });
+  });
+});
+
+/**
+ * The scope gate reads the commit's state pair, not the root's dirty flag. Lexical marks the root
+ * intentionally dirty on every commit that changes anything, so a flag-based gate degrades to a
+ * full-document walk on every keystroke — silently, since both paths produce the same decorations.
+ * These pin the gate's ANSWER directly, which is the only place the difference is observable.
+ */
+describe("computeDirtyParagraphScope", () => {
+  /** Commits `$mutate`, then returns the scope the listener computed for that commit. */
+  async function scopeForCommit(
+    $initialEditorState: () => void,
+    $mutate: () => void,
+  ): Promise<Set<string> | undefined> {
+    const { editor } = await baseTestEnvironment($initialEditorState, null);
+    let scope: Set<string> | undefined;
+    let captured = false;
+    const unregister = editor.registerUpdateListener(
+      ({ editorState, prevEditorState, dirtyElements, dirtyLeaves }) => {
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
+        scope = computeDirtyParagraphScope(
+          editorState,
+          prevEditorState,
+          dirtyElements,
+          dirtyLeaves,
+        );
+        captured = true;
+      },
+    );
+    await act(async () => {
+      editor.update($mutate);
+    });
+    unregister();
+    expect(captured).toBe(true);
+    return scope;
+  }
+
+  it("scopes a leaf edit to the one paragraph that changed", async () => {
+    let first: ParaNode;
+    let firstKey = "";
+    let secondKey = "";
+    const scope = await scopeForCommit(
+      () => {
+        ({ para: first } = $appendPara("p"));
+        firstKey = first.getKey();
+        secondKey = $appendPara("p").para.getKey();
+      },
+      () => {
+        const text = first.getLastChild();
+        if (!$isTextNode(text)) throw new Error("expected the paragraph's text node");
+        text.setTextContent(`${NBSP}typed`);
+      },
+    );
+
+    expect([...requireDefined(scope, "a leaf edit must scope")]).toEqual([firstKey]);
+    expect(scope?.has(secondKey)).toBe(false);
+  });
+
+  it("falls back to an unscoped pass when a paragraph is added", async () => {
+    const scope = await scopeForCommit(
+      () => {
+        $appendPara("p");
+      },
+      () => {
+        $appendPara("s1");
+      },
+    );
+
+    // A new root child shifts the paragraph-stack context of everything after it.
+    expect(scope).toBeUndefined();
+  });
+
+  it("falls back to an unscoped pass when a paragraph is removed", async () => {
+    let second: ParaNode;
+    const scope = await scopeForCommit(
+      () => {
+        $appendPara("p");
+        ({ para: second } = $appendPara("s1"));
+      },
+      () => {
+        second.remove();
+      },
+    );
+
+    expect(scope).toBeUndefined();
+  });
+});
+
+describe("MarkerValidationPlugin scoped-pass carry-forward", () => {
+  // A scoped pass still validates EVERY paragraph's own marker — only the inline descent is
+  // scoped — so a paragraph that just became valid is absent from the fresh result rather than
+  // cleared in it. Carrying paragraph-level flags forward would re-add the verdict the pass just
+  // dropped, leaving a red underline on a marker that is now legal.
+  it("clears a paragraph flag that a change to ANOTHER paragraph made valid", async () => {
+    let idPara: ParaNode;
+    let pOpener: MarkerNode;
+    const { editor } = await baseTestEnvironment(
+      () => {
+        ({ para: idPara } = $appendPara("id"));
+        ({ opener: pOpener } = $appendPara("p"));
+      },
+      <MarkerValidationPlugin viewOptions={editableViewOptions} styleInfo={sheet} />,
+    );
+
+    // `p` occursUnder `c`, and only `id` precedes it, so it starts invalid.
+    editor.getEditorState().read(() => {
+      expect(editor.getElementByKey(pOpener.getKey())?.classList.contains("status_invalid")).toBe(
+        true,
+      );
+    });
+
+    // Retag the FIRST paragraph to `c`, which puts `c` on the stack and makes the `p` legal. The
+    // root's children do not move, so this commit takes the scoped path — and the only dirty
+    // paragraph is the one that changed, not the `p` whose verdict it flipped.
+    await act(async () => {
+      editor.update(() => {
+        idPara.setMarker("c");
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      expect(editor.getElementByKey(pOpener.getKey())?.classList.contains("status_invalid")).toBe(
+        false,
+      );
     });
   });
 });
