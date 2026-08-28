@@ -103,13 +103,20 @@
    bytes are excluded from positions by node state, not by layout). `\cp` deliberately stays
    inline on the chapter's line (moving it to its own line is tracked separately); when both runs
    display, the block `\ca` run pushes the `\cp` run onto the following line as a layout
-   consequence — which is PT9's own three-line layout for that shape. */
-.formatted-font .usfm_c .usfm_ca {
+   consequence — which is PT9's own three-line layout for that shape.
+
+   The class is DOUBLED for specificity (0,4,0): the generated project stylesheet emits
+   `.editor-input.usfm .usfm_ca` at (0,3,0), injected later — a tie the generator resolves in the
+   project's favor by design ("project styles win where defined"), which is right for the
+   STANDALONE span but would re-apply the stylesheet's relative size inside the chapter and
+   re-compound to ~200%/225% of body. The divisor is rendering-correctness for the nested
+   position, not a default a project may override, so it must out-specify that sheet. */
+.formatted-font .usfm_c .usfm_ca.usfm_ca {
   display: block;
   font-size: calc(133% / 1.5);
 }
 
-.formatted-font .usfm_c .usfm_cp {
+.formatted-font .usfm_c .usfm_cp.usfm_cp {
   font-size: calc(150% / 1.5);
 }
 

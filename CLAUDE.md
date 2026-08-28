@@ -114,7 +114,7 @@ This is an Nx monorepo containing multiple scripture editor packages that share 
 ### Core Technologies
 
 - **Lexical**: Facebook's extensible text editor framework (v0.43.0)
-- **React**: UI framework for React-based packages (v19.1.0)
+- **React**: UI framework for React-based packages (v18.3.1)
 - **TypeScript**: Primary development language
 - **Nx**: Monorepo build system and task runner
 - **Vite**: Build tool and development server

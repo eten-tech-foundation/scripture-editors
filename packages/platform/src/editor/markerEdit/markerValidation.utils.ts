@@ -183,10 +183,24 @@ function $validateInline(
 }
 
 /**
- * Full-document validation pass. Call inside editor.read(). Returns the
+ * Full-document validation pass. Call inside `editor.getEditorState().read()` (never
+ * `editor.read()`, which force-flushes an in-flight update mid-dispatch). Returns the
  * decoration map keyed by glyph/verse node keys.
+ *
+ * `onlyParagraphs` scopes the per-leaf INLINE descent to the named top-level elements — the
+ * expensive part of the walk, so a keystroke's pass costs one paragraph, not the document. The
+ * paragraph-level stack walk always runs in full: it is one entry per ROOT CHILD (cheap) and a
+ * tag's verdict depends on the stack built from every preceding paragraph, so it cannot be
+ * scoped without changing answers. A scoped result therefore contains fresh paragraph-level
+ * flags for EVERY root child but inline flags only for the scoped ones; the caller carries the
+ * out-of-scope inline flags forward from its previous pass (and must fall back to an unscoped
+ * pass whenever root-level structure changed, since that shifts the stack context of everything
+ * after the change).
  */
-export function $validateDocument(styleInfo: StyleInfo): Map<NodeKey, MarkerValidity> {
+export function $validateDocument(
+  styleInfo: StyleInfo,
+  onlyParagraphs?: ReadonlySet<NodeKey>,
+): Map<NodeKey, MarkerValidity> {
   const out = new Map<NodeKey, MarkerValidity>();
   const stack: ParaStackEntry[] = [];
 
@@ -208,17 +222,19 @@ export function $validateDocument(styleInfo: StyleInfo): Map<NodeKey, MarkerVali
     if (!pushParaTagIfValid(stack, tag)) flagGlyphs(node, "invalid", out);
   };
 
+  const inScope = (child: LexicalNode): boolean =>
+    !onlyParagraphs || onlyParagraphs.has(child.getKey());
   for (const child of $getRoot().getChildren()) {
     if ($isUnknownNode(child)) continue; // opaque blocks: skip entirely
     if ($isBookNode(child) || $isSomeChapterNode(child)) {
       validateParaLevel(child, child.getMarker());
     } else if ($isParaNode(child)) {
       validateParaLevel(child, child.getMarker());
-      $validateInline(child, child.getMarker(), styleInfo, out, false);
+      if (inScope(child)) $validateInline(child, child.getMarker(), styleInfo, out, false);
     } else if ($isElementNode(child)) {
       // ImpliedParaNode and other unmarked wrappers: no para-level flag; PT9's
       // implied paragraph context is the default \p.
-      $validateInline(child, "p", styleInfo, out, false);
+      if (inScope(child)) $validateInline(child, "p", styleInfo, out, false);
     }
   }
   return out;

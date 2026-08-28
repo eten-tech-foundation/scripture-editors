@@ -254,7 +254,10 @@ export function $applyMarkerMenuSelection(
   // Paragraph-kind picks that are real ParaNode markers retag or split (PT9 reformat
   // semantics). The sheet also types some non-para structural markers as "paragraph" (`c` —
   // chapter); those keep the structural action below, which handles them specially.
-  if (item.kind === "paragraph" && ParaNode.isValidMarker(item.marker)) {
+  if (
+    item.kind === "paragraph" &&
+    ParaNode.isValidMarker(item.marker, deps.nodeOptions?.extraValidMarkers)
+  ) {
     $applyParagraphSelection(item.marker, opts.trigger, deps.viewOptions);
     return;
   }
@@ -264,7 +267,7 @@ export function $applyMarkerMenuSelection(
   // TRUE Lexical key feeds the host's popover editing session directly, rather than having the
   // host re-derive it from delta-doc coordinates (getInsertedNodeKey) — a wrong key there makes
   // replaceEmbedUpdate silently no-op. Same reason EditorRef.insertMarker returns it.
-  if (NoteNode.isValidMarker(item.marker)) {
+  if (NoteNode.isValidMarker(item.marker, deps.nodeOptions?.extraValidMarkers)) {
     return $insertNoteForMarker(
       item.marker,
       reference,

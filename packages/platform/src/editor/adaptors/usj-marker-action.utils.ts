@@ -197,9 +197,8 @@ export function isUsjMarkerSupported(
  *
  * Deliberately stricter than {@link isUsjMarkerSupported}: that one also accepts para, note,
  * chapter, and verse markers, but these actions only ever target a `CharNode`, so `"p"` must be
- * rejected. It also honors `extraValidMarkers`, which `isUsjMarkerSupported` does not — a character
- * marker this project configures as valid, and which the adaptor therefore accepts on load, should
- * be actionable too.
+ * rejected. Both honor `extraValidMarkers` — a character marker this project configures as
+ * valid, and which the adaptor therefore accepts on load, is actionable too.
  *
  * Stricter than `CharNode.isValidMarker` too: that list spreads in the footnote and
  * cross-reference character markers (`"ft"`, `"xt"`, …), but those only ever occur inside a
@@ -261,7 +260,7 @@ export function getUsjMarkerAction(
   styleInfo?: StyleInfo,
 ): UsjMarkerActionWithNoteKey {
   // Note markers are handled directly via $insertNote (no serialization round-trip).
-  if (NoteNode.isValidMarker(marker)) {
+  if (NoteNode.isValidMarker(marker, nodeOptions?.extraValidMarkers)) {
     // Captured synchronously inside the `editor.update()` callback below - Lexical's callback
     // runs synchronously when this is the OUTERMOST update (only the DOM reconciliation/commit
     // may be deferred), so this is populated by the time `action(...)` returns for the
@@ -284,7 +283,7 @@ export function getUsjMarkerAction(
     return { action, label: undefined, getInsertedNoteKey: () => insertedNoteKey };
   }
 
-  const markerAction = getMarkerAction(marker);
+  const markerAction = getMarkerAction(marker, nodeOptions?.extraValidMarkers);
   // No-op for unsupported markers so the marker menu doesn't crash during render.
   if (!markerAction) return { action: () => undefined, label: undefined };
   const action = (currentEditor: {
@@ -740,17 +739,20 @@ function $applyNonNestAcrossNodes(
   previous.select(previous.getTextContentSize(), previous.getTextContentSize());
 }
 
-function getMarkerAction(marker: string): UsjMarkerAction | undefined {
+function getMarkerAction(
+  marker: string,
+  extraValidMarkers?: readonly string[],
+): UsjMarkerAction | undefined {
   let markerAction = markerActions[marker];
   if (!markerAction) {
-    if (ParaNode.isValidMarker(marker)) {
+    if (ParaNode.isValidMarker(marker, extraValidMarkers)) {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: ParaNode.getType(), marker, content: [] };
           return { content: [content] };
         },
       };
-    } else if (CharNode.isValidMarker(marker)) {
+    } else if (CharNode.isValidMarker(marker, extraValidMarkers)) {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: CharNode.getType(), marker };

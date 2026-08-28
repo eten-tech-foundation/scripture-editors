@@ -72,13 +72,18 @@ export function NodeSelectionMenu(props: NodeSelectionMenuProps) {
         if (isControlled) return false;
         if (passthroughKeys?.includes(event.key)) return false;
         if (MODIFIER_KEYS.includes(event.key)) return false;
-        if (event.ctrlKey || event.metaKey || event.altKey) {
+        if (
+          (event.ctrlKey || event.metaKey || event.altKey) &&
+          !event.getModifierState("AltGraph")
+        ) {
           // A real chord (Ctrl+Z, Ctrl+C, Cmd+V, Ctrl+A, …) is never query input: ingesting it
           // would append its letter to the filter, and claiming it would leave undo, copy, paste
           // and select-all dead for as long as the menu is open. Close the menu — the marker it
           // was offering is not what the user is reaching for — and let the chord through
           // unclaimed, to whatever handles it. Shift is deliberately absent from the check: a
-          // shifted character is still a character, and capitalized markers filter with it.
+          // shifted character is still a character, and capitalized markers filter with it —
+          // and so is AltGr, which Windows/Linux layouts dispatch as Ctrl+Alt: `@` on a German
+          // layout or `ł` on Polish is ordinary character input, not a command chord.
           onClose?.();
           return false;
         }
