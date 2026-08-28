@@ -2,6 +2,7 @@ import {
   usfmFragmentToUsjContent,
   defaultMarkerAttribute,
   milestoneDefaultAttribute,
+  regularizeSpaces,
 } from "./usfmFragmentToUsj.js";
 import { NBSP } from "../../nodes/usj/node-constants.js";
 import { createMarkerLookup, StyleInfo } from "../../utils/usfm/styleInfo.js";
@@ -1595,5 +1596,111 @@ describe("default-attribute lookups (shared with attribute display)", () => {
     expect(milestoneDefaultAttribute("qt1-s")).toBe("who");
     expect(milestoneDefaultAttribute("qt1-e")).toBe("eid");
     expect(milestoneDefaultAttribute("ts-s")).toBe("sid");
+  });
+});
+
+describe("regularizeSpaces — Paratext 9 RegularizeSpaces vectors", () => {
+  // These are the assertions from ParatextData.Tests/UsfmTokenTests.cs, so a divergence from
+  // Paratext shows up here as a failure rather than as corrupted text in a project.
+  it("collapses runs of plain spaces to one", () => {
+    expect(regularizeSpaces("This is a test.")).toBe("This is a test.");
+    expect(regularizeSpaces("This   is     a  test.")).toBe("This is a test.");
+    expect(regularizeSpaces("   This is a test.  ")).toBe(" This is a test. ");
+  });
+
+  it("turns control characters into plain spaces", () => {
+    expect(regularizeSpaces("This\u0001is a\u001Atest.")).toBe("This is a test.");
+    expect(regularizeSpaces("This\u0006\u0006\u0006is a\u001B\u001Btest.")).toBe("This is a test.");
+    expect(regularizeSpaces(" \u0003  This is a test.  \u001C")).toBe(" This is a test. ");
+  });
+
+  it("keeps the first space of a run exactly as authored", () => {
+    // EN SPACE, FIGURE SPACE, EM SPACE: the run collapses to whichever space came first
+    expect(regularizeSpaces("This\u2002 is\u2007\u2007\u2007 a \u2003test.")).toBe(
+      "This\u2002is\u2007a test.",
+    );
+    // THIN SPACE and HAIR SPACE
+    expect(regularizeSpaces("\u2009 This is a test. \u200A")).toBe("\u2009This is a test. ");
+  });
+
+  it("treats IDEOGRAPHIC SPACE as content, collapsing only exact repeats", () => {
+    expect(regularizeSpaces(" \u3000\u3000\u3000  This is\u3000 a test.  \u3000")).toBe(
+      " \u3000 This is\u3000 a test. \u3000",
+    );
+  });
+
+  it("drops a ZWSP that is redundant beside a space but keeps one between words", () => {
+    expect(regularizeSpaces("This\u200B is\u200C a\u200D \u200Btest.")).toBe(
+      "This is\u200C a\u200D test.",
+    );
+  });
+
+  it("collapses an invisible character repeated immediately", () => {
+    expect(regularizeSpaces("This is a word\u2060\u2060break test.")).toBe(
+      "This is a word\u2060break test.",
+    );
+  });
+
+  it("preserves NBSP rather than flattening it to a space", () => {
+    expect(regularizeSpaces("a\u00A0b")).toBe("a\u00A0b");
+  });
+
+  it("preserves the ZWSP that breaks words in Thai, Khmer, and Lao", () => {
+    // No space is adjacent, so this ZWSP is the word boundary itself and must survive
+    expect(regularizeSpaces("\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200B\u0e42\u0e25\u0e01")).toBe(
+      "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200B\u0e42\u0e25\u0e01",
+    );
+  });
+
+  it("still collapses a run containing a line break to the structural marker", () => {
+    expect(regularizeSpaces("a \n b")).toBe("a\nb");
+    expect(regularizeSpaces("a\u00A0\nb")).toBe("a\nb");
+  });
+});
+
+describe("usfmFragmentToUsjContent — authored spacing survives a parse", () => {
+  it("keeps a literal NBSP in verse text", () => {
+    expect(usfmFragmentToUsjContent("\\p one\u00A0two")).toEqual([
+      { type: "para", marker: "p", content: [`one${NBSP}two`] },
+    ]);
+  });
+
+  it("keeps a word-breaking ZWSP in verse text", () => {
+    expect(usfmFragmentToUsjContent("\\p \u0e14\u0e35\u200B\u0e42\u0e25")).toEqual([
+      { type: "para", marker: "p", content: ["\u0e14\u0e35\u200B\u0e42\u0e25"] },
+    ]);
+  });
+});
+
+describe("usfmFragmentToUsjContent — unknown markers resolve against the open note", () => {
+  // PT9's DetermineUnknownTokenType asks whether a Note is on the OPEN ELEMENT STACK, so a note
+  // opened inside this very fragment counts. Classifying by the fragment alone tore the note in
+  // half: the unknown marker became a top-level paragraph and `\f*` was left unmatched.
+  it("keeps an unknown marker inside a note as a char span, leaving the note intact", () => {
+    expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\zz custom \\f* after")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "zz", content: ["custom "], closed: "false" },
+            ],
+          },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("goes back to paragraphs for an unknown marker after the note has closed", () => {
+    const content = usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\f* \\zz custom");
+
+    expect(content).toHaveLength(2);
+    expect(content[1]).toEqual({ type: "para", marker: "zz", content: ["custom"] });
   });
 });

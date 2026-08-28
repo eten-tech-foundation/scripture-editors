@@ -461,7 +461,7 @@ export function getUsjMarkerAction(
             // with a selectEnd that steals the caret out of the new marker.
             lastInsertedNode.insertAfter($createTextNode(NBSP));
           }
-          // Land the caret inside the new marker's content, not before it (PT-3780). selectEnd
+          // Land the caret inside the new marker's content, not before it. selectEnd
           // leaves it after the empty-char placeholder, which the placeholder transform strips on
           // the first keystroke.
           if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();

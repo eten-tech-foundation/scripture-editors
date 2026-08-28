@@ -138,9 +138,25 @@ export function OpaqueBlockGuardPlugin(): null {
  * must reach its own handler — so any of Ctrl/Meta/Alt disqualifies the key outright. Everything
  * else is judged by what the key produces: a single character (a space included), or one of the
  * three keys that remove or break text.
+ *
+ * Two kinds of typing do not announce themselves as a single character and so are decided before
+ * that rule:
+ *
+ * - An IME composition keystroke inserts CJK/complex-script text but arrives as `key === "Process"`
+ *   (`keyCode === 229` is the DOM's legacy "handled by IME" signal, needed because some engines
+ *   fire the first composition keydown before `isComposing` flips true).
+ * - AltGr sets BOTH `ctrlKey` and `altKey` on Windows and Linux, yet it types — AltGr+Q is `@` on a
+ *   German keyboard. `getModifierState("AltGraph")` is what tells it apart from a real Ctrl+Alt
+ *   chord, so Ctrl+Alt shortcuts keep reaching their handlers.
+ *
+ * Exported because it defines what "typing" means for the read-only guard, and that definition is
+ * worth pinning directly rather than only through the plugin's command wiring.
  */
-function isEditingKey(event: KeyboardEvent): boolean {
-  if (event.ctrlKey || event.metaKey || event.altKey) return false;
+export function isEditingKey(event: KeyboardEvent): boolean {
+  if (event.isComposing || event.keyCode === 229) return true;
+  const typesThroughAltGraph =
+    typeof event.getModifierState === "function" && event.getModifierState("AltGraph");
+  if (!typesThroughAltGraph && (event.ctrlKey || event.metaKey || event.altKey)) return false;
   return (
     event.key.length === 1 ||
     event.key === "Backspace" ||

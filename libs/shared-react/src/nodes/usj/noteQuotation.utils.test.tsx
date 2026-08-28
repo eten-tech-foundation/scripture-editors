@@ -143,6 +143,24 @@ describe("$stripSelectionToQuotation()", () => {
     expect(quotation).toBe("lo brave wor");
   });
 
+  it("keeps authored NBSP while still collapsing a run of plain spaces", () => {
+    // A hard space is content Paratext preserves; only the ASCII run between "brave" and "new"
+    // should collapse.
+    const quotation = stripQuotationFor(() => {
+      const text = $createTextNode("a\u00A0brave   new world");
+      $getRoot().append($createParaNode().append(text));
+      const rangeSelection = $createRangeSelection();
+      rangeSelection.anchor = $createPoint(text.getKey(), 0, "text");
+      rangeSelection.focus = $createPoint(text.getKey(), text.getTextContent().length, "text");
+      $setSelection(rangeSelection);
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+      return selection;
+    });
+
+    expect(quotation).toBe("a\u00A0brave new world");
+  });
+
   it("returns empty string when selection is not a range selection", () => {
     const { editor } = createBasicTestEnvironment(requiredNodes);
     let quotation = "not empty";

@@ -570,5 +570,8 @@ export function $stripSelectionToQuotation(selection: RangeSelection): string {
     }
   }
 
-  return result.replace(/\s+/g, " ").trim();
+  // Collapse ASCII whitespace runs only (line joins and indentation from the source paragraph).
+  // NBSP, ZWSP, and the other Unicode spaces are authored content that Paratext preserves, so
+  // folding them into a plain space here would quietly rewrite the quoted text.
+  return result.replace(/[ \t\r\n\f\v]+/g, " ").trim();
 }

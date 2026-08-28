@@ -275,18 +275,16 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // implementation. It only ever reaches the screen while `hasExternalUI` is false: the plugin
   // this feeds is rendered under that condition, so a host with its own marker-menu UI
   // (Platform.Bible, whose overlay service renders them) never mounts the in-editor menu.
-  // The SAME api object the forwarded ref receives (assigned where the api is built, below).
-  // In-editor consumers read through this instead of the forwarded `ref`, which is not readable
-  // in every legal shape: rendering without a ref makes `ref` itself null (reading `.current`
-  // throws inside a command dispatch), and a callback ref has no `.current` at all (every
-  // harness method would silently no-op and the marker menu would be dead).
-  const editorApiInternalRef = useRef<EditorRef | null>(null);
+  // Mirror of the handle handed to `ref` below, so the editor's own internals can reach its API
+  // whichever ref form the consumer passed. `ref` itself cannot be read back: a callback ref has no
+  // `.current`, and a consumer that passes no ref at all makes `ref` null, so reading `.current` off
+  // it throws on the first marker keystroke.
+  const editorApiRef = useRef<EditorRef | null>(null);
 
   const editableMarkerMenuHarness = useMemo<EditableMarkerMenuHarness | undefined>(() => {
     if (viewOptions.markerMode !== "editable") return undefined;
 
     const menuStyleInfo = styleInfo ?? defaultStyleInfo;
-    const editorApiRef = editorApiInternalRef;
     return {
       getContext: () => editorApiRef.current?.getMarkerMenuContext(),
       // The context object is always one this same harness produced via `getContext()` above
@@ -314,7 +312,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         editorApiRef.current?.commitTypedCloser(typedMarker);
       },
     };
-  }, [viewOptions, styleInfo, ref, nodeOptions.extraValidMarkers]);
+  }, [viewOptions, styleInfo, nodeOptions.extraValidMarkers]);
 
   // `showCharMarkerTitles` rides on the Lexical theme so `CharNode.createDOM` can read it via
   // `EditorConfig.theme`. Theme is the channel because its map permits arbitrary keys and is the
@@ -375,9 +373,11 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     );
   }, [viewOptions, markerLookup, stableLogger]);
 
-  // Built as a plain object (rebuilt per render, same as the previous inline
-  // useImperativeHandle factory) so it exists whether or not the host attached a ref, and
-  // captured in editorApiInternalRef for in-editor consumers — see that ref's doc above.
+  // Built as a plain object (rebuilt per render, same as the previous inline useImperativeHandle
+  // factory) and assigned to editorApiRef UNCONDITIONALLY below — never inside the
+  // useImperativeHandle factory, which React only invokes when the consumer actually attached a
+  // ref, so a factory-side assignment leaves the mirror null (and the in-editor marker menu dead)
+  // for exactly the no-ref consumer the mirror exists to serve.
   const editorApi: EditorRef = {
     focus() {
       editorRef.current?.focus();
@@ -783,7 +783,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       return toolbarEndRef;
     },
   };
-  editorApiInternalRef.current = editorApi;
+  editorApiRef.current = editorApi;
   useImperativeHandle(ref, () => editorApi);
 
   // Populates `lastKnownCaretRef` (see its own doc comment above). Runs after `EditorRefPlugin`'s
@@ -889,10 +889,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
           <div className={"editor-toolbar-container" + (isReadonly ? "-readonly" : "-editable")}>
             <ToolbarPlugin
               ref={toolbarEndRef}
-              // The internal handle, not the forwarded `ref`: a host may render without a ref
-              // (null) or with a callback ref (no `.current`), and the toolbar needs the api
-              // either way.
-              editorRef={editorApiInternalRef}
+              editorRef={editorApiRef}
               isReadonly={isReadonly}
               onStateChange={handleStateChange}
             />

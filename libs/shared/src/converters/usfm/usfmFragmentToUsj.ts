@@ -44,7 +44,7 @@
  * from the Tier 2 fragment builder) ride through as ordinary text characters.
  */
 
-import { NBSP, PARA_MARKER_DEFAULT } from "../../nodes/usj/node-constants.js";
+import { NBSP, PARA_MARKER_DEFAULT, ZWSP } from "../../nodes/usj/node-constants.js";
 import { isMilestoneCommentMarker } from "../../nodes/usj/MilestoneNode.js";
 import { NoteNode } from "../../nodes/usj/NoteNode.js";
 import getMarker from "../../utils/usfm/getMarker.js";
@@ -115,18 +115,99 @@ type Token =
   | { kind: "milestone"; marker: string; attributes?: { [attributeName: string]: string } }
   | { kind: "optbreak" }; // USFM discretionary line break `//`
 
-/** PT9 `IsNonSemanticWhiteSpace` approximation for fragments. */
-const WHITESPACE_RUN = /[\s\u200B]+/g;
+/**
+ * PT9 `UsfmToken.IsNonSemanticWhiteSpace`: everything .NET counts as whitespace EXCEPT IDEOGRAPHIC
+ * SPACE (U+3000), plus ZWSP (U+200B). U+3000 is excluded so it survives as authored content, and
+ * ZWJ/ZWNJ are deliberately absent — Paratext treats them as content, not spacing.
+ */
+function isNonSemanticWhiteSpace(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  // TAB, LF, VT, FF, CR — the control characters .NET counts as whitespace
+  if (code >= 0x09 && code <= 0x0d) return true;
+  return (
+    code === 0x20 || // SPACE
+    code === 0x85 || // NEXT LINE
+    code === 0xa0 || // NO-BREAK SPACE
+    code === 0x1680 || // OGHAM SPACE MARK
+    (code >= 0x2000 && code <= 0x200a) || // EN QUAD through HAIR SPACE
+    code === 0x2028 || // LINE SEPARATOR
+    code === 0x2029 || // PARAGRAPH SEPARATOR
+    code === 0x202f || // NARROW NO-BREAK SPACE
+    code === 0x205f || // MEDIUM MATHEMATICAL SPACE
+    code === 0x200b // ZERO WIDTH SPACE
+  );
+}
 
 /**
- * Collapse whitespace runs (PT9 `RegularizeSpaces`); keep U+FFFC. A run containing a line
- * break collapses to `"\n"` instead of `" "` so the attribute-marker fold logic can tell
- * STRUCTURAL whitespace (line-end, folds across: `\ca 1 ca\ca*` ⏎ `\cp 1 cp`) from same-line
- * spaces (content per Paratext, blocking the fold: `\va 12 va\va* \vp` keeps vp standalone).
- * Content text normalizes the `"\n"` back to `" "` in `toUsjText`.
+ * PT9 `CharExtensions.IsInvisibleCharOrWhitespace`: the invisible characters Paratext supports
+ * explicitly. Used only to collapse a character repeated immediately after itself.
  */
-function regularizeSpaces(text: string): string {
-  return text.replace(WHITESPACE_RUN, (run) => (run.includes("\n") ? "\n" : " "));
+const INVISIBLE_CHAR_OR_WHITESPACE =
+  /[\u200D\u2003\u2002\u0020\u00A0\u202F\u2009\u200A\u3000\u200B\u200C\u2060\u200E\u200F]/;
+
+/**
+ * Collapse whitespace runs (PT9 `UsfmToken.RegularizeSpaces`); keep U+FFFC.
+ *
+ * A run collapses to its FIRST character kept verbatim, not to a plain space: NBSP stays NBSP and a
+ * ZWSP between two words stays ZWSP. That distinction is not cosmetic — ZWSP is the word-break
+ * character in Thai, Khmer, and Lao, so flattening it to a space would rewrite those texts on every
+ * settle. `platform-bible-utils`' `normalizeScriptureSpaces` is the same algorithm; the two are
+ * independent ports of one Paratext function and must agree.
+ *
+ * The one deliberate departure from PT9: a run containing a line break collapses to `"\n"` rather
+ * than `" "`, so the attribute-marker fold logic can tell STRUCTURAL whitespace (line-end, folds
+ * across: `\ca 1 ca\ca*` ⏎ `\cp 1 cp`) from same-line spaces (content per Paratext, blocking the
+ * fold: `\va 12 va\va* \vp` keeps vp standalone). Content text normalizes the `"\n"` back to `" "`
+ * in `toUsjText`.
+ *
+ * Exported so the Paratext test vectors it must reproduce can be asserted directly, without the
+ * marker-boundary handling of a full fragment parse in between.
+ */
+export function regularizeSpaces(text: string): string {
+  let result = "";
+  let lastCharWasSpace = false;
+  // Placeholder previous character, so the first iteration cannot report a duplicate
+  let prevCh = "\0";
+  // Where the character standing in for the run being collapsed was written, so a line break
+  // arriving later in the same run can promote it to "\n" after the fact
+  let runIndex = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch.charCodeAt(0) < 32) {
+      // Control characters, CR/LF, and TAB become spaces
+      if (!lastCharWasSpace) {
+        runIndex = result.length;
+        result += " ";
+      }
+      lastCharWasSpace = true;
+    } else if (
+      !lastCharWasSpace &&
+      ch === ZWSP &&
+      i + 1 < text.length &&
+      isNonSemanticWhiteSpace(text[i + 1])
+    ) {
+      // ZWSP is redundant when a space follows it
+    } else if (isNonSemanticWhiteSpace(ch)) {
+      // Keep the run's first space exactly as authored
+      if (!lastCharWasSpace) {
+        runIndex = result.length;
+        result += ch;
+      }
+      lastCharWasSpace = true;
+    } else if (INVISIBLE_CHAR_OR_WHITESPACE.test(ch) && ch === prevCh) {
+      // An invisible character repeated immediately collapses to one
+    } else {
+      result += ch;
+      lastCharWasSpace = false;
+      runIndex = -1;
+    }
+
+    if ((ch === "\n" || ch === "\r") && runIndex >= 0) {
+      result = `${result.slice(0, runIndex)}\n${result.slice(runIndex + 1)}`;
+    }
+    prevCh = ch;
+  }
+  return result;
 }
 
 /**
@@ -214,6 +295,12 @@ function getNextWord(fragment: string, start: number): { word: string; next: num
 function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: boolean): Token[] {
   const tokens: Token[] = [];
   let index = 0;
+  // PT9 resolves an unknown marker against the OPEN ELEMENT STACK, not against the fragment it
+  // started in (`State.Stack.Exists(e => e.Type == Note)`, UsfmParser.cs). A note opened inside
+  // this fragment puts one on that stack just as surely as being handed note content does, so
+  // track it: without this, an unknown marker inside `\f ... \f*` classifies as a PARAGRAPH and
+  // tears the note in half, stranding its closer.
+  let openNoteMarker: string | undefined;
   const pushText = (text: string) => {
     if (!text) return;
     const prev = tokens[tokens.length - 1];
@@ -257,6 +344,7 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
     }
 
     if (name.endsWith("*")) {
+      if (name.slice(0, -1) === openNoteMarker) openNoteMarker = undefined;
       tokens.push({ kind: "end", marker: name.slice(0, -1) });
       continue;
     }
@@ -276,6 +364,7 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
     if (name === CHAPTER_MARKER) {
       const { word, next: afterWord } = getNextWord(fragment, index);
       index = afterWord;
+      openNoteMarker = undefined; // PT9 CloseAll: a chapter empties the element stack
       tokens.push({ kind: "chapter", number: word });
       continue;
     }
@@ -289,6 +378,7 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
     if (kind === MarkerType.Note || (kind === undefined && NoteNode.isValidMarker(name))) {
       const { word, next: afterWord } = getNextWord(fragment, index);
       index = afterWord;
+      openNoteMarker = name;
       tokens.push({ kind: "note", marker: name, caller: word || "+" });
       continue;
     }
@@ -327,7 +417,8 @@ function tokenize(fragment: string, getMarkerFn: MarkerLookup, isNoteContext: bo
       // A non-`+` char run closes any open char style unconditionally, same as
       // a known Character token (UsfmParser.cs:247).
       consumeSeparator();
-      if (!isNoteContext || name === SIDEBAR_MARKER || name === SIDEBAR_END_MARKER)
+      const insideNote = isNoteContext || openNoteMarker !== undefined;
+      if (!insideNote || name === SIDEBAR_MARKER || name === SIDEBAR_END_MARKER)
         tokens.push({ kind: "para", marker: name });
       else tokens.push({ kind: "charOpen", marker: clean, isNested });
     }
