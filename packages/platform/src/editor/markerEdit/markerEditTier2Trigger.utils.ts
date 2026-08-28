@@ -51,6 +51,7 @@ import {
   $isCanonicalUnmatchedNode,
   $isChapterNode,
   $isCharNode,
+  $isImmutableTableNode,
   $isImmutableUnmatchedNode,
   $isMarkerNode,
   $isUnknownNode,
@@ -117,8 +118,8 @@ function $displayRunValueAtRest(node: TextNode): boolean {
 }
 
 /**
- * Whether `node` sits inside a block whose text the tokenizer keeps literal — a book id or an
- * opaque UnknownNode block (sidebar, periph, figure, …). These are the
+ * Whether `node` sits inside a block whose text the tokenizer keeps literal — a book id, an
+ * opaque UnknownNode block (sidebar, periph, figure, …), or a table. These are the
  * degradation-property contexts `$rebuildParas` refuses to re-tokenize (the paragraph guard
  * rails and `$requestTier2ForNode`'s opaque-block bail), so a divergence there can never
  * settle. Both the backslash path and the `//` optbreak path below skip such nodes: pending
@@ -128,10 +129,15 @@ function $displayRunValueAtRest(node: TextNode): boolean {
  * chapter's bytes is literal-by-policy — they were excluded only because no scope rebuilt them.
  * `$rebuildChapter` (tier2Rebuild.utils.ts) is that scope now, so a chapter's display bytes pend
  * and settle like any paragraph's. `book` stays: it has no settle scope, deliberately.
+ *
+ * Tables are here for the same reason `book` is: no rebuild scope owns one. Their cells hold
+ * ordinary `TextNode`s, so this transform does run on them, and a cell whose text contains `//`
+ * (a URL, say — the tokenizer reads `//` as an optbreak wherever it appears) would otherwise pend
+ * a key nothing can ever settle, leaving it to re-arm the idle timer for the rest of the session.
  */
 function $inLiteralOnlyBlock(node: LexicalNode): boolean {
   for (let parent = node.getParent(); parent; parent = parent.getParent())
-    if ($isBookNode(parent) || $isUnknownNode(parent)) return true;
+    if ($isBookNode(parent) || $isUnknownNode(parent) || $isImmutableTableNode(parent)) return true;
   return false;
 }
 

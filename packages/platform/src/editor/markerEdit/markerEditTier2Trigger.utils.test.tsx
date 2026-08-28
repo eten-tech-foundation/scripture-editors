@@ -24,6 +24,9 @@ import {
 import {
   $charAttributeDisplayNode,
   $createCharNode,
+  $createImmutableTableCellNode,
+  $createImmutableTableNode,
+  $createImmutableTableRowNode,
   $createMarkerNode,
   $createNoteNode,
   $createParaNode,
@@ -1053,6 +1056,71 @@ describe("$textNodeTier2Transform on `//` optbreak text in plain content", () =>
         context.pendingKeys.add(content.getKey()); // prove the transform clears it, not just skips
         $textNodeTier2Transform(content, context);
         expect(context.pendingKeys.has(content.getKey())).toBe(false);
+      },
+      { discrete: true },
+    );
+  });
+});
+
+describe("$textNodeTier2Transform on `//` inside a table", () => {
+  function buildContext(): MarkerEditContext {
+    return {
+      viewOptions,
+      getMarker: bundledGetMarker,
+      pendingKeys: new Set<NodeKey>(),
+      splitExpected: { current: false },
+      rebuildAttempted: new Set<string>(),
+    };
+  }
+
+  it("does not pend a `//` a table cell legitimately contains", () => {
+    // No rebuild scope owns a table, so a key pended here could never settle: it would sit in
+    // `pendingKeys` re-arming the idle timer for the rest of the session. A cell can hold `//`
+    // without anyone typing it — the tokenizer reads `//` as an optbreak wherever it appears,
+    // a URL included.
+    const { editor } = createBasicTestEnvironment();
+    let cellText: TextNode;
+    editor.update(
+      () => {
+        cellText = $createTextNode("see https://example.org for more");
+        $getRoot().append(
+          $createImmutableTableNode().append(
+            $createImmutableTableRowNode().append(
+              $createImmutableTableCellNode().append(cellText),
+            ),
+          ),
+        );
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        context.pendingKeys.add(cellText.getKey()); // prove the transform clears it, not just skips
+        $textNodeTier2Transform(cellText, context);
+
+        expect(context.pendingKeys.has(cellText.getKey())).toBe(false);
+      },
+      { discrete: true },
+    );
+  });
+
+  it("still pends a `//` in an ordinary paragraph, which does have a settle scope", () => {
+    const { editor } = createBasicTestEnvironment();
+    let content: TextNode;
+    editor.update(
+      () => {
+        content = $createTextNode("see https://example.org for more");
+        $getRoot().append($createParaNode("p").append($createMarkerNode("p"), content));
+      },
+      { discrete: true },
+    );
+    const context = buildContext();
+    editor.update(
+      () => {
+        $textNodeTier2Transform(content, context);
+
+        expect(context.pendingKeys.has(content.getKey())).toBe(true);
       },
       { discrete: true },
     );
