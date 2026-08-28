@@ -206,6 +206,48 @@ USJ, deliberately matching ParatextData rather than the spec). **Derive the shar
 map; keep the parser-behavior deltas local, explicit, and named.** Do not collapse one into the
 other.
 
+### The Paratext 9 parse rules the tokenizer reproduces (USFM ≤ 3.0)
+
+Runtime-verified against ParatextData 9.5.0.22 — the build paranext-core links, and the only one
+reachable: a project migrated to USFM 3.1 sets `MinParatextDataVersion 9.6.1.1` and cannot open
+against it. These are therefore the only semantics in play, and the tokenizer implements them
+deliberately rather than incidentally. **USFM 3.1 inverts most of them**; that whole delta, with
+Paratext 9 file:line citations, is the checklist in paranext-core's
+`c-sharp-tests/Usfm31NestingTripwireTests.cs`, which self-activates on a ParatextData upgrade.
+
+- **A bare char marker closes ALL open char styles, then opens.** Not just the innermost — `\ft`
+  with `\+nd` open, then a bare `\fq`, pops both. A `+` marker closes nothing and nests.
+- **Whether the closed span has a matching closer later is irrelevant.** Close-on-bare fires
+  anyway, and the orphaned closer becomes an `unmatched` node that stays literally in the file.
+- **Closers pop until they match.** A mismatched closer (`\qt*` with only `\nd` open) still closes
+  everything, then becomes `unmatched` itself.
+- **An outer closer auto-closes the inner span** as `closed="false"` — no error.
+- **`+` with nothing open is an unknown marker literally named `+w`.** The `+` is not stripped.
+- **Verse boundaries do NOT close char styles.** An unclosed `\nd` continues across `\v`, with the
+  verse nesting inside the char. The marker check flags it; the structure keeps it open.
+- **Notes nest inside open char spans** — `\nd a \f …\f* b` puts the whole note inside the `nd`.
+
+This is why the editable glyphs carry the nested `+`: Tier-2 rebuilds by re-tokenizing visible
+glyph text, so a genuinely nested span whose glyphs read `\nd Lo\w rd\nd*` would be re-interpreted
+by close-on-bare and silently flattened. Glyph text mirrors the writer exactly so that loop stays
+lossless — the same reason invariant V holds.
+
+### Attribute display grammar
+
+Three Paratext 9 sites agree on it (`UsfmToken.ToAttributeString`, `NamedAttribute.ToString`,
+`UsfmXsltExtensions.GetStyleAttributeStr`), and `canonicalAttributeText` is the single
+implementation:
+
+- A lone attribute that is the marker's **default** renders bare: `|value`. Anything else renders
+  `|name="value" name2="value2"` — double quotes always, single spaces, parse order preserved.
+  Whitespace around `=` and between attributes is discarded on parse.
+- **Bare `|value` parses as the default attribute only if the marker declares one.** Otherwise —
+  and for any text the attribute grammar cannot fully match — the `|…` stays literal inline
+  content. It is never dropped and never becomes opaque data. So `|gloss` before `\w*` becomes
+  `lemma="gloss"`, while `|gloss` before `\nd*` stays char text.
+- **Typing the named form of a default attribute settles to the collapsed form in the editor**, with
+  no file round-trip: `\w thing|lemma="gloss"\w*` settles to `\w thing|gloss\w*`.
+
 ---
 
 ## 3. What applying a marker DOES to the document
