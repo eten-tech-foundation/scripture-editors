@@ -1704,3 +1704,146 @@ describe("usfmFragmentToUsjContent — unknown markers resolve against the open 
     expect(content[1]).toEqual({ type: "para", marker: "zz", content: ["custom"] });
   });
 });
+
+describe("usfmFragmentToUsjContent — Paratext 9 parity for empty attribute markers and values", () => {
+  // An attribute marker with nothing in it stays an ordinary marker in the text. It does not fold
+  // onto the marker it follows (that is what a FILLED one does) and it does not disappear. These
+  // are Paratext's USX shapes for the same bytes: <char style="ca"/>, <para style="cp"/>,
+  // <char style="va"/>, <char style="vp"/>, <char style="cat"/>.
+  it("keeps an empty \\ca as a char marker beside the chapter", () => {
+    expect(usfmFragmentToUsjContent("\\c 1 \\ca \\ca* \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "1" },
+      { type: "char", marker: "ca" },
+      " ",
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+  });
+
+  it("keeps an empty \\cp as its own paragraph", () => {
+    expect(usfmFragmentToUsjContent("\\c 1 \\cp  \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "1" },
+      { type: "para", marker: "cp" },
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+  });
+
+  it("keeps an empty \\va and \\vp as char markers beside the verse", () => {
+    expect(usfmFragmentToUsjContent("\\p \\v 1 \\va \\va* text")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          { type: "char", marker: "va" },
+          " text",
+        ],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent("\\p \\v 1 \\vp \\vp* text")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          { type: "char", marker: "vp" },
+          " text",
+        ],
+      },
+    ]);
+  });
+
+  it("keeps an empty \\cat as a char marker inside the note", () => {
+    expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\cat \\cat*\\f*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "cat" },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("still folds a FILLED attribute marker onto its target", () => {
+    expect(usfmFragmentToUsjContent("\\c 1 \\ca 2\\ca* \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+    expect(usfmFragmentToUsjContent("\\p \\v 1 \\vp 2\\vp* text")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "verse", marker: "v", number: "1", pubnumber: "2" }, " text"],
+      },
+    ]);
+  });
+
+  // An attribute whose VALUE is empty is a different case with the same principle behind it:
+  // Paratext will not read `|who=""` as an attribute, so neither does this, and the bytes the
+  // author typed stay visible as text rather than being silently dropped.
+  it("leaves an empty attribute value as the literal text the author typed", () => {
+    expect(usfmFragmentToUsjContent('\\p \\qt-s |who=""\\* text')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "ms", marker: "qt-s" },
+          '|who=""',
+          { type: "unmatched", marker: "*" },
+          " text",
+        ],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p \\w grace|lemma=""\\w* after')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", content: ['grace|lemma=""'] }, " after"],
+      },
+    ]);
+  });
+});
+
+describe("usfmFragmentToUsjContent — figures parse without a project stylesheet", () => {
+  // The default marker table is the fallback used before a project's stylesheet resolves. It had
+  // no `fig`, so a figure read as an unknown marker: its own paragraph, with the closer stranded.
+  it("reads a USFM 3.0 figure as a figure", () => {
+    expect(
+      usfmFragmentToUsjContent('\\p text \\fig caption|src="f.jpg" size="col"\\fig* after'),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text ",
+          { type: "figure", marker: "fig", file: "f.jpg", size: "col", content: ["caption"] },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a USFM 2.0 positional figure inside its paragraph", () => {
+    expect(
+      usfmFragmentToUsjContent("\\p text \\fig desc|file|size|loc|copy|caption|ref\\fig* after"),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text ",
+          { type: "char", marker: "fig", content: ["desc|file|size|loc|copy|caption|ref"] },
+          " after",
+        ],
+      },
+    ]);
+  });
+});
