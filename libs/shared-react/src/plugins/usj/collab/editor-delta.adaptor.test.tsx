@@ -1481,8 +1481,10 @@ describe("getEditorDelta", () => {
     // tables), so the whole table flattens to its descendant text — this fixture's `tc1` cell,
     // carrying marker and `category`, arrives on the wire as a bare `{ insert: "cell1" }`.
     // Refreshing `opsWithUnknownItems` now would pin that loss as expected, so the adaptor (and
-    // the OT model) need a table representation first. Deleting this entry is part of that fix;
-    // the test above already covers everything else the fixture was built for.
+    // the OT model) need a table representation first. That work is tracked with the rest of table
+    // editing, which is why this is skipped rather than deleted: it is the executable statement of
+    // what collab has to round-trip once tables become editable. Deleting this entry is part of
+    // that fix; the test above already covers everything else the fixture was built for.
     it.skip("should roundtrip the editor state with unknown items, including the table", async () => {
       const { editor } = await testEnvironment();
       const editorState = editor.parseEditorState(editorStateWithUnknownItems);
