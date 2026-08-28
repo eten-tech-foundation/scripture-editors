@@ -159,6 +159,11 @@ const CASES: { label: string; usfm: string; usj: string }[] = [
   },
   { label: "web matthew 1-2", usfm: "web-matthew-1-and-2.usfm", usj: "web-matthew-1-and-2.usj" },
   {
+    label: "spacing and word breaks",
+    usfm: "spacing-word-break.usfm",
+    usj: "spacing-word-break.usj",
+  },
+  {
     label: "web matthew 5",
     usfm: "web-matthew-5-section-header.usfm",
     usj: "web-matthew-5-section-header.usj",

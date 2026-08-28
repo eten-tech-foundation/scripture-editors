@@ -122,6 +122,41 @@ async function placeCaretInShell(
   });
 }
 
+/**
+ * Put the caret at `offset` of a shell node the way a CLICK does: the pointer is down when the
+ * selection lands, which is the order a real click delivers (`pointerdown`, selection change,
+ * `pointerup`).
+ */
+async function clickCaretInShell(
+  editor: LexicalEditor,
+  pick: (note: NoteNode) => TextNode,
+  offset: number,
+): Promise<void> {
+  const doc = editor.getRootElement()?.ownerDocument ?? document;
+  await act(async () => {
+    doc.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    editor.update(() => {
+      const node = pick(findOnlyNote($getRoot()));
+      node.select(offset, offset);
+      editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+    });
+    doc.dispatchEvent(new Event("pointerup", { bubbles: true }));
+  });
+}
+
+/**
+ * Park the caret past the note's content, which is where a popover's `focus()` leaves it when it
+ * has no selection to restore: `focus()` falls back to the document END, and the popover's document
+ * holds nothing but the note.
+ */
+async function focusPastNoteContent(editor: LexicalEditor): Promise<void> {
+  await act(async () => {
+    editor.update(() => {
+      findOnlyNote($getRoot()).getLastChild()?.selectEnd();
+    });
+  });
+}
+
 /** Type `text` one character at a time as a user gesture. */
 async function typeText(editor: LexicalEditor, text: string): Promise<void> {
   for (const ch of text) {
@@ -211,6 +246,25 @@ describe("expanded note shell", () => {
       // The shell's trailing edge: the caller's own end, which is the only offset in the shell
       // where a keystroke is redirected FORWARD into the note's content instead of rewriting a
       // shell node. On screen it is the position immediately after `\f + `.
+      expect(selection.anchor.getNode().is(caller)).toBe(true);
+      expect(selection.anchor.offset).toBe(caller.getTextContentSize());
+    });
+  });
+
+  it("sends a CLICK in the shell to the note's content, wherever the caret was before", async () => {
+    const { editor } = await mount(protectedShell);
+
+    // The popover focuses its editor with no selection, which parks the caret at the document
+    // end — inside this very note, past its content. Read as a direction that says "moving left
+    // out of the note", and the click that follows lands past the whole note instead of in it.
+    // A pointer names a destination, so it is not a direction at all.
+    await focusPastNoteContent(editor);
+    await clickCaretInShell(editor, $opener, 1);
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const caller = requireDefined($noteEditableCallerNode(findOnlyNote($getRoot())), "caller");
       expect(selection.anchor.getNode().is(caller)).toBe(true);
       expect(selection.anchor.offset).toBe(caller.getTextContentSize());
     });

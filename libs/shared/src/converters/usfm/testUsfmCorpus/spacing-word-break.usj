@@ -1,0 +1,35 @@
+{
+  "type": "USJ",
+  "version": "3.1",
+  "content": [
+    {
+      "type": "chapter",
+      "marker": "c",
+      "number": "1"
+    },
+    {
+      "type": "para",
+      "marker": "p",
+      "content": [
+        {
+          "type": "verse",
+          "marker": "v",
+          "number": "1"
+        },
+        "ดี​โล word​break ",
+        {
+          "type": "verse",
+          "marker": "v",
+          "number": "2"
+        },
+        "two words and a hard space ",
+        {
+          "type": "verse",
+          "marker": "v",
+          "number": "3"
+        },
+        "stuff things"
+      ]
+    }
+  ]
+}
