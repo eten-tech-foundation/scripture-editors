@@ -549,6 +549,39 @@ describe("Editor Node Utilities", () => {
       });
     });
 
+    it("retargets a NESTED span's glyphs, keeping the + on both", () => {
+      // A nested span's glyphs read `\+nd` / `\+nd*`. Matching them against the non-nested
+      // spelling found nothing, so both survived stale: the node's marker became `bd` while the
+      // glyphs on screen — and the bytes saved to file — still said `nd`.
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd", true)),
+              $createTextNode("Lord"),
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd", true)),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const text = charNode.getTextContent();
+        expect(text).toContain(openingMarkerText("bd", true));
+        expect(text).toContain(closingMarkerText("bd", true));
+        expect(text).not.toContain(openingMarkerText("nd", true));
+        expect(text).not.toContain(closingMarkerText("nd", true));
+      });
+    });
+
     it("matches marker children against the old marker, not the new one", () => {
       // Pins the ordering inside $setCharNodeMarker: the children are retargeted *before*
       // charNode.setMarker runs, so the match reads the old marker off the node. Reverse the two

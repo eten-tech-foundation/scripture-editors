@@ -679,8 +679,8 @@ export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
  * The old marker is read from the node itself rather than taken from a caller-supplied "from"
  * marker, which callers may not know when the innermost marker was targeted.
  *
- * A child whose text is neither the opening nor the closing form of the old marker is left
- * verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
+ * A child whose text is neither the opening nor the closing form of the old marker — in either the
+ * plain or the nested (`\\+nd`) spelling — is left verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
  * `MarkerNode` is a `TextNode` in default (non-token) mode, so a selection anchored inside its
  * visible text can `splitText` it into a fragment whose `__marker` is stale but whose text no
  * longer matches — rewriting that verbatim would re-expand it to the wrong marker.
@@ -690,8 +690,13 @@ export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
  */
 function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void {
   const fromMarker = charNode.getMarker();
+  // Both spellings: a nested span's glyphs carry the `+` (`\\+nd`), and matching only the plain
+  // form left them unmatched, so a marker change inside another span rewrote the node while its
+  // glyphs — and the bytes they serialize to — kept the old marker.
   const openingText = openingMarkerText(fromMarker);
+  const nestedOpeningText = openingMarkerText(fromMarker, true);
   const closingText = closingMarkerText(fromMarker);
+  const nestedClosingText = closingMarkerText(fromMarker, true);
   // Note-content markers are written without a closing marker, so a closing child is removed rather
   // than retargeted to a form `addClosingMarker` would never emit.
   const dropsClosingMarker = CharNode.isNoteContentMarker(toMarker);
@@ -701,18 +706,24 @@ function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void
     if (!$isSynthesizedMarkerNode(child)) return;
 
     const text = child.getTextContent();
-    const isOpening = text === openingText;
-    const isClosing = !isOpening && text === closingText;
+    const isOpening = text === openingText || text === nestedOpeningText;
+    const isClosing = !isOpening && (text === closingText || text === nestedClosingText);
     if (!isOpening && !isClosing) return;
 
     if (isClosing && dropsClosingMarker) {
       child.remove();
       return;
     }
-    // MarkerNode.setMarker recomputes the node's text for us.
+    // MarkerNode.setMarker recomputes the node's text for us, nesting included — it re-derives
+    // from its own stored nesting rather than from anything read here.
     if ($isMarkerNode(child)) child.setMarker(toMarker);
-    else if ($isVisibleMarkerNode(child))
-      child.setTextContent(isOpening ? openingMarkerText(toMarker) : closingMarkerText(toMarker));
+    else if ($isVisibleMarkerNode(child)) {
+      // A visible glyph stores no nesting, so carry over the nesting its text already showed.
+      const nested = text.startsWith(openingMarkerText("", true));
+      child.setTextContent(
+        isOpening ? openingMarkerText(toMarker, nested) : closingMarkerText(toMarker, nested),
+      );
+    }
   });
 }
 
