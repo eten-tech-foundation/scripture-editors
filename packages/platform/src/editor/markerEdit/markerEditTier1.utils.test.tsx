@@ -571,6 +571,51 @@ describe("Tier 1 verse/chapter number sync", () => {
     expect(json).not.toContain('"type":"verse"');
   });
 
+  it("keeps a space typed at the prefix/verse boundary — byte and caret (leading-run licence)", async () => {
+    // A space typed between the paragraph prefix and the verse marker lands at the verse glyph's
+    // offset 0 (the prefix separator is a token node, and Lexical routes a token-boundary
+    // insertion into the next sibling). That leading run is typed spacing beside the marker —
+    // structural whitespace the writer owns — so the byte stays visible and the caret stays put.
+    // It previously read as a broken `\v` prefix and the routed Tier-2 rebuild discarded the
+    // keystroke: pressing Space visibly did nothing.
+    let verse!: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () =>
+      editor.update(() => {
+        verse.select(0, 0);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        selection.insertText(" ");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(verse.isAttached()).toBe(true);
+      expect(verse.getTextContent()).toBe(` ${getVisibleOpenMarkerText("v", "1")}`);
+      expect(verse.getNumber()).toBe("1");
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.key).toBe(verse.getKey());
+      expect(selection.anchor.offset).toBe(1);
+    });
+  });
+
+  it("still syncs a retyped number under a leading typed space (licence covers both)", async () => {
+    let verse!: VerseNode;
+    const { editor } = await testEnvironment(() => ({ verse } = $appendVersePara()));
+    await act(async () =>
+      editor.update(() => {
+        verse.setTextContent(` \\v${NBSP}6${NBSP}`);
+        verse.select(1, 1);
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(verse.getNumber()).toBe("6");
+      expect(verse.getTextContent()).toBe(` \\v${NBSP}6${NBSP}`); // bytes stay as typed
+    });
+  });
+
   it("syncs the number and keeps the typed separator bytes when the chapter token is edited", async () => {
     let chapter: ChapterNode;
     const { editor } = await testEnvironment(() => {
@@ -598,6 +643,38 @@ describe("Tier 1 verse/chapter number sync", () => {
     editor.getEditorState().read(() => {
       expect(chapter.getNumber()).toBe("2");
       expect(chapter.getFirstChild()?.getTextContent()).toBe("\\c 2 ");
+    });
+  });
+
+  it("keeps a space typed before the chapter glyph (leading-run licence)", async () => {
+    // Same licence as the verse arm's: a space typed at the glyph's offset 0 is typed spacing
+    // beside the marker. It must neither pend (a pended chapter text routes to a departure
+    // rebuild that discards the byte) nor block a number retype under it.
+    let chapter: ChapterNode;
+    const { editor } = await testEnvironment(() => {
+      chapter = $createChapterNode("1");
+      $getRoot().append(
+        chapter.append($createTextNode(getVisibleOpenMarkerText("c", "1"))),
+        $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP)),
+      );
+    });
+    await act(async () =>
+      editor.update(() => {
+        const text = chapter.getFirstChild();
+        if (!$isTextNode(text)) throw new Error("chapter text missing");
+        text.select(0, 0);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        selection.insertText(" ");
+        chapter.markDirty();
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect(chapter.getFirstChild()?.getTextContent()).toBe(
+        ` ${getVisibleOpenMarkerText("c", "1")}`,
+      );
+      expect(chapter.getNumber()).toBe("1");
     });
   });
 

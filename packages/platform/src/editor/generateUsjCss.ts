@@ -189,11 +189,63 @@ function markerDeclarations(
 }
 
 /**
+ * The static usj-nodes.css font sizes (percent of base) for the chapter and its `\ca`/`\cp`
+ * attribute runs — the fallbacks when the sheet declares no size of its own for one of them.
+ * Must stay in step with `.formatted-font .usfm_c` / `.usfm_ca` / `.usfm_cp` there.
+ */
+const STATIC_CHAPTER_FONT_PERCENTS = { c: 150, ca: 133, cp: 150 } as const;
+
+/** Percent-of-base font size the sheet's per-marker rule emits for `entry`, or `fallback` when
+ * it emits none — the same `fontSize * 100 / 12` mapping {@link markerDeclarations} uses. */
+function fontSizePercent(entry: MarkerStyleInfo | undefined, fallback: number): number {
+  return entry && hasValue(entry.fontSize) && entry.fontSize > 0
+    ? Math.floor((entry.fontSize * 100) / 12)
+    : fallback;
+}
+
+/**
+ * De-compounding rules for the chapter's own NESTED `\ca`/`\cp` attribute runs, computed from
+ * this sheet's sizes. Paratext 9 sizes every marker's text against the BASE text size, never
+ * against its container: a `\ca` at FontSize 16 renders at 16/12 of body whether it stands alone
+ * or rides inside the chapter (measured live in PT9 — base 16px, `\c` 24px, `\ca` 21.28px, `\cp`
+ * 24px, the marker glyphs at 0.7em of each). CSS percentage font sizes instead resolve against
+ * the PARENT, so a run inside the chapter element compounds (`133% × 150%` ≈ 200% of body)
+ * unless divided back down. The static usj-nodes.css carries this division for the static sizes;
+ * these rules carry it for the sheet's OWN sizes, so "project styles win" and "sizes are
+ * base-relative like PT9" hold at the same time. Extra selector weight (the doubled run class,
+ * plus this scope) keeps them above both the static nested rules and this sheet's flat
+ * per-marker rules.
+ */
+function chapterNestedRunRules(styleInfo: StyleInfo, scope: string): string[] {
+  // Nothing to correct when the sheet sizes none of the three: the static rules already carry the
+  // division for the static sizes. One declared size is enough to need all of them, since it moves
+  // either the divisor (`\c`) or the dividend (`\ca`/`\cp`) away from what the static rules assume.
+  const sized = (["c", "ca", "cp"] as const).filter((marker) => {
+    const entry = styleInfo.markers[marker];
+    return entry && hasValue(entry.fontSize) && entry.fontSize > 0;
+  });
+  if (sized.length === 0) return [];
+  const chapterPercent = fontSizePercent(styleInfo.markers.c, STATIC_CHAPTER_FONT_PERCENTS.c);
+  return (["ca", "cp"] as const).map((marker) => {
+    const percent = fontSizePercent(
+      styleInfo.markers[marker],
+      STATIC_CHAPTER_FONT_PERCENTS[marker],
+    );
+    const nestedPercent = formatLength((percent * 100) / chapterPercent);
+    return `${scope} .usfm_c .usfm_${marker}.usfm_${marker} { font-size: ${nestedPercent}%; }`;
+  });
+}
+
+/**
  * Generate CSS for a project's USJ Scripture editor from its stylesheet
  * (usfm.sty + custom.sty), mirroring PT9 CSSCreator.CreateUsfmCss. Emits a
  * base rule for the project default font/size followed by one
  * `.usfm_<marker>` rule per marker with any presentation fields the marker
  * declares. Rules with no declarations (e.g. an unstyled marker) are omitted.
+ * A sheet that sizes any of `\c`/`\ca`/`\cp` also gets a trailing pair of
+ * chapter-nested `\ca`/`\cp` rules, keeping those runs sized against the BASE
+ * text like PT9 does rather than compounding against the chapter — see
+ * {@link chapterNestedRunRules}.
  *
  * @public
  */
@@ -214,5 +266,6 @@ export function generateUsjCss(styleInfo: StyleInfo, options: UsjCssOptions = {}
     if (decls.length > 0)
       rules.push(`${scope} .usfm_${escapeCssIdentifier(marker)} { ${decls.join("; ")}; }`);
   }
+  rules.push(...chapterNestedRunRules(styleInfo, scope));
   return rules.join("\n");
 }

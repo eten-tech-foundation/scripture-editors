@@ -166,7 +166,11 @@ export function $textNodeTier2Transform(node: TextNode, context: MarkerEditConte
   // MarkerNodes, which exact-type dispatch never routes here.)
   const chapterParent = node.getParent();
   if (textType !== "attribute" && $isChapterNode(chapterParent)) {
-    if (text === getVisibleOpenMarkerText("c", chapterParent.getNumber()))
+    // A leading separator run over otherwise-canonical bytes is typed spacing at rest (the same
+    // licence $verseNodeTransform grants a verse glyph's leading run): pending it would route
+    // the byte into a departure rebuild that discards it.
+    const withoutLeadingRun = text.replace(/^[ \u00A0]+/, "");
+    if (withoutLeadingRun === getVisibleOpenMarkerText("c", chapterParent.getNumber()))
       context.pendingKeys.delete(node.getKey());
     else context.pendingKeys.add(node.getKey());
     return;

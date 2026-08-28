@@ -743,6 +743,29 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
     context.pendingKeys.delete(node.getKey());
     return;
   }
+  // A separator run typed BEFORE the glyph. A space typed at the paragraph-prefix/verse boundary
+  // lands at the glyph's offset 0 — the prefix separator is a token node, and Lexical routes a
+  // token-boundary insertion into the next sibling (see $createMarkerTrailingSeparator) — and it
+  // is the same "space typed beside the marker" gesture as the trailing separator runs the guard
+  // below licences: structural whitespace the writer owns, so the byte stays visible and the
+  // caret stays put. Without this licence the leading run read as a broken `\v` prefix, and the
+  // routed Tier-2 rebuild canonicalized the keystroke away — pressing Space visibly did nothing.
+  // Classification runs on the remainder; the bytes stay exactly as typed. A remainder these
+  // shapes don't cover falls through to the ordinary arms on the FULL bytes, unchanged.
+  const leadingRun = /^[ \u00A0]+/.exec(text);
+  if (leadingRun) {
+    const remainder = text.slice(leadingRun[0].length);
+    if (VERSE_GLYPH_REGEXES.midEdit.test(remainder)) {
+      context.pendingKeys.add(node.getKey());
+      return;
+    }
+    const remainderMatch = VERSE_GLYPH_REGEXES.valueAndRest.exec(remainder);
+    if (remainderMatch && SEPARATOR_RUN_ONLY_REGEX.test(remainderMatch[2] ?? "")) {
+      context.pendingKeys.delete(node.getKey());
+      if (remainderMatch[1] !== node.getNumber()) node.setNumber(remainderMatch[1]);
+      return;
+    }
+  }
   if (VERSE_GLYPH_REGEXES.midEdit.test(text)) {
     // number mid-edit; keep the stored number as the serialization fallback
     context.pendingKeys.add(node.getKey());
@@ -897,7 +920,12 @@ export function $chapterNodeTransform(node: ChapterNode): void {
   const expected = getVisibleOpenMarkerText("c", node.getNumber());
   const text = textNode.getTextContent();
   if (text === expected) return;
-  const match = CHAPTER_GLYPH_REGEXES.valueTerminated.exec(text);
+  // A separator run typed BEFORE the glyph is the same typed-spacing gesture the trailing runs
+  // get (see $verseNodeTransform's leading-run licence): classify on the remainder; the bytes
+  // stay exactly as typed.
+  const leadingRun = /^[ \u00A0]+/.exec(text);
+  const classifiable = leadingRun ? text.slice(leadingRun[0].length) : text;
+  const match = CHAPTER_GLYPH_REGEXES.valueTerminated.exec(classifiable);
   if (!match) return; // leave literal; serialization falls back to the stored number
   // The typed bytes stay as-is in BOTH branches: `valueTerminated` guarantees the only possible
   // divergence beyond the number word is whitespace inside the glyph's separator runs, and

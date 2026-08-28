@@ -321,3 +321,64 @@ describe("generateUsjCss justification safety", () => {
     expect(generateUsjCss(rtlStyleInfo)).toContain("text-align: left");
   });
 });
+
+// Paratext 9 sizes every marker's text against the BASE text, never against its container: with a
+// 16px base it renders `\c` at 24px, `\ca` at 21.28px and `\cp` at 24px whether or not the
+// attribute runs ride inside the chapter. CSS percentages resolve against the PARENT, so without
+// these rules a `\ca` inside `\c` compounds to 133% × 150% ≈ 200% of base.
+describe("generateUsjCss chapter-nested attribute runs", () => {
+  const chapterMarker = (marker: string, fontSize: number) => ({
+    [marker]: { marker, styleType: "character" as const, fontSize },
+  });
+
+  it("emits nothing when the sheet sizes none of the chapter family", () => {
+    // The static sheet's own division already lands on PT9's sizes, so there is nothing to correct.
+    expect(
+      generateUsjCss({
+        markers: { nd: { marker: "nd", styleType: "character", smallCaps: true } },
+      }),
+    ).toBe(".editor-input.usfm .usfm_nd { font-variant: small-caps; }");
+  });
+
+  it("divides the runs back down to their base-relative sizes", () => {
+    // FontSize 18 → 150%, 16 → 133% (the same sizes the static sheet carries).
+    const css = generateUsjCss({
+      markers: {
+        ...chapterMarker("c", 18),
+        ...chapterMarker("ca", 16),
+        ...chapterMarker("cp", 18),
+      },
+    });
+
+    // 133 / 150 of the chapter → 133% of base, matching PT9's 21.28px against a 16px base.
+    expect(css).toContain(".editor-input.usfm .usfm_c .usfm_ca.usfm_ca { font-size: 88.667%; }");
+    // 150 / 150 → the run renders at the chapter's own size, PT9's 24px.
+    expect(css).toContain(".editor-input.usfm .usfm_c .usfm_cp.usfm_cp { font-size: 100%; }");
+  });
+
+  it("tracks a project chapter size the static sheet knows nothing about", () => {
+    // Only `\c` is sized (FontSize 24 → 200%); `\ca`/`\cp` fall back to the static percentages, so
+    // the divisor moves and the runs must follow it to stay base-relative.
+    const css = generateUsjCss({ markers: chapterMarker("c", 24) });
+
+    // 133 / 200 of a 200% chapter → 133% of base.
+    expect(css).toContain(".editor-input.usfm .usfm_c .usfm_ca.usfm_ca { font-size: 66.5%; }");
+    // 150 / 200 of a 200% chapter → 150% of base.
+    expect(css).toContain(".editor-input.usfm .usfm_c .usfm_cp.usfm_cp { font-size: 75%; }");
+  });
+
+  it("outweighs both the static nested rules and its own flat per-marker rule", () => {
+    const css = generateUsjCss({ markers: chapterMarker("ca", 16) });
+
+    // The flat rule is (0,3,0) and the static nested rule (0,4,0); the doubled run class plus the
+    // scope puts this at (0,5,0), so the project's size wins wherever the run is.
+    expect(css).toContain(".editor-input.usfm .usfm_ca { font-size: 133%; }");
+    expect(css).toContain(".editor-input.usfm .usfm_c .usfm_ca.usfm_ca { font-size: 88.667%; }");
+  });
+
+  it("carries the caller's container selector", () => {
+    expect(
+      generateUsjCss({ markers: chapterMarker("c", 18) }, { containerSelector: ".x" }),
+    ).toContain(".x .usfm_c .usfm_ca.usfm_ca");
+  });
+});
