@@ -77,6 +77,16 @@ const usfmMarkersOverwrites: { [marker: string]: MarkerOverwrite } = {
     description: "A hyperlink marker for study/analysis purposes",
     hasEndMarker: true,
   },
+  // The generated table has no `fig`, but `usfm.sty` does (and so does the stylesheet data every
+  // project supplies). Without an entry here, a document parsed BEFORE its project stylesheet
+  // resolves falls back to this table, reads `\fig` as an unknown marker, and breaks the figure
+  // into its own paragraph with the closer stranded as unmatched.
+  fig: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "Illustration [Columns to span, height, filename, caption text]",
+    hasEndMarker: true,
+  },
 };
 
 export default usfmMarkersOverwrites;
