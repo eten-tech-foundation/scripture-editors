@@ -379,15 +379,23 @@ export function $applyOpenerRename(
   newMarker: string,
   context: MarkerEditContext,
 ): boolean {
-  // A typed `+` prefix on a NON-nested glyph is a NEST instruction, not a rename: only Tier 2
-  // (re-tokenizing the visible glyph text, which now carries the `+`) can express the resulting
-  // nesting. Tier 1's in-place rename would strip the `+` and silently discard the nest intent,
-  // so route to Tier 2. On a glyph that is ALREADY nested, the `+` is just the glyph's own
-  // canonical spelling (`\+nd` retyped to `\+wj `) — no nesting is being requested that the tree
-  // doesn't already have — so it falls through to the ordinary in-place rename below, which
-  // mirrors the nested closer. Routing it to Tier 2 instead re-tokenized `\+wj … \+nd*` and
-  // stranded the untouched closer as unmatched.
-  if (newMarker.startsWith("+") && !node.getNested()) {
+  // The `+` is a NESTING instruction, so the glyph disagreeing with the tree about it is an
+  // instruction to change the nesting — something only Tier 2 can express, by re-tokenizing the
+  // visible glyph text. Tier 1's in-place rename compares names with the `+` stripped, so it reads
+  // both directions as "no change" and discards the user's intent.
+  //
+  // Typing a `+` onto a NON-nested glyph asks to nest it. Deleting the `+` from a nested one asks
+  // to un-nest it, and the resulting bytes mean what Paratext says they mean: a non-`+` char
+  // marker closes the span it sat inside, so `\wj \+nd x\+nd*\wj*` becomes an unclosed `\wj`,
+  // a sibling `\nd`, and a stranded `\wj*`. That is messier than what the user started with, but
+  // it is what they typed, and showing it is how they can see and fix it — silently keeping the
+  // nesting meant the file kept a `+` the glyph no longer had.
+  //
+  // When glyph and tree AGREE the `+` is just the glyph's own canonical spelling (`\+nd` retyped
+  // to `\+wj `), so it falls through to the ordinary in-place rename below, which mirrors the
+  // nested closer. Routing that case to Tier 2 instead re-tokenized `\+wj … \+nd*` and stranded
+  // the untouched closer as unmatched.
+  if (newMarker.startsWith("+") !== node.getNested()) {
     return $requestTier2ForNode(node, context);
   }
   // Read BEFORE anything mutates: both arms below rewrite the glyph, and the caret's distance
