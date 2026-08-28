@@ -135,6 +135,41 @@ describe("settled getUsj — uniform settling", () => {
     });
   });
 
+  it("notifies the host of a caret-held display-byte edit without waiting for departure", async () => {
+    // A run edit changes the SETTLED document while the tree leg and the delta stay silent — a
+    // host schedules its save only off onUsjChange, so without a settled-leg notification
+    // nothing scheduled a save and closing the app before caret departure lost the edit. The
+    // notification must fire while the caret still sits at the edit; the screen keeps the
+    // pending bytes either way.
+    const onUsjChange = vi.fn();
+    const { lexical } = await mountStandardViewEditor(spanUsj, { onUsjChange });
+
+    await act(async () => {
+      lexical.update(() => {
+        $findNdChar().setUnknownAttributes({ mykey: "myval" });
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    onUsjChange.mockClear();
+
+    await act(async () => {
+      lexical.update(() => {
+        const run = $findAttributeRun($findNdChar());
+        run.setTextContent("|stuf");
+        run.select(5, 5);
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onUsjChange).toHaveBeenCalled();
+    const settled = onUsjChange.mock.calls.at(-1)?.[0] as Usj;
+    const span = ndSpanOf(settled);
+    expect(span?.content?.[0]).toContain("|stuf");
+    expect(Object.keys(span ?? {}).sort()).toEqual(["content", "marker", "type"]);
+  });
+
   it("leaves the document pending after a read, so a later commit still has work to do", async () => {
     const { ref, lexical } = await mountStandardViewEditor(spanUsj);
 

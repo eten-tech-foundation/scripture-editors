@@ -827,7 +827,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     [usj, onUsjChange, viewOptions],
   );
 
-  // Undo/redo must reach the file the same way typing does.
+  // Display-byte edits must reach the file the same way typing does.
   //
   // A host schedules a save only in response to `onUsjChange`, and that callback is driven by
   // `DeltaOnChangePlugin`'s delta diff over the TREE leg (`deserializeEditorState`). Display bytes
@@ -835,19 +835,24 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   // (Invariant II) and contribute nothing to the tree leg, which reads node state. But the host
   // SAVES `getUsj()`, the settled leg, which re-tokenizes exactly those bytes.
   //
-  // A marker edit occupies two history entries: the typed glyph bytes, and the Tier-2 settle that
-  // moves the rename into node state. Undoing walks them back in the opposite order, so the two
-  // legs change on DIFFERENT presses — the press that restores the displayed bytes changes the
-  // settled document while producing zero delta ops and an unchanged tree USJ. Nothing notified
-  // the host, so nothing scheduled a save, and the file kept the pre-undo content. (Ordinary text
-  // is unaffected: it is real document content, so its undo produces genuine ops.)
+  // Two edit families change the settled document while producing zero delta ops and an
+  // unchanged tree USJ, so `handleChange` stays silent for both:
   //
-  // Closing that gap needs a notification keyed off the SETTLED document rather than off the delta,
-  // and only for historic commits — every other path already announces itself through
-  // `handleChange`, and recomputing the settle on each keystroke would be a real cost for no gain.
+  // - UNDO/REDO: a marker edit occupies two history entries — the typed glyph bytes and the
+  //   Tier-2 settle that moves them into node state — and undoing walks them back in the
+  //   opposite order, so the press that restores the displayed bytes is delta-invisible.
+  // - LIVE display-byte edits: typing into a glyph, editing or deleting an attribute run's
+  //   bytes. The edit pends (mid-edit grace) and only the DEPARTURE settle moves it into node
+  //   state — so without a settled-leg notification the file lagged the screen for as long as
+  //   the caret stayed at the edit, and closing the app in that window lost the edit.
+  //
+  // Both need a notification keyed off the SETTLED document rather than off the delta. Gated so
+  // ordinary typing never pays for a settle recompute: outside historic commits, the settled leg
+  // can only have moved when the engine holds PENDING keys — no pends means the tree leg is the
+  // whole story and `handleChange` already told it.
   //
   // Deferred to a microtask for two reasons. First, ordering: `MarkerEditPlugin` re-derives the
-  // pend set from the restored bytes on this same historic commit (`$rependPendShapedNodes`), and
+  // pend set from restored bytes on a historic commit (`$rependPendShapedNodes`), and
   // `readSettledUsj` reads that set — a synchronous notification here would race it, since
   // `DeltaOnChangePlugin` registers its listener in a layout effect and so runs first. Deferring
   // past the commit makes the read correct regardless of plugin registration order. Second, it
@@ -856,16 +861,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !onUsjChange) return undefined;
-    return editor.registerUpdateListener(({ tags }) => {
-      if (!tags.has(HISTORIC_TAG)) return;
+    return editor.registerUpdateListener(({ tags, dirtyElements, dirtyLeaves }) => {
+      if (!tags.has(HISTORIC_TAG)) {
+        // Selection-only commits move no bytes; remote applies announce themselves through
+        // `applyUpdate`'s own onUsjChange emission.
+        if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
+        if (tags.has(DELTA_CHANGE_TAG)) return;
+        if (!getPendedDisplayOwners(editor)?.size) return;
+      }
       queueMicrotask(() => {
         const settled = readSettledUsj();
         if (!settled || deepEqual(lastNotifiedUsjRef.current, settled)) return;
         lastNotifiedUsjRef.current = settled;
-        // No ops and no inserted-node key: a history restore is not an incremental edit, so there
-        // is no delta to hand a collaborator and no newly inserted node to open an editor on.
-        // Consumers treat both as absent (the host's note-popover branches are keyed on
-        // `insertedNodeKey && ops`), and the payload is the settled document the host would save.
+        // No ops and no inserted-node key: neither a history restore nor a display-byte edit is
+        // an incremental content edit, so there is no delta to hand a collaborator and no newly
+        // inserted node to open an editor on. Consumers treat both as absent (the host's
+        // note-popover branches are keyed on `insertedNodeKey && ops`), and the payload is the
+        // settled document the host would save.
         onUsjChange(settled, undefined, "local", undefined);
       });
     });

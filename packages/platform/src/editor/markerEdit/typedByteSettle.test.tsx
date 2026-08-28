@@ -206,6 +206,38 @@ describe("milestone glyph typed bytes", () => {
     });
   });
 
+  it("keeps a typed space after the opener glyph — byte and caret, through the idle tick", async () => {
+    // The typed-space-stays rule extends to a run's OPENING glyph: `\qt-s` + Space is not a
+    // marker-name terminator (the name was already complete) but typed spacing the writer owns —
+    // it stays visible, the caret stays after it, and no settle canonicalizes it away
+    // ($isCanonicalRunOpenerGlyph). Previously the space read as a terminated same-name rename
+    // and the routed Tier-2 rebuild discarded the byte while the caret landed past the `\*`.
+    let milestone!: MilestoneNode;
+    const { editor } = await testEnvironment(() => {
+      milestone = $milestoneFixture();
+    });
+    await $caretAtMilestoneOpenerEnd(editor, milestone);
+    await typeText(editor, " ");
+
+    editor.getEditorState().read(() => {
+      expect($firstParaText()).toContain("\\qt-s \\*");
+    });
+
+    await advance(IDLE_SETTLE_DELAY_MS * 2);
+
+    editor.getEditorState().read(() => {
+      expect($firstParaText()).toContain("\\qt-s \\*");
+      expect(milestone.isAttached()).toBe(true);
+      expect(milestone.getUnknownAttributes()).toBeUndefined();
+      // The caret has not moved: still right after the typed space inside the opener glyph.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      const anchorNode = selection.anchor.getNode();
+      expect($isMarkerNode(anchorNode) && anchorNode.getTextContent()).toBe("\\qt-s ");
+      expect(selection.anchor.offset).toBe(6);
+    });
+  });
+
   it("resolves the held `|` per the tokenizer on genuine caret departure — no byte survives that the tokenizer drops", async () => {
     let milestone!: MilestoneNode;
     const { editor } = await testEnvironment(() => {

@@ -30,7 +30,9 @@ import {
 } from "lexical";
 import {
   $caretHoldsRunSite,
+  $isAttributeRunNode,
   $isCanonicalMarkerNode,
+  $isCanonicalRunOpenerGlyph,
   $isCanonicalUnmatchedNode,
   $isCharNode,
   $isMarkerNode,
@@ -507,6 +509,18 @@ function $markerGlyphCaretHeld(glyph: MarkerNode): boolean {
 export function $markerNodeTransform(node: MarkerNode, context: MarkerEditContext): void {
   const text = node.getTextContent();
   if ($isCanonicalMarkerNode(node)) {
+    context.pendingKeys.delete(node.getKey());
+    return;
+  }
+  // A display-run OPENER carrying only trailing typed spacing is at rest, not mid-edit
+  // ($isCanonicalRunOpenerGlyph — the run twin of the value's whitespace licence): the writer
+  // emits structural whitespace itself, so the byte never reaches the file, and the space stays
+  // visible under the caret. Without this, the trailing space read as a marker-name TERMINATOR:
+  // the same-name "rename" routed a wrapped run opener to a Tier-2 rebuild that canonicalized
+  // the space away and moved the caret past the run — a keystroke accepted and then discarded.
+  // Wrapper-parented glyphs only: a char/para opener's spacing belongs to its separator
+  // machinery, and loose run pieces are transient shapes the heal-forward wrap re-homes first.
+  if ($isAttributeRunNode(node.getParent()) && $isCanonicalRunOpenerGlyph(node)) {
     context.pendingKeys.delete(node.getKey());
     return;
   }

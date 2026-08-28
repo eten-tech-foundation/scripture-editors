@@ -57,7 +57,7 @@ import { ChapterNode } from "./ChapterNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
 import { MilestoneNode, MS_NON_ATTRIBUTE_PROPS } from "./MilestoneNode.js";
 import { UnknownAttributes } from "./node-constants.js";
-import { getEditableCallerText } from "./node.utils.js";
+import { getEditableCallerText, openingMarkerText } from "./node.utils.js";
 import { NoteNode } from "./NoteNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
@@ -296,6 +296,31 @@ export function $verseAttributeRunPieces(
   return $attributeMarkerRunPieces(after.getNextSibling(), marker);
 }
 
+/** The separator-run alphabet — plain space and NBSP, the whitespace class the marker-edit
+ * engine's separator runs are built from. */
+const TYPED_SPACING_ONLY_REGEX = /^[ \u00A0]+$/;
+
+/**
+ * Whether a display-run OPENING glyph's bytes are canonical, or canonical plus trailing TYPED
+ * SPACING. A space typed at the end of a run's opening glyph is the same gesture as one typed
+ * beside its value — the typed-space-stays rule: the writer emits structural whitespace itself,
+ * so the byte never reaches the file. Reporting the glyph byte-damaged instead routed the
+ * keystroke into a settle that discarded the space while the caret advanced past the run — a
+ * keystroke accepted and then discarded ("no silent no-ops"). Openers only: a closer's `*` is
+ * its final byte, so trailing bytes there genuinely respell it. Only for glyphs the CALLER knows
+ * are run pieces — a char or para opener's spacing story belongs to its separator machinery
+ * (markerSeparators.utils.ts), never to this license.
+ *
+ * Read-only: safe inside `editor.update()` or either read form.
+ */
+export function $isCanonicalRunOpenerGlyph(node: MarkerNode): boolean {
+  if ($isCanonicalMarkerNode(node)) return true;
+  if (node.getMarkerSyntax() !== "opening") return false;
+  const canonical = openingMarkerText(node.getMarker(), node.getNested());
+  const text = node.getTextContent();
+  return text.startsWith(canonical) && TYPED_SPACING_ONLY_REGEX.test(text.slice(canonical.length));
+}
+
 /**
  * The shared tolerant scan behind {@link $verseAttributeRunPieces} and
  * {@link $noteCategoryRunPieces}: an attribute MARKER's run pieces — opener `MarkerNode`
@@ -321,7 +346,9 @@ function $attributeMarkerRunPieces(
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "opening" &&
     cursor.getMarker() === marker &&
-    $isCanonicalMarkerNode(cursor)
+    // Typed-spacing licensed ({@link $isCanonicalRunOpenerGlyph}): a trailing space typed on the
+    // opener is at rest, not byte damage.
+    $isCanonicalRunOpenerGlyph(cursor)
   ) {
     opener = cursor;
     cursor = cursor.getNextSibling();
@@ -517,7 +544,9 @@ export function $milestoneAttributeRunPieces(milestone: MilestoneNode): Mileston
     $isMarkerNode(cursor) &&
     cursor.getMarkerSyntax() === "opening" &&
     cursor.getMarker() === milestone.getMarker() &&
-    $isCanonicalMarkerNode(cursor)
+    // Typed-spacing licensed ({@link $isCanonicalRunOpenerGlyph}): a trailing space typed on the
+    // opener is at rest, not byte damage.
+    $isCanonicalRunOpenerGlyph(cursor)
   ) {
     opening = cursor;
     cursor = cursor.getNextSibling();
