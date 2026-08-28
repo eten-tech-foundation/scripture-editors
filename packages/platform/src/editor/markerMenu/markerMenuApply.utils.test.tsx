@@ -2055,6 +2055,56 @@ describe("$applyMarkerMenuSelection", () => {
         });
       });
 
+      it("(multi-node selection) covered text takes \\fq; each crossed span keeps its uncovered tail", async () => {
+        const { editor, note } = await setUpNestedNd();
+        // Anchor at the start of \ft's own text, focus inside the nested \+nd ("⍽ho" covered):
+        // the selection spans two text nodes and crosses into the nested span.
+        await act(async () =>
+          editor.update(() => {
+            const ftText = $spanText(noteChars(note)[0]);
+            const ndText = $spanText($nestedNd(note));
+            const selection = $createRangeSelection();
+            selection.anchor.set(ftText.getKey(), 0, "text");
+            selection.focus.set(ndText.getKey(), 3, "text");
+            $setSelection(selection);
+          }),
+        );
+
+        await act(async () =>
+          editor.update(() =>
+            $applyMarkerMenuSelection(
+              nonNestItem,
+              { trigger: "backslash", literalPrefixLanded: false },
+              reference,
+              makeDeps(),
+            ),
+          ),
+        );
+
+        editor.getEditorState().read(() => {
+          // Note content: \fq (A ho) | \ft (\+nd ly\+nd* B). The covered text — "A " from \ft
+          // level plus "ho" from inside the nested \nd — takes the new style at NOTE level; the
+          // crossed \nd keeps its uncovered "ly" nested inside the reopened \ft, which also
+          // keeps the trailing " B". Nothing nests inside \nd (a nested non-NEST marker would
+          // re-tokenize as implicitly closing the spans it sits in).
+          const chars = noteChars(note);
+          expect($noteUsfmBytes(note)).toBe("\\f + \\fq A ho\\ft \\+nd ly\\+nd* B\\f*");
+          expect(chars.map((c) => c.getMarker())).toEqual(["fq", "ft"]);
+          const [fq, ftRight] = chars;
+          expect(fq.getTextContent()).toContain("A ho");
+          // Closer-less like the single-node apply: the reopened \ft is what closes \fq.
+          expect(
+            fq
+              .getChildren()
+              .filter($isMarkerNode)
+              .map((m) => m.getTextContent()),
+          ).toEqual(["\\fq"]);
+          expect(childChars(ftRight)[0]?.getMarker()).toBe("nd");
+          expect(childChars(ftRight)[0]?.getTextContent()).toContain("ly");
+          expect(ftRight.getTextContent()).toContain("B");
+        });
+      });
+
       it("(collapsed caret) ends \\ft at the caret and takes the rest of it into \\fq", async () => {
         const { editor, note } = await setUpNestedNd();
         // Caret between "ho" and "ly" inside the nested \nd (NBSP + "holy").

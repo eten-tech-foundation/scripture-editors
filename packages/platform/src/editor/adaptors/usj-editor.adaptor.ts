@@ -1062,7 +1062,13 @@ function addVerseAttributeRun(
   value: string | undefined,
   nodes: SerializedLexicalNode[],
 ) {
-  if (!value) return;
+  // Presence gate, like addNoteCategoryRun and the display-run descriptor (`va`/`vp` gate on
+  // `value === undefined` in displayRunRegistry.ts): `VerseNode.setAltnumber` stores `""`
+  // verbatim, so an empty value must still build its (empty-valued) run — a truthiness gate
+  // loaded `altnumber: ""` with NO run while the descriptor reported `wantsRun: true`, and
+  // `$writeRun` then fabricated a `\va \va*` run the document never showed, which the settle
+  // wrote to the file.
+  if (value === undefined) return;
   nodes.push(
     createAttributeRun(marker, [
       createMarker(marker, "opening"),

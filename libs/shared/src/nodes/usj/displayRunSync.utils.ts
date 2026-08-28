@@ -38,6 +38,18 @@ function runHasPieces(pieces: ScannedRun): boolean {
 }
 
 /**
+ * Whether any of the run's BYTE pieces — opener, value, closer — is currently in the tree. A
+ * surviving `AttributeRunNode` wrapper alone does not count: an emptied wrapper is the transient
+ * husk `$clearRun` deliberately leaves behind, not displayed bytes. Destruction detection reads
+ * THIS predicate, so deleting a wrapped run's visible bytes reports the owner even when the
+ * deletion left the husk standing ({@link runHasPieces} would see the husk and call the run
+ * alive, and the sync would then resurrect bytes the user just deleted).
+ */
+function runHasByteContent(pieces: ScannedRun): boolean {
+  return Boolean(pieces.opener || pieces.value || pieces.closer);
+}
+
+/**
  * Whether a display kind's canonical value bytes OPEN with the structural whitespace separator
  * that stands between a marker and its value (`\va` + NBSP + `2`, `\cat` + NBSP + `People`).
  * Kinds whose value carries no such separator — a char span's `|…` attribute bytes, an optbreak's
@@ -129,8 +141,7 @@ export function $runNeedsOnlyWrapMigration(
 /** True when NO piece of `owner`'s run remains — the run was deleted outright, as opposed to a
  * partial mangle that still leaves debris to repair around. */
 export function $runEntirelyAbsent(descriptor: DisplayRunDescriptor, owner: LexicalNode): boolean {
-  const pieces = descriptor.scanPieces(owner);
-  return !pieces.opener && !pieces.value && !pieces.closer;
+  return !runHasByteContent(descriptor.scanPieces(owner));
 }
 
 /**
@@ -182,14 +193,16 @@ function $runDestroyedSinceLastCommit(
   pieces: ScannedRun,
 ): boolean {
   if (!expected.wantsRun) return false;
-  if (runHasPieces(pieces)) return false;
+  // Byte pieces only: a deletion that empties the wrapper but leaves the husk standing is still
+  // a destroyed run — see runHasByteContent.
+  if (runHasByteContent(pieces)) return false;
   if ($hasUpdateTag(DELTA_CHANGE_TAG)) return false;
   return $getEditor()
     .getEditorState()
     .read(() => {
       const previous = $getNodeByKey(owner.getKey());
       if (!previous || !descriptor.ownerPredicate(previous)) return false;
-      return runHasPieces(descriptor.scanPieces(previous));
+      return runHasByteContent(descriptor.scanPieces(previous));
     });
 }
 

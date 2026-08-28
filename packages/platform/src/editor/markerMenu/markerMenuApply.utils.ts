@@ -101,12 +101,15 @@ function $applyParagraphSelection(
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
 
-  const anchorNode = selection.anchor.getNode();
-  const para = $findMatchingParent(anchorNode, $isParaNode);
+  // The FOCUS point is "the node the caret is in" — the live cursor end, correct even for a
+  // backward range selection. Reading the anchor made a forward selection whose anchor sat at
+  // paragraph content start silently retag the paragraph instead of splitting at the cursor.
+  const focusNode = selection.focus.getNode();
+  const para = $findMatchingParent(focusNode, $isParaNode);
   if (
     trigger === "backslash" &&
     para &&
-    $isAtParagraphContentStart(para, anchorNode, selection.anchor.offset)
+    $isAtParagraphContentStart(para, focusNode, selection.focus.offset)
   ) {
     $retagParagraph(para, marker, viewOptions);
     return;

@@ -238,33 +238,62 @@ export function ScriptureReferencePlugin({
   // document HAS a book code, which is exactly the case the BookNode listener can see for itself.
   // Both chapter flavors are watched because the view mode picks between them (editable markers
   // render ChapterNode, hidden markers ImmutableChapterNode) and either may be the one a document
-  // is built from; within one commit only the populated flavor reports anything but "destroyed".
-  useEffect(
-    () =>
-      mergeRegister(
-        ...[ChapterNode, ImmutableChapterNode].map((chapterClass) =>
-          editor.registerMutationListener(
-            chapterClass,
-            (nodeMutations, { prevEditorState }) => {
-              const kinds = [...nodeMutations.values()];
-              if (kinds.every((kind) => kind === "destroyed")) return;
-              // A document that can name its own book is the BookNode listener's to handle; acting
-              // on it here too would run onDocumentChanged twice for one commit.
-              if (getCommittedBookCode(editor)) return;
-              onDocumentChanged(machineRef.current, editor, undefined, {
-                hasCreated: kinds.includes("created"),
-                hasDestroyed: kinds.includes("destroyed"),
-                isSameDocumentReload:
-                  getBookChapterIdentity(prevEditorState) ===
-                  getBookChapterIdentity(editor.getEditorState()),
-              });
-            },
-            { skipInitialization: false },
+  // is built from.
+  //
+  // The batch is derived from the commit's STATE PAIR, never from a per-class kinds map: a
+  // view-option toggle swaps one chapter flavor for the other in a single commit, which per-class
+  // views split into a destroyed-only batch (one flavor) and a created-only batch (the other) —
+  // the swap misread as a pure create, branch (c) of onDocumentChanged, so no navigation window
+  // opened and the swap's transient chapter-top settle reported (the R2 clobber, for every
+  // chapter-only document). Both flavors' listeners fire in that commit; whichever runs first
+  // handles the whole cross-flavor batch and the other stands down on the state-identity dedupe.
+  useEffect(() => {
+    /** Keys of the state's root-level chapter nodes, both flavors. */
+    const getChapterKeys = (state: EditorState): Set<string> =>
+      state.read(
+        () =>
+          new Set(
+            $getRoot()
+              .getChildren()
+              .filter($isSomeChapterNode)
+              .map((n) => n.getKey()),
           ),
+      );
+    let lastHandledState: EditorState | undefined;
+    const handleChapterBatch = (prevEditorState: EditorState) => {
+      const currentState = editor.getEditorState();
+      if (lastHandledState === currentState) return;
+      lastHandledState = currentState;
+      // The skipInitialization:false registration replay passes the CURRENT state as
+      // prevEditorState (there is nothing older to diff against) — the mount case, every
+      // existing chapter "created".
+      const isReplay = prevEditorState === currentState;
+      const prevKeys = isReplay ? new Set<string>() : getChapterKeys(prevEditorState);
+      const currentKeys = getChapterKeys(currentState);
+      const hasCreated = [...currentKeys].some((key) => !prevKeys.has(key));
+      // A batch with no created chapter can never place, correct, or open a window — see
+      // onDocumentChanged.
+      if (!hasCreated) return;
+      // A document that can name its own book is the BookNode listener's to handle; acting
+      // on it here too would run onDocumentChanged twice for one commit.
+      if (getCommittedBookCode(editor)) return;
+      onDocumentChanged(machineRef.current, editor, undefined, {
+        hasCreated,
+        hasDestroyed: [...prevKeys].some((key) => !currentKeys.has(key)),
+        isSameDocumentReload:
+          getBookChapterIdentity(prevEditorState) === getBookChapterIdentity(currentState),
+      });
+    };
+    return mergeRegister(
+      ...[ChapterNode, ImmutableChapterNode].map((chapterClass) =>
+        editor.registerMutationListener(
+          chapterClass,
+          (_nodeMutations, { prevEditorState }) => handleChapterBatch(prevEditorState),
+          { skipInitialization: false },
         ),
       ),
-    [editor],
-  );
+    );
+  }, [editor]);
 
   // selectionSettled
   useEffect(

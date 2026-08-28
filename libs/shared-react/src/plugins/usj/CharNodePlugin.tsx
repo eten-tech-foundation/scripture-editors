@@ -7,6 +7,7 @@ import {
   $hasSameCharAttributes,
   $isCharNode,
   $isMarkerNode,
+  $isSeparatorPrefixHostText,
   $syncDisplayRun,
   $syncNestedGlyphs,
   $syncOpenerSeparators,
@@ -14,6 +15,7 @@ import {
   CharNode,
   displayRunDescriptor,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  NBSP,
 } from "shared";
 
 /** Combine adjacent CharNodes with the same attributes. */
@@ -64,9 +66,63 @@ function useCharNode(editor: LexicalEditor) {
  * re-tokenizes into exactly that shape). Where the glyphs are absent there are no bytes to
  * contradict, so the merge stays: adjacent same-attribute runs really are equivalent there, and
  * that is the case delta-apply and structure surgery rely on.
+ *
+ * The MIXED pairing — a glyph-less span beside a glyph-bearing one — must still merge, because
+ * the marker-apply paths rely on it: `$wrapRunInCharNode` (usj-marker-action.utils.ts) wraps the
+ * uncovered run in a deliberately glyph-less span and counts on this transform to reunite it with
+ * the glyph-bearing neighbor whose identity it copied. But a plain child move would land the
+ * content OUTSIDE the neighbor's glyph pair (`[\nd, "Lord", \nd*, " God"]` — bytes that
+ * re-tokenize as content after the closed span, inside it), so the mixed branches below splice
+ * the glyph-less content inside the pair instead: after the opening glyph when the partner
+ * follows, before the closing glyph when it precedes.
  */
 function $rendersOwnGlyphs(node: CharNode): boolean {
   return node.getChildren().some($isMarkerNode);
+}
+
+/**
+ * Merge glyph-less `node` into the same-attribute glyph-bearing `target` that FOLLOWS it. In
+ * document order the merged content starts with `node`'s children, so they belong directly after
+ * `target`'s opening glyph — and the NBSP display separator moves with the "first content" role:
+ * the old first content's presentation NBSP (prefix or standalone spacer) is stripped here, and
+ * `$syncOpenerSeparators` re-derives the separator for the new first content when `target` is
+ * re-processed as a dirtied span (the sync only ever ADDS a missing separator; it never strips a
+ * stale one, so the strip must happen in the same surgery that demotes the old host).
+ *
+ * @returns `false` (nothing touched) when `target`'s first child is not an opening glyph — a
+ *   mid-edit shape (e.g. a just-deleted opener) the marker-edit engine settles itself.
+ */
+function $mergeIntoFollowingGlyphSpan(node: CharNode, target: CharNode): boolean {
+  const opener = target.getFirstChild();
+  if (!$isMarkerNode(opener) || opener.getMarkerSyntax() !== "opening") return false;
+  const oldFirstContent = opener.getNextSibling();
+  if ($isSeparatorPrefixHostText(oldFirstContent)) {
+    const text = oldFirstContent.getTextContent();
+    if (text.startsWith(NBSP)) {
+      if (text === NBSP) oldFirstContent.remove();
+      else oldFirstContent.setTextContent(text.slice(NBSP.length));
+    }
+  }
+  target.splice(1, 0, node.getChildren());
+  node.remove();
+  return true;
+}
+
+/**
+ * Merge glyph-less `node` into the same-attribute glyph-bearing `target` that PRECEDES it. The
+ * merged content ends with `node`'s children, so they go before `target`'s closing glyph when it
+ * has one; an unclosed span (opening glyph only) takes them as a plain append. The separator
+ * needs no attention in this direction — `target`'s first content keeps its role.
+ */
+function $mergeIntoPrecedingGlyphSpan(node: CharNode, target: CharNode): void {
+  const closer = target.getLastChild();
+  const children = node.getChildren();
+  if ($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing") {
+    children.forEach((child) => closer.insertBefore(child));
+  } else {
+    target.append(...children);
+  }
+  node.remove();
 }
 
 /**
@@ -100,9 +156,16 @@ function $charNodeTransform(node: CharNode): void {
     $hasSameCharAttributes({ style, cid }, nextNode) &&
     deepEqual(unknownAttributes, nextNode.getUnknownAttributes())
   ) {
-    // Combine with next CharNode since it has the same attributes.
-    node.append(...nextNode.getChildren());
-    nextNode.remove();
+    // Combine with next CharNode since it has the same attributes. A glyph-bearing partner
+    // survives the merge (its glyphs are the displayed bytes) and takes the content inside its
+    // glyph pair; `node` is gone after that, so the previous-sibling pass below cannot run — the
+    // re-run on the dirtied survivor's siblings picks up any further merge.
+    if ($rendersOwnGlyphs(nextNode)) {
+      if ($mergeIntoFollowingGlyphSpan(node, nextNode)) return;
+    } else {
+      node.append(...nextNode.getChildren());
+      nextNode.remove();
+    }
   }
 
   const prevNode = node.getPreviousSibling();
@@ -112,8 +175,12 @@ function $charNodeTransform(node: CharNode): void {
     deepEqual(unknownAttributes, prevNode.getUnknownAttributes())
   ) {
     // Combine with previous CharNode since it has the same attributes.
-    prevNode.append(...node.getChildren());
-    node.remove();
+    if ($rendersOwnGlyphs(prevNode)) {
+      $mergeIntoPrecedingGlyphSpan(node, prevNode);
+    } else {
+      prevNode.append(...node.getChildren());
+      node.remove();
+    }
   }
 }
 

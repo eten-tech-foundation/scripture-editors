@@ -31,6 +31,7 @@ import {
 import { useEffect, useState } from "react";
 import {
   $createBookNode,
+  $createChapterNode,
   $createCharNode,
   $createImmutableChapterNode,
   $createMilestoneNode,
@@ -1034,6 +1035,43 @@ describe("ScriptureReferencePlugin", () => {
       await flushQueuedEvents();
 
       // The reload's transient chapter-top settle must be silenced (pre-fix: emitted verseNum 0).
+      expect(mockOnScrRefChange).not.toHaveBeenCalled();
+    });
+
+    it("does not reset the verse when a view-option toggle swaps the chapter flavor (chapter-only document)", async () => {
+      // A view toggle rebuilds a chapter-only document (no BookNode) from the OTHER chapter
+      // flavor in one commit: the old flavor's nodes destroyed, the new flavor's created. Read
+      // per class, that batch splits into destroyed-only (ignored) plus created-only (misread as
+      // a pure create — branch (c), no navigation window), so the swap's transient chapter-top
+      // settle reported and reset the verse. The cross-flavor batch must classify as a
+      // same-document reload: window opened, settle silenced.
+      const { editor } = await testEnvironment(
+        { book: "GEN", chapterNum: 2, verseNum: 9 },
+        mockOnScrRefChange,
+        $bookLessChapter2State, // ImmutableChapterNode flavor (hidden markers)
+      );
+      await flushQueuedEvents();
+      await pressEditor(editor); // ensure idle
+      mockOnScrRefChange.mockClear();
+
+      // The toggle swaps in the EDITABLE flavor of the same chapter: ChapterNode, same identity.
+      let verseEightText: TextNode | undefined;
+      await swapDocument(editor, () => {
+        verseEightText = $createTextNode("verse eight ");
+        $getRoot().append(
+          $createChapterNode("2").append($createTextNode(getVisibleOpenMarkerText("c", "2"))),
+          $createParaNode().append($createImmutableVerseNode("8"), verseEightText),
+          $createParaNode().append($createImmutableVerseNode("9"), $createTextNode("verse nine ")),
+        );
+      });
+      if (!verseEightText) throw new Error("fixture text missing");
+      // The swap's transient settle parks the caret at the chapter top, not the scrRef verse.
+      updateSelection(editor, verseEightText, 0);
+      await act(async () => {
+        editor.dispatchCommand(SELECTION_CHANGE_COMMAND, undefined);
+      });
+      await flushQueuedEvents();
+
       expect(mockOnScrRefChange).not.toHaveBeenCalled();
     });
 

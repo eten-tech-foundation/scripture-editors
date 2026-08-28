@@ -70,11 +70,24 @@ export class MarkerNode extends TextNode {
 
   override updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedMarkerNode>): this {
     const { marker, markerSyntax = "opening", nested = false } = serializedNode;
-    return super
-      .updateFromJSON(serializedNode)
-      .setNested(nested)
-      .setMarker(marker)
-      .setMarkerSyntax(markerSyntax);
+    const self = super.updateFromJSON({
+      ...serializedNode,
+      // An EMPTY serialized text is the "build canonical bytes" sentinel — the adaptor's
+      // createMarker serializes glyphs with `text: ""` and relies on the import deriving them.
+      // Any non-empty text is the glyph's actual displayed bytes and is kept verbatim.
+      text: serializedNode.text || getMarkerText(marker, markerSyntax, nested),
+    });
+    // Assigned directly rather than via setMarker/setMarkerSyntax/setNested, which rewrite the
+    // just-applied text to canonical and lose a serialized mid-edit divergence: a glyph whose
+    // `*` the user deleted must round-trip through parseEditorState or clipboard
+    // deserialization still divergent — rewriting it here heals against a user edit, and
+    // $isCanonicalMarkerNode then wrongly reports the glyph at rest. Same treatment as
+    // ImmutableUnmatchedNode.updateFromJSON.
+    const writable = self.getWritable();
+    writable.__marker = marker;
+    writable.__markerSyntax = markerSyntax;
+    writable.__nested = nested;
+    return writable;
   }
 
   setMarker(marker: string): this {

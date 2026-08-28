@@ -156,6 +156,35 @@ describe("$syncDisplayRun (verse)", () => {
     unregister();
   });
 
+  it("reports the owner when the run's bytes are deleted but the wrapper husk survives", () => {
+    // Deleting the visible `\va 2\va*` bytes can leave the AttributeRunNode itself standing as
+    // an empty husk (deleting inside an element removes its children, not the element). The husk
+    // is not run bytes: destruction must still be reported — not counted as a surviving run,
+    // which would let the sync resurrect the bytes the user just deleted inside the husk.
+    const { editor, verse } = buildVerseWithVa();
+    const pended = new Set<string>();
+    const unregister = registerPendedDisplayOwners(editor, pended);
+    editor.update(
+      () => {
+        const wrapper = verse.getNextSibling();
+        if (!$isAttributeRunNode(wrapper)) throw new Error("wrapper missing");
+        wrapper.getChildren().forEach((child) => child.remove());
+        // Park the caret on the leading text, well away from any graced site.
+        const before = verse.getPreviousSibling();
+        if ($isTextNode(before)) before.select(0, 0);
+        $syncDisplayRun(displayRunDescriptor("va"), verse);
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      const husk = verse.getNextSibling();
+      if (!$isAttributeRunNode(husk)) throw new Error("husk missing");
+      expect(husk.getChildrenSize()).toBe(0);
+      expect(pended.has(verse.getKey())).toBe(true);
+    });
+    unregister();
+  });
+
   it("anchors a \\vp run after the \\va wrapper", () => {
     const { editor, verse } = buildVerseWithVa();
     editor.update(

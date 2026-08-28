@@ -226,9 +226,12 @@ The host owns which KEY does what (see its half); this repo owns the resulting d
 - **A non-NEST style applied INSIDE an open char span** closes every enclosing style before the
   point and reopens the ones with content after it — it never nests. `$applyNonNestInsideChar`
   (`packages/platform/src/editor/adaptors/usj-marker-action.utils.ts`) implements this for a
-  collapsed caret and a selection within one text node. **Selections spanning several nodes still
-  fall back to the generic wrap and are known to mangle the spans they cross** — the covered text
-  should take the new style while each crossed span keeps its uncovered tail.
+  collapsed caret and a selection within one text node; `$applyNonNestAcrossNodes` (same file)
+  extends it to selections spanning several nodes — the covered text takes the new style while
+  each crossed span keeps its uncovered tail. **Multi-node selections its eligibility probe
+  declines** (`$isCloseAndReopenEligible`: a decorator, attribute run, or marker-byte-rendering
+  text leaf in range, or leaves in different char-stack containers) **still fall back to the
+  generic wrap and are known to mangle the spans they cross.**
 
 ---
 

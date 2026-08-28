@@ -179,33 +179,37 @@ export function $getMarkerMenuContext(): MarkerMenuContextSnapshot | undefined {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return undefined;
 
-  const anchorNode = selection.anchor.getNode();
-  const offset = selection.anchor.offset;
+  // The FOCUS point is "the node the caret is in" — the live cursor end, correct even for a
+  // backward range selection. Reading the anchor put half of all drags on the wrong end:
+  // dragging leftward out of a `\nd` span still offered its close-tag for a cursor that had
+  // left the span.
+  const focusNode = selection.focus.getNode();
+  const offset = selection.focus.offset;
   const hasTextSelection = !selection.isCollapsed();
 
-  const para = $findMatchingParent(anchorNode, $isParaNode);
+  const para = $findMatchingParent(focusNode, $isParaNode);
   // A collapsed caret with NO paragraph around it at all is the book/header region — `\id` is a
   // BookNode at document root, not a `ParaNode`. There is no paragraph there to take a character
   // style, so the paragraph list is what the region can actually accept. A text selection stays
   // character source wherever it sits: wrapping is a character action.
   const source: MarkerMenuContext["source"] =
-    !hasTextSelection && (!para || $isAtParagraphMarkerPrefix(para, anchorNode, offset))
+    !hasTextSelection && (!para || $isAtParagraphMarkerPrefix(para, focusNode, offset))
       ? "paragraph"
       : "character";
 
-  const note = $findFirstAncestorNoteNode(anchorNode);
+  const note = $findFirstAncestorNoteNode(focusNode);
 
   return {
     source,
     paraMarker: para?.getMarker(),
-    previousParaMarkers: $collectPreviousParaMarkers(anchorNode),
-    openCharMarkers: $collectOpenCharMarkers(anchorNode),
+    previousParaMarkers: $collectPreviousParaMarkers(focusNode),
+    openCharMarkers: $collectOpenCharMarkers(focusNode),
     noteMarker: note?.getMarker(),
     hasTextSelection,
     // The trailing edge of a canonical closing glyph counts as AFTER the marker, not inside it
     // (see $isPointInMarkerGlyphText) — Enter there opens the paragraph menu exactly as at the
     // end of a plain-text paragraph.
-    inMarkerText: $isPointInMarkerGlyphText(anchorNode, offset),
+    inMarkerText: $isPointInMarkerGlyphText(focusNode, offset),
     anchorRect: getAnchorRect(),
   };
 }

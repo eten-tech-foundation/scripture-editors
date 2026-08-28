@@ -48,6 +48,7 @@ import {
   $paraPrefixSeparatorCaretHeld,
   $restoreCanonicalMarkerText,
   $runDiverges,
+  $selectCharContentStart,
   $runEntirelyAbsent,
   $runNeedsOnlyWrapMigration,
   $syncDisplayRun,
@@ -304,6 +305,17 @@ function $moveCaretPastMarker(node: MarkerNode): void {
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
   if (selection.anchor.key !== node.getKey()) return;
   const next = node.getNextSibling();
+  // A NOTE opener's next sibling is the editable caller text (space + caller + NBSP) — a control
+  // slot, not content: a caret anywhere in that node routes the next keystroke into the caller
+  // and the caller transform retags the note with it. The content the rename terminator points
+  // at starts inside the first content span after the caller.
+  if ($isNoteNode(node.getParent()) && $isTextNode(next)) {
+    const afterCaller = next.getNextSibling();
+    if ($isCharNode(afterCaller)) {
+      $selectCharContentStart(afterCaller);
+      return;
+    }
+  }
   // Both para trailing-space and char NBSP-prefixed content put the caret after
   // offset 1 of the following text node.
   if ($isTextNode(next)) next.select(1, 1);
@@ -776,7 +788,16 @@ export function $verseNodeTransform(node: VerseNode, context: MarkerEditContext)
   // after the verse, which beside a verse carrying a `\va`/`\vp` run is a place content cannot
   // live, so the next rebuild dropped it. Only a NON-whitespace byte past the number is content,
   // and that still extracts.
-  if (numberToken === node.getNumber() && SEPARATOR_RUN_ONLY_REGEX.test(rest ?? "")) return;
+  //
+  // Applies whether or not the number changed: a retype that changes the number while
+  // whitespace-only `rest` is present must not extract either — the extraction broke the
+  // `\va`/`\vp` run's sibling adjacency (the run read as absent), threw the caret out of the
+  // number being edited, and a later commit duplicated the run. A changed number retags STATE
+  // only; the typed bytes stay visible as-is, exactly like the space-only case.
+  if (SEPARATOR_RUN_ONLY_REGEX.test(rest ?? "")) {
+    if (numberToken !== node.getNumber()) node.setNumber(numberToken); // PT9 GetNextWord
+    return;
+  }
   node.setNumber(numberToken); // PT9 GetNextWord: whole word, valid or not
   node.setTextContent(getVisibleOpenMarkerText("v", numberToken));
   // The caret follows to the end of the extracted rest (see $insertRestAfterVerse for the
@@ -864,8 +885,14 @@ export function $chapterNodeTransform(node: ChapterNode): void {
   if (text === expected) return;
   const match = CHAPTER_GLYPH_REGEXES.valueTerminated.exec(text);
   if (!match) return; // leave literal; serialization falls back to the stored number
-  node.setNumber(match[1]);
-  textNode.setTextContent(getVisibleOpenMarkerText("c", match[1]));
+  // The typed bytes stay as-is in BOTH branches: `valueTerminated` guarantees the only possible
+  // divergence beyond the number word is whitespace inside the glyph's separator runs, and
+  // rewriting to canonical deleted a typed space while the caret advanced over where it had
+  // been — the "no silent no-ops" failure the verse arm's whitespace-run guard exists for.
+  // Nothing reaches the document either way (whitespace flanking a leading-attribute value is
+  // structural; the writer emits exactly one space), so a retype only moves the NUMBER state.
+  if (match[1] === node.getNumber()) return;
+  node.setNumber(match[1]); // PT9 GetNextWord: whole word, valid or not
 }
 
 /**

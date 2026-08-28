@@ -33,12 +33,17 @@
 
 import { $isMarkerNode, MarkerNode } from "../features/MarkerNode.js";
 import { $isCharNode, CharNode } from "./CharNode.js";
+import { $getLogicalParent } from "./node.utils.js";
 import { LexicalNode } from "lexical";
 
-/** Whether `char` is a nested char span — its parent is another char span. The one derivation
- * rule for the glyph `+`; every representation above follows from this. */
+/** Whether `char` is a nested char span — its LOGICAL parent is another char span. Read through
+ * `$getLogicalParent`, never the raw parent: an annotation `TypedMarkNode` wrapped around the
+ * span is presentation-transparent in USJ, and a raw-parent read made a genuinely nested span
+ * read as un-nested — the sync then stripped its glyphs' `+`, and the bare inner marker
+ * re-tokenized as closing the outer span. The one derivation rule for the glyph `+`; every
+ * representation above follows from this. */
 export function $isNestedCharNode(char: CharNode): boolean {
-  return $isCharNode(char.getParent());
+  return $isCharNode($getLogicalParent(char));
 }
 
 /**

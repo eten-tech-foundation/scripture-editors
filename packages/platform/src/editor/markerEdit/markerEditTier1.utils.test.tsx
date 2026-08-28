@@ -330,6 +330,43 @@ describe("Tier 1 char/note opener rename", () => {
     });
   });
 
+  it("lands the caret in the note's content — not the caller slot — after a note opener rename", async () => {
+    let opener!: MarkerNode;
+    let ftText!: TextNode;
+    const { editor } = await testEnvironment(() => {
+      const para = $createParaNode("p");
+      const note = $createNoteNode("f", "+");
+      opener = $createMarkerNode("f");
+      const ftChar = $createCharNode("ft");
+      ftChar.setUnknownAttributes({ closed: "false" });
+      ftText = $createTextNode(`${NBSP}content`);
+      ftChar.append($createMarkerNode("ft"), ftText);
+      $getRoot().append(
+        para.append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          note.append(
+            opener,
+            $createTextNode(getEditableCallerText("+")),
+            ftChar,
+            $createMarkerNode("f", "closing"),
+          ),
+        ),
+      );
+    });
+    await act(async () => editor.update(() => $retypeGlyph(opener, "\\fe ")));
+    editor.getEditorState().read(() => {
+      expect(opener.getTextContent()).toBe("\\fe");
+      // The caret lands at the CONTENT start (past the \ft glyph's NBSP separator), never in the
+      // caller text: a caret anywhere in that slot routes the next keystroke into the caller and
+      // the caller transform retags the note with it.
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+      expect(selection.anchor.key).toBe(ftText.getKey());
+      expect(selection.anchor.offset).toBe(1);
+    });
+  });
+
   it("routes a typed + opener to Tier 2 instead of stripping the + (nest instruction)", async () => {
     let parts: ReturnType<typeof $appendCharPara>;
     const { editor } = await testEnvironment(() => (parts = $appendCharPara()));
@@ -534,7 +571,7 @@ describe("Tier 1 verse/chapter number sync", () => {
     expect(json).not.toContain('"type":"verse"');
   });
 
-  it("syncs the number and canonicalizes when the chapter token is edited", async () => {
+  it("syncs the number and keeps the typed separator bytes when the chapter token is edited", async () => {
     let chapter: ChapterNode;
     const { editor } = await testEnvironment(() => {
       chapter = $createChapterNode("1");
@@ -543,7 +580,10 @@ describe("Tier 1 verse/chapter number sync", () => {
         $createParaNode("p").append($createMarkerNode("p"), $createTextNode(NBSP)),
       );
     });
-    // Retype the marker with a plain-space separator; the transform canonicalizes to NBSP.
+    // Retype the marker with plain-space separators: the number must sync, and the typed
+    // whitespace must STAY as typed — the writer emits structural whitespace itself, so
+    // rewriting the glyph to canonical would discard a keystroke the user just made (the same
+    // typed-space-stays rule the verse arm follows).
     // Lexical runs an ElementNode transform only when the element is *intentionally* dirtied;
     // a bare text-child edit marks the ChapterNode dirty non-intentionally, so mark it dirty
     // to reach the registered transform (a real structural edit dirties it the same way — see
@@ -557,7 +597,7 @@ describe("Tier 1 verse/chapter number sync", () => {
     );
     editor.getEditorState().read(() => {
       expect(chapter.getNumber()).toBe("2");
-      expect(chapter.getFirstChild()?.getTextContent()).toBe(getVisibleOpenMarkerText("c", "2"));
+      expect(chapter.getFirstChild()?.getTextContent()).toBe("\\c 2 ");
     });
   });
 

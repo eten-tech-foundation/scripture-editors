@@ -72,6 +72,7 @@ import {
   $isNoteNode,
   $isSelectionInMarkerNode,
   $isVerseNode,
+  $milestoneAttributeRunPieces,
   $ownerOfRunPiece,
   $syncAndPendDisplayRun,
   AttributeRunNode,
@@ -658,9 +659,22 @@ export function MarkerEditPlugin({
         // idempotent, so the extra invocation is either a no-op or legitimate earlier healing,
         // matching the destruction-listener path's own closer-inclusive classification. A note's
         // loose `\cat` glyphs and a chapter's loose `\ca` glyphs re-drive their owners the same
-        // way.
+        // way — and so do a MILESTONE's LOOSE glyphs: a loose milestone run has no wrapper to
+        // dirty and editing a glyph's bytes does not dirty the MilestoneNode itself, so this is
+        // the only transform that can pend the milestone before the next commit's $writeRun
+        // rebuilds a canonical run beside the user's edited glyph. Loose ONLY: a WRAPPED
+        // milestone glyph already re-drives through the AttributeRunNode transform, and its
+        // in-glyph typed bytes belong to the typed-byte pend — re-driving it here routed them
+        // into the display settle, which canonicalized the glyph and discarded the byte.
         const ref = $ownerOfRunPiece(node);
-        if (ref && ($isVerseNode(ref.owner) || $isNoteNode(ref.owner) || $isChapterNode(ref.owner)))
+        if (
+          ref &&
+          ($isVerseNode(ref.owner) ||
+            $isNoteNode(ref.owner) ||
+            $isChapterNode(ref.owner) ||
+            ($isMilestoneNode(ref.owner) &&
+              $milestoneAttributeRunPieces(ref.owner).wrapper === undefined))
+        )
           $syncAndPendOwner(ref.owner, context);
       }),
       editor.registerNodeTransform(VerseNode, (node) => {
@@ -1086,8 +1100,16 @@ export function MarkerEditPlugin({
         // Lexical's active-state bookkeeping mid-commit and stalls the deferred resolution's
         // microtask (observed as departure settles never firing in jsdom — same frozen-state
         // hazard family as the frozen-state bugs documented below).
+        //
+        // Advanced only for a REAL selection — a null selection (a cross-frame blur onto a host
+        // palette) is "don't know where the caret is", not a departure, exactly as lastAnchorKey
+        // rules below. Advancing to undefined made the next CURSOR_CHANGE echo compare against
+        // undefined, read as an app-placed caret move, and arm appPlacedCaret on a yank that
+        // moved nothing — after which every settle path refused (including the host's pre-save
+        // COMMIT_PENDING_MARKERS_COMMAND) until an in-editor gesture, and the pending literal
+        // reached the file as raw bytes.
         const prevCommitAnchorKey = lastCommitAnchorKey;
-        lastCommitAnchorKey = anchorKey;
+        if (anchorKey !== undefined) lastCommitAnchorKey = anchorKey;
         if (tags.has(HISTORIC_TAG)) {
           // Undo/redo: Lexical restores this state via setEditorState, which never runs node
           // transforms — so a restored literal (an undone settle's `\nd …\nd*` bytes, a closed

@@ -66,7 +66,6 @@ import {
   $isParaNode,
   defaultStyleInfo,
   getVisibleOpenMarkerText,
-  MarkerNode,
   NBSP,
   ParaNode,
   textTypeState,
@@ -180,10 +179,15 @@ async function dispatchKeyDown(editor: LexicalEditor, key: string): Promise<Keyb
   return event;
 }
 
-async function pressEnterCommand(editor: LexicalEditor): Promise<void> {
+/** Dispatches `KEY_ENTER_COMMAND` with a real KeyboardEvent — the user's Enter keystroke. The
+ * event must be non-null: the menu opens only for the user's own keystroke, and a null payload
+ * is the programmatic-dispatch shape it deliberately declines. */
+async function pressEnterCommand(editor: LexicalEditor): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
   await act(async () => {
-    editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+    editor.dispatchCommand(KEY_ENTER_COMMAND, event);
   });
+  return event;
 }
 
 function countParagraphs(root: ElementNode): number {
@@ -1263,100 +1267,63 @@ describe("editable-mode marker menu harness", () => {
       });
     });
 
-    // The two guard tests below dispatch INSERT_PARAGRAPH_COMMAND DIRECTLY (a public Lexical
-    // command - hosts/paste/IME paths can dispatch it with no keydown), because via keyboard
-    // these guard branches are unreachable today: MarkerEditPlugin's KEY_ENTER_COMMAND handler
-    // (HIGH) swallows Enter first for both states ($handleEnterInNote /
-    // $isSelectionInMarkerNode), so rich-text's KEY_ENTER fallback never dispatches
-    // INSERT_PARAGRAPH from typing there - the \fp test above exercises THAT upstream swallow,
-    // not the harness's own guards. RED isn't demonstrable for a pass-through without mutating
-    // the guard itself; instead the glyph test below embeds a positive control proving the
-    // same direct dispatch DOES open the menu at an unguarded caret, so "no menu" here can
-    // only mean the guard branch was taken.
-    it("guards a directly dispatched INSERT_PARAGRAPH_COMMAND when the caret is in note content (noteMarker)", async () => {
-      const { editor } = await harnessTestEnvironment(serializedState(noteUsx(`closed="false"`)));
-
-      let ftText: TextNode | undefined;
-      editor.getEditorState().read(() => {
-        ftText = $noteContentText(findOnlyNote($getRoot()));
+    it("never opens the menu for a programmatic INSERT_PARAGRAPH_COMMAND dispatch — the split happens", async () => {
+      // The menu listens on the user's KEY_ENTER keystroke, NOT on INSERT_PARAGRAPH_COMMAND:
+      // programmatic dispatches of the command (multi-line paste replays, MarkerEditPlugin's
+      // needs-plain-split re-dispatch) must reach their real split path. A command-level claim
+      // intercepted those too — each pasted line popped this menu and lost its split. The caret
+      // sits at the same unguarded body position where a real Enter DOES open the menu (the
+      // Enter-trigger tests above are the positive control for that route).
+      let text: TextNode | undefined;
+      const { editor } = await harnessTestEnvironment(() => {
+        text = $buildBackslashMenuFixture().text;
       });
-      editor.update(
-        () => {
-          const text = requireDefined(ftText, "\\ft content text not found");
-          text.select(text.getTextContentSize(), text.getTextContentSize());
-        },
-        { discrete: true },
-      );
+      await act(async () => editor.update(() => requireDefined(text, "text").select(2, 2)));
 
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
       let handled = false;
       await act(async () => {
         handled = editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
       });
 
-      // Guard branch taken: the harness passed through (returned false) - no menu opened. The
-      // CONTAINER is asserted on, not just menuitems: inside a note `getEnterItems` returns []
-      // (paragraph source is empty in notes), so a guard regression would open an EMPTY menu
-      // that a menuitem-count check cannot distinguish from no menu at all (verified RED: with
-      // the guard disabled, the container check below fails while a menuitem check passes).
+      // No menu — not even an empty container — and the split went through downstream.
       expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
-      // The dispatch was still handled downstream (rich-text's default), not swallowed here.
       expect(handled).toBe(true);
       editor.getEditorState().read(() => {
-        // No split-with-menu artifacts: exactly one note survives whatever the downstream
-        // default did with the in-note split.
-        findOnlyNote($getRoot());
+        expect(countParagraphs($getRoot())).toBe(parasBefore + 1);
       });
     });
 
-    it("guards a directly dispatched INSERT_PARAGRAPH_COMMAND when the caret is in marker glyph text (inMarkerText) - while the same dispatch opens the menu at an unguarded caret", async () => {
-      let prefix: MarkerNode | undefined;
+    it("declines a programmatic KEY_ENTER_COMMAND dispatch with a null event (no menu)", async () => {
+      // A null payload is the programmatic shape of KEY_ENTER; only the user's own keystroke
+      // (a real KeyboardEvent) opens the menu. With the menu declining, the dispatch falls
+      // through to rich-text, whose fallback performs the ordinary split.
+      let text: TextNode | undefined;
       const { editor } = await harnessTestEnvironment(() => {
-        const para = $createParaNode("p");
-        prefix = $createMarkerNode("p");
-        $getRoot().append(
-          para.append(prefix, $createTrailingSpaceNode(), $createTextNode("hello")),
-        );
+        text = $buildBackslashMenuFixture().text;
       });
-      // Caret inside the "\p" glyph (between "\" and "p") - inMarkerText true.
-      await act(async () => editor.update(() => requireDefined(prefix, "prefix").select(1, 1)));
+      await act(async () => editor.update(() => requireDefined(text, "text").select(2, 2)));
 
-      let handled = false;
+      let parasBefore = 0;
+      editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
       await act(async () => {
-        handled = editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+        editor.dispatchCommand(KEY_ENTER_COMMAND, null);
       });
 
-      // Guard branch taken: pass-through (no menu, not even an empty container); still
-      // handled downstream.
       expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
-      expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
-      expect(handled).toBe(true);
-
-      // Positive control - same dispatch mechanism, unguarded caret: the menu DOES open, so
-      // the guard assertions above can't be passing merely because a direct dispatch never
-      // reaches the harness. The text node is re-found by content (not a captured reference):
-      // the guarded dispatch above split through the glyph and the marker-edit transforms may
-      // have rebuilt the paragraph, destroying original node identities.
-      await act(async () =>
-        editor.update(() => {
-          const hello = $getRoot()
-            .getAllTextNodes()
-            .find((node) => node.getTextContent().includes("hello"));
-          requireDefined(hello, "hello text").select(2, 2);
-        }),
-      );
-      await act(async () => {
-        editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
+      editor.getEditorState().read(() => {
+        expect(countParagraphs($getRoot())).toBe(parasBefore + 1);
       });
-      await waitForMenu();
     });
   });
 
   describe("editable-menu guards", () => {
-    it("passes `\\` and INSERT_PARAGRAPH through when getContext() returns undefined (no selection)", async () => {
+    it("passes `\\` and Enter through when getContext() returns undefined (no selection)", async () => {
       // With no range selection at all, $getMarkerMenuContext — and so harness.getContext —
       // returns undefined; both handlers must decline before touching the context. Were the
       // guard dropped, they would read fields off `undefined` (a loud crash) or open a menu —
-      // the surrounding tests are the positive controls proving these same dispatches DO open
+      // the surrounding tests are the positive controls proving these same keystrokes DO open
       // the menu once a caret exists.
       const { editor } = await harnessTestEnvironment(() => {
         $buildBackslashMenuFixture();
@@ -1375,14 +1342,11 @@ describe("editable-mode marker menu harness", () => {
 
       let parasBefore = 0;
       editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
-      let enterHandled = false;
-      await act(async () => {
-        enterHandled = editor.dispatchCommand(INSERT_PARAGRAPH_COMMAND, undefined);
-      });
-      // INSERT_PARAGRAPH has no core router: the guard's decline falls all the way through
-      // (downstream rich-text also declines without a selection), so nothing splits and no
-      // menu — not even an empty container — appears.
-      expect(enterHandled).toBe(false);
+      // A real Enter keystroke with no selection: the menu's guard declines before touching the
+      // context, and downstream rich-text also declines without a selection — nothing splits and
+      // no menu (not even an empty container) appears.
+      const enterEvent = await pressEnterCommand(editor);
+      expect(enterEvent.defaultPrevented).toBe(false);
       expect(document.querySelector(".autocomplete-menu-container")).toBeNull();
       editor.getEditorState().read(() => expect(countParagraphs($getRoot())).toBe(parasBefore));
     });
@@ -1412,9 +1376,10 @@ describe("editable-mode marker menu harness", () => {
       await dispatchKeyDown(editor, "\\");
       await waitForMenu();
 
-      // INSERT_PARAGRAPH while open is equally guarded: it passes through to the stock split
-      // (paragraph count grows) instead of being swallowed into a replacement Enter menu —
-      // which would have suppressed the split and put the SmartEnter paragraph choice first.
+      // INSERT_PARAGRAPH while open passes through to the stock split (paragraph count grows)
+      // instead of being swallowed into a replacement Enter menu — the menu listens on the
+      // user's KEY_ENTER keystroke, never on the command, so a programmatic dispatch cannot
+      // suppress the split or replace the open palette with the SmartEnter paragraph choice.
       let parasBefore = 0;
       editor.getEditorState().read(() => (parasBefore = countParagraphs($getRoot())));
       await act(async () => {

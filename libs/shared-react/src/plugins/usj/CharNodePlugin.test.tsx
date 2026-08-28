@@ -7,6 +7,7 @@ import {
   $createCharNode,
   $createMarkerNode,
   $createParaNode,
+  $createTypedMarkNode,
   $isCharNode,
   $isMarkerNode,
   $isParaNode,
@@ -421,6 +422,63 @@ describe("CharNodePlugin", () => {
     });
   });
 
+  it("merges a glyph-less span into the glyph-bearing span that follows it, inside the glyphs", async () => {
+    // The marker-apply paths ($wrapRunInCharNode) build a deliberately glyph-less wrapper and
+    // rely on this merge to reunite it with its glyph-bearing neighbor. A plain child move would
+    // put the content OUTSIDE the glyph pair; the merge must splice it in after the opening
+    // glyph, moving the NBSP display separator onto the new first content.
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createCharNode("nd").append($createTextNode("and ")),
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}Lord`),
+            $createMarkerNode("nd", "closing"),
+          ),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(1);
+      const merged = p.getFirstChild();
+      if (!$isCharNode(merged)) throw new Error("Expected a CharNode");
+      expect(merged.getTextContent()).toBe(`\\nd${NBSP}and Lord\\nd*`);
+      const children = merged.getChildren();
+      expect($isMarkerNode(children[0])).toBe(true);
+      expect($isMarkerNode(children[children.length - 1])).toBe(true);
+    });
+  });
+
+  it("merges a glyph-less span into the glyph-bearing span that precedes it, before the closer", async () => {
+    const { editor } = await testEnvironment(() => {
+      $getRoot().append(
+        $createParaNode().append(
+          $createCharNode("nd").append(
+            $createMarkerNode("nd"),
+            $createTextNode(`${NBSP}Lord`),
+            $createMarkerNode("nd", "closing"),
+          ),
+          $createCharNode("nd").append($createTextNode(" God")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const p = $getRoot().getFirstChild();
+      if (!$isParaNode(p)) throw new Error("Expected a ParaNode");
+      expect(p.getChildrenSize()).toBe(1);
+      const merged = p.getFirstChild();
+      if (!$isCharNode(merged)) throw new Error("Expected a CharNode");
+      expect(merged.getTextContent()).toBe(`\\nd${NBSP}Lord God\\nd*`);
+      const children = merged.getChildren();
+      expect($isMarkerNode(children[children.length - 1])).toBe(true);
+    });
+  });
+
   it("should combine 3 adjacent CharNodes with same marker on update", async () => {
     let ndCharNode: CharNode;
     const { editor } = await testEnvironment(() => {
@@ -498,6 +556,42 @@ describe("CharNodePlugin", () => {
 
       editor.getEditorState().read(() => {
         expect(glyphTexts(ndChar)).toEqual(["\\nd", "\\nd*"]);
+      });
+    });
+
+    it("keeps the + on a nested span's glyphs when an annotation wrapper interposes", async () => {
+      // An annotation TypedMarkNode is presentation-transparent in USJ: a span nested inside
+      // another char span stays nested when a mark wraps it. A raw-parent read here stripped the
+      // `+` from its glyphs, and the bare inner marker re-tokenized as closing the outer span.
+      let ndChar: CharNode;
+      const { editor } = await testEnvironment(() => {
+        const outerChar = $createCharNode("add");
+        ndChar = $createCharNode("nd");
+        ndChar.append(
+          $createMarkerNode("nd", "opening", true),
+          $createTextNode(`${NBSP}holy`),
+          $createMarkerNode("nd", "closing", true),
+        );
+        const mark = $createTypedMarkNode({ comment: ["c1"] });
+        mark.append(ndChar);
+        outerChar.append(
+          $createMarkerNode("add"),
+          $createTextNode(`${NBSP}before `),
+          mark,
+          $createMarkerNode("add", "closing"),
+        );
+        $getRoot().append($createParaNode().append(outerChar));
+      });
+
+      await act(async () => {
+        editor.update(() => {
+          // Any edit that dirties the span re-runs the glyph sync.
+          ndChar.getWritable();
+        });
+      });
+
+      editor.getEditorState().read(() => {
+        expect(glyphTexts(ndChar)).toEqual(["\\+nd", "\\+nd*"]);
       });
     });
 

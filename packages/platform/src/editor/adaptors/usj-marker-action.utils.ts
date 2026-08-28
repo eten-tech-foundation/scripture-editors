@@ -7,6 +7,7 @@ import {
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
@@ -19,6 +20,7 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $charStackContainer,
   $createCharNode,
   $createMarkerNode,
   $createNodeFromSerializedNode,
@@ -49,6 +51,7 @@ import {
   NoteNode,
   ParaNode,
   ScriptureReference,
+  textTypeState,
 } from "shared";
 import {
   $addTrailingSpace,
@@ -63,6 +66,7 @@ import {
   ViewOptions,
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
+import { $coveredTextNodes } from "../markerEdit/charFormatting.utils";
 
 interface UsjMarkerActionResult {
   content: MarkerContent[];
@@ -325,6 +329,16 @@ export function getUsjMarkerAction(
             node,
             viewOptions?.markerMode === "editable",
           );
+        } else if (
+          $isCharNode(nodeToInsert) &&
+          !sameNode &&
+          !isNestInPlaceCharNode(nodeToInsert, styleInfo) &&
+          $isCloseAndReopenEligible(selection)
+        ) {
+          // The same PT9 close-and-reopen for a selection spanning several nodes: the covered
+          // text takes the new style, each crossed span keeps its uncovered tail. Ineligible
+          // shapes (decorators in range, cross-container selections, …) keep the generic wrap.
+          $applyNonNestAcrossNodes(selection, nodeToInsert, viewOptions?.markerMode === "editable");
         } else if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
@@ -637,6 +651,93 @@ function $applyNonNestInsideChar(
   if ($isTextNode(contentText))
     contentText.select(contentText.getTextContentSize(), contentText.getTextContentSize());
   else newSpan.selectEnd();
+}
+
+/**
+ * Whether a multi-node selection qualifies for {@link $applyNonNestAcrossNodes}: every leaf in
+ * range is either a marker glyph (crossed spans' presentation — the lift regenerates them) or a
+ * plain content `TextNode`, all leaves share ONE char-stack container (the same paragraph or
+ * note), and at least one sits inside a char span (otherwise there is no stack to close and the
+ * generic wrap is already correct). Attribute display runs, decorators (notes, milestones,
+ * immutable verses), `TextNode` subclasses that render marker bytes (editable verse markers,
+ * unmatched markers), and selections crossing a container boundary all decline — those shapes
+ * keep the generic-wrap fallback the invariants doc records.
+ *
+ * Read-only: safe inside `editor.update()` before any mutation.
+ */
+function $isCloseAndReopenEligible(selection: RangeSelection): boolean {
+  let container: LexicalNode | undefined;
+  let anyInChar = false;
+  for (const node of selection.getNodes()) {
+    if ($isMarkerNode(node)) continue;
+    // getNodes lists a crossed span ELEMENT alongside its own leaves (getNodesBetween includes
+    // the elements on the path); the leaves are what get judged, so the span itself just passes.
+    if ($isCharNode(node)) continue;
+    if (!$isTextNode(node) || node.getType() !== TextNode.getType()) return false;
+    if ($getState(node, textTypeState) === "attribute") return false;
+    const leafContainer = $charStackContainer(node);
+    if (!leafContainer) return false;
+    if (container === undefined) container = leafContainer;
+    else if (!container.is(leafContainer)) return false;
+    if ($innermostCharAncestor(node)) anyInChar = true;
+  }
+  return anyInChar;
+}
+
+/**
+ * Apply a non-NEST char style across a selection spanning several nodes inside one char-stack
+ * container — PT9's close-and-reopen generalized past the single-text-node case: the covered text
+ * takes the new style while each crossed span keeps its uncovered tail. The shape is the unformat
+ * range arm's (`$removeCharFormattingFromSelection`, charFormatting.utils.ts): split the boundary
+ * text nodes so the covered text is whole nodes, lift each covered node out of its entire char
+ * stack (each level closes before it and keeps what still has content after it; a fully covered
+ * level is nothing without its text and is dropped) — then, the step the unformat doesn't need,
+ * wrap the lifted run in the new span at container level. Without this the generic wrap NESTED
+ * the new span where it stood, and a non-NEST marker nested inside another span re-tokenizes as
+ * implicitly closing it — the crossed span destroyed and its closer left unmatched.
+ *
+ * The caller guarantees {@link $isCloseAndReopenEligible}, which is what makes the lifted pieces
+ * land as contiguous siblings the single wrap below can take in order.
+ */
+function $applyNonNestAcrossNodes(
+  selection: RangeSelection,
+  newSpan: CharNode,
+  renderGlyphs: boolean,
+): void {
+  const covered = $coveredTextNodes(selection);
+  if (covered.length === 0) return;
+  covered.forEach((target) => {
+    if (!$innermostCharAncestor(target)) return;
+    $liftOutOfCharStack(target, { renderGlyphs });
+    // Plain text now, so it sheds the structural separator it carried as a span's first content
+    // — read through getLatest, as the unformat arm does: an earlier iteration's reopen may have
+    // re-prefixed this very node through a writable clone.
+    const latest = target.getLatest();
+    const text = latest.getTextContent();
+    if (text.startsWith(NBSP)) latest.setTextContent(text.slice(NBSP.length));
+  });
+
+  const first = covered[0].getLatest();
+  first.insertBefore(newSpan);
+  // The span keeps the shape it was built with — an explicit closer for ordinary markers, the
+  // closer-less closed="false" convention for the note-content families (whatever reopens after
+  // the covered run is what closes those implicitly) — exactly as `$applyNonNestInsideChar`
+  // leaves it for the single-node case.
+  // The first piece becomes the span's content start and takes the structural NBSP separator;
+  // the rest follow it in document order.
+  if (!first.getTextContent().startsWith(NBSP)) first.setTextContent(NBSP + first.getTextContent());
+  const placeholder = newSpan
+    .getChildren()
+    .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+  if (placeholder) placeholder.replace(first);
+  else newSpan.append(first);
+  let previous: TextNode = first.getLatest();
+  covered.slice(1).forEach((piece) => {
+    const latest = piece.getLatest();
+    previous.insertAfter(latest);
+    previous = latest;
+  });
+  previous.select(previous.getTextContentSize(), previous.getTextContentSize());
 }
 
 function getMarkerAction(marker: string): UsjMarkerAction | undefined {

@@ -7,10 +7,10 @@ import {
   $getSelection,
   $isRangeSelection,
   $onUpdate,
-  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
-  INSERT_PARAGRAPH_COMMAND,
+  COMMAND_PRIORITY_NORMAL,
   KEY_DOWN_COMMAND,
+  KEY_ENTER_COMMAND,
 } from "lexical";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GetMarkerAction, ScriptureReference } from "shared";
@@ -231,11 +231,14 @@ function toHarnessOptionItem(
  * filter character, so a `closeTag` entry can no longer be narrowed to by typing its trailing `*`;
  * pressing `*` commits the end state that entry would have applied.
  *
- * `INSERT_PARAGRAPH_COMMAND` is intercepted at `COMMAND_PRIORITY_CRITICAL` - above
- * `MarkerEditPlugin`'s own `COMMAND_PRIORITY_HIGH` handler - to offer the Enter/SmartEnter
- * paragraph menu instead of splitting; the caret being inside a note (the `\fp` path) or
- * inside marker glyph text (marker-completion swallow) passes through untouched, and so does a
- * `getContext()` returning `undefined` (readonly / no selection).
+ * The user's Enter keystroke is intercepted on `KEY_ENTER_COMMAND` at `COMMAND_PRIORITY_NORMAL`
+ * - below `MarkerEditPlugin`'s `COMMAND_PRIORITY_HIGH` claims (in-note `\fp`, in-marker
+ * completion swallow), above rich-text's fallback - to offer the Enter/SmartEnter paragraph menu
+ * instead of splitting. Listening on the KEYSTROKE rather than `INSERT_PARAGRAPH_COMMAND` keeps
+ * every programmatic `INSERT_PARAGRAPH_COMMAND` dispatch (multi-line paste replays, the
+ * needs-plain-split re-dispatch) on its real split path — a command-level claim intercepted those
+ * too, popping a menu per pasted line and swallowing the splits. A `getContext()` returning
+ * `undefined` (readonly / no selection) passes through untouched.
  *
  * Reuses `NodeSelectionMenu`'s existing query-capture keydown handling (filters/Escape/
  * Backspace once open) rather than rebuilding it, mirroring the palette focus model the legacy
@@ -423,18 +426,26 @@ function EditableMarkerMenu({
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
-        INSERT_PARAGRAPH_COMMAND,
-        () => {
+        KEY_ENTER_COMMAND,
+        (event) => {
           if (menuState) return false; // shouldn't be reachable while a menu is open; stay defensive
+          // Only the user's own Enter keystroke opens the menu: a null event is a programmatic
+          // dispatch, and Shift+Enter is rich-text's line break. Listening on KEY_ENTER — not on
+          // INSERT_PARAGRAPH_COMMAND — is what keeps programmatic INSERT_PARAGRAPH dispatches
+          // (multi-line paste replays, MarkerEditPlugin's needs-plain-split re-dispatch) on their
+          // real split path instead of each popping this menu and losing its split.
+          if (event === null || event.shiftKey) return false;
           const context = harness.getContext();
-          // The noteMarker/inMarkerText guards are DEFENSIVE against non-keyboard
-          // INSERT_PARAGRAPH_COMMAND dispatch sources (host calls, paste/IME paths can dispatch
-          // it without any keydown). Via keyboard they are unreachable in the current topology:
-          // the platform's MarkerEditPlugin KEY_ENTER_COMMAND handler (HIGH) swallows Enter
-          // first for exactly these states ($handleEnterInNote / $isSelectionInMarkerNode), so
-          // rich-text's KEY_ENTER fallback never dispatches INSERT_PARAGRAPH from typing there.
+          // The noteMarker/inMarkerText guards are DEFENSIVE: in the current topology the
+          // platform's MarkerEditPlugin KEY_ENTER_COMMAND handler (HIGH, above this NORMAL)
+          // swallows Enter first for exactly these states ($handleEnterInNote /
+          // $isSelectionInMarkerNode), so this handler never sees them.
           if (!context || context.noteMarker || context.inMarkerText) return false;
 
+          // Claiming the key suppresses rich-text's KEY_ENTER handler — including the
+          // preventDefault it would have issued — so without this the browser's native
+          // contenteditable Enter still splits the DOM behind the menu.
+          event.preventDefault();
           sessionCounterRef.current += 1;
           setMenuState({
             trigger: "enter",
@@ -444,7 +455,7 @@ function EditableMarkerMenu({
           });
           return true; // suppress the split - Escape below cancels outright (it never happened)
         },
-        COMMAND_PRIORITY_CRITICAL,
+        COMMAND_PRIORITY_NORMAL,
       ),
     );
   }, [editor, trigger, harness, menuState, commitTypedQuery]);

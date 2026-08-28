@@ -153,9 +153,13 @@ export function $removeCharFormattingFromSelection(): boolean {
  * so nothing partly-covered survives. Marker glyphs and display runs are excluded — they are
  * engine-owned presentation, not text the user selected.
  *
+ * Shared with the non-NEST marker apply (`$applyNonNestAcrossNodes`,
+ * adaptors/usj-marker-action.utils.ts), whose multi-node close-and-reopen is this same
+ * split-then-lift shape with the new span wrapped around the lifted run.
+ *
  * Mutating (splits the boundary text nodes): call inside `editor.update()`.
  */
-function $coveredTextNodes(selection: RangeSelection): TextNode[] {
+export function $coveredTextNodes(selection: RangeSelection): TextNode[] {
   // Through Lexical's own `$getCharacterOffsets`, never raw `.offset`: an ELEMENT point's
   // offset is a CHILD INDEX (the shape `$placeCaretAtBoundary` produces whenever the boundary
   // child is not a TextNode), and using it as a character offset left the first `offset`
@@ -173,7 +177,11 @@ function $coveredTextNodes(selection: RangeSelection): TextNode[] {
     if ($getState(node, textTypeState) === "attribute") return;
     const size = node.getTextContentSize();
     const start = index === 0 ? startOffset : 0;
-    const end = index === nodes.length - 1 ? endOffset : size;
+    // The element-point clamp above is PARENT-scoped: a boundary at the end of a multi-child
+    // parent resolves to the parent's total text length, which can exceed this node's own size.
+    // Clamp to the node, or the `end === size` piece pick below reads "not at the node's end"
+    // and returns the text BEFORE the selection instead of the covered piece.
+    const end = index === nodes.length - 1 ? Math.min(endOffset, size) : size;
     if (start >= end) return;
     // splitText returns 1, 2, or 3 pieces depending on where the cuts land; the covered one is the
     // middle of three, the last of two when the range runs to the node's end, else the first.
