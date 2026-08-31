@@ -1,5 +1,11 @@
 # Scripture Editors
 
+> **Note:** The Paratext 10 Studio team's development of the `platform-editor` and
+> `scripture-utilities` packages has moved to
+> [`paranext/scripture-editors`](https://github.com/paranext/scripture-editors), a copy of this
+> repository carrying its full history. That repo's README documents how to move changes between
+> the two.
+
 This monorepo contains packages for various Scripture editors.
 
 Each Scripture application's editor will have many behaviors in common with other Scripture applications. Each will need some features that are unique. We are developing all of these parts in a compatible way and in one place in order to maximize collaboration and sharing.
