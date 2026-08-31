@@ -2,9 +2,13 @@
  * Adapted from https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/ContextMenuPlugin/index.tsx
  */
 
-import { pasteSelection, pasteSelectionAsPlainText } from "./clipboard.utils";
+import {
+  copySelection,
+  cutSelection,
+  pasteSelection,
+  pasteSelectionAsPlainText,
+} from "./clipboard.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { COPY_COMMAND, CUT_COMMAND } from "lexical";
 import {
   ReactElement,
   useCallback,
@@ -134,15 +138,20 @@ export function ContextMenuPlugin({
 
   const options = useMemo(() => {
     const builtIn = [
+      // Cut/Copy with nothing selected leave the clipboard alone rather than writing a placeholder
+      // over it — `ClipboardPlugin`'s guard claims the command (see `registerEmptyCopyGuard`), so
+      // this plugin needs no selection check of its own. They are not disabled in that case,
+      // because this option list is built once per editor rather than per menu opening, so its
+      // `isDisabled` flags cannot track the live selection.
       new ContextMenuOption(`Cut`, {
         onSelect: () => {
-          editor.dispatchCommand(CUT_COMMAND, null);
+          cutSelection(editor);
         },
         isDisabled: isReadonly,
       }),
       new ContextMenuOption(`Copy`, {
         onSelect: () => {
-          editor.dispatchCommand(COPY_COMMAND, null);
+          copySelection(editor);
         },
       }),
       new ContextMenuOption(`Paste`, {

@@ -30,6 +30,8 @@ import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
   $handlePasteForStandardView,
+  $normalizePastedNbsp,
+  $stripPastedChapterAndBookId,
   getPastePayload,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -90,7 +92,6 @@ import {
   MarkerLookup,
   MarkerNode,
   MilestoneNode,
-  NBSP,
   NoteNode,
   ParaNode,
   registerPendedDisplayOwners,
@@ -100,6 +101,7 @@ import {
 import {
   $selectionReachesIntoOpaqueBlock,
   hasStandardViewWhitespace,
+  StructureProtectionMode,
   ViewOptions,
 } from "shared-react";
 
@@ -310,9 +312,10 @@ function registerDestroyedOwnerPend(editor: LexicalEditor, context: MarkerEditCo
  * The engine's three `PASTE_COMMAND` claims — the in-note `\fp` break at CRITICAL, the
  * character-stack line replay at HIGH, and the paragraph-split arm at LOW. Kept together because
  * they race on one command and their priorities are what keeps them apart; composed into the
- * plugin's `mergeRegister` in the position that ordering requires (the standard-view NBSP
- * normalization at HIGH is registered BEFORE this, and the char-stack claim relies on it). The
- * returned teardown unregisters all three.
+ * plugin's `mergeRegister` in the position that ordering requires (the Standard-view
+ * external-paste handler at HIGH is registered BEFORE this, so it wins the tie against the
+ * char-stack claim and replays a Standard-view paste's lines itself). The returned teardown
+ * unregisters all three.
  */
 function registerPasteNormalization(
   editor: LexicalEditor,
@@ -334,8 +337,12 @@ function registerPasteNormalization(
         // Simple-mode default) StructureKeyboardPlugin handles PASTE at HIGH and
         // sanitize-inserts any html-bearing payload before a lower-priority claim could run —
         // but an `\fp` break edits NOTE CONTENT, not document structure, so the in-note claim
-        // must win. Outranking the standard-view NBSP normalization at HIGH is fine because
-        // the claim applies the same NBSP → `~` display mapping itself (below).
+        // must win. Outranking the Standard-view external-paste handler
+        // ($handlePasteForStandardView, whitespaceDisplay.plugin.utils.ts) at HIGH is fine
+        // because this claim runs its own normalization below — it does not depend on that
+        // handler running first — but it reuses that handler's exported positional rule
+        // (`$normalizePastedNbsp`) rather than a divergent mapping of its own, so a display-NBSP
+        // here is never corrupted into data any differently than it would be outside a note.
         //
         // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
         // an internal copy of multi-paragraph text replays REAL paragraph nodes, which
@@ -355,12 +362,21 @@ function registerPasteNormalization(
         if (!payload) return false;
         const pastedText = payload.text;
         if (pastedText.includes("\n")) {
-          // Standard view: a pasted data-NBSP takes its `~` display form here, exactly as
-          // `$handlePasteForStandardView` does for the pastes that reach it — inserted raw
-          // it is indistinguishable from a display-NBSP (a plain space in a run), so
-          // serialization would corrupt it into a plain space. A pasted literal `~` is
-          // already the display form and passes through in both paths.
-          const noteText = isStandardView ? pastedText.replaceAll(NBSP, "~") : pastedText;
+          // Standard view: every pasted NBSP is normalized POSITIONALLY here, via the same
+          // `$normalizePastedNbsp` the Standard-view external-paste handler uses
+          // (whitespaceDisplay.plugin.utils.ts) — a display-NBSP (the separator after
+          // `\fr`/`\ft`, a note's inter-child spacer) settles to a space or is dropped exactly
+          // as it would outside a note, and only genuine data survives as `~`. Inserted raw an
+          // NBSP is indistinguishable from a display-NBSP (a plain space in a run), so
+          // serialization would corrupt it into a plain space if left unmapped. A pasted
+          // literal `~` is already the display form and passes through unchanged. `\c`/`\id`
+          // bytes are dropped first, via the same `$stripPastedChapterAndBookId` the external
+          // handler uses — note content re-tokenizes literal text through the SAME Tier 2
+          // tokenizer a paragraph does, so a pasted `\c`/`\id` landing here is just as reachable
+          // (and just as save-poisoning) as one landing in body text.
+          const noteText = isStandardView
+            ? $normalizePastedNbsp($stripPastedChapterAndBookId(pastedText))
+            : pastedText;
           const lines = noteText.split("\n");
           let outcome = $handlePasteLinesInNote(lines, context.getMarker);
           if (outcome === "declined" && $adoptDomCaretInExpandedNote(editor)) {
@@ -407,8 +423,11 @@ function registerPasteNormalization(
         // split and tear the span. Inside a stack that trade is worth it, the same call the
         // in-note claim above makes.
         //
-        // At HIGH, and registered AFTER the standard-view NBSP normalization at the same
-        // priority, which claims any paste carrying an NBSP and so never reaches this.
+        // At HIGH, and registered AFTER the Standard-view external-paste handler at the same
+        // priority. That handler claims every external paste it sees and replays the lines
+        // through this same command, so in Standard view this claim is reached only where it
+        // declines (a structure-protected document). Unformatted view, where it is not
+        // registered at all, is where this claim does its work.
         const payload = getPastePayload(event);
         if (!payload || payload.isInternal || !payload.text) return false;
         const lines = payload.text.split("\n");
@@ -464,6 +483,7 @@ export function MarkerEditPlugin({
   getMarker,
   logger,
   markerSettleDelayMs,
+  structureProtectionMode = "off",
 }: {
   viewOptions: ViewOptions | undefined;
   /** Project StyleInfo-backed lookup; defaults to the bundled table. */
@@ -477,6 +497,11 @@ export function MarkerEditPlugin({
    * departure, Enter, blur, or a forced commit — the behavior before the idle clock existed.
    */
   markerSettleDelayMs?: number;
+  /**
+   * Mirrors `Editor`'s option of the same name. See
+   * `MarkerEditContext.structureProtectionMode`.
+   */
+  structureProtectionMode?: StructureProtectionMode;
 }): null {
   const [editor] = useLexicalComposerContext();
   const isEnabled = viewOptions?.markerMode === "editable";
@@ -516,7 +541,8 @@ export function MarkerEditPlugin({
     if (viewOptions) context.viewOptions = viewOptions;
     context.getMarker = getMarker ?? bundledGetMarker;
     context.logger = logger;
-  }, [viewOptions, getMarker, logger, markerSettleDelayMs]);
+    context.structureProtectionMode = structureProtectionMode;
+  }, [viewOptions, getMarker, logger, markerSettleDelayMs, structureProtectionMode]);
 
   useEffect(() => {
     if (!isEnabled || !viewOptions) return;
@@ -527,8 +553,10 @@ export function MarkerEditPlugin({
       splitExpected: { current: false },
       wholeParaDeleteExpected: new Set<NodeKey>(),
       collapsedDeleteCaretParas: new Set<NodeKey>(),
+      pasteRebuildArmed: { current: false },
       rebuildAttempted: new Set<string>(),
       logger,
+      structureProtectionMode,
     };
     contextRef.current = context;
     // Publishes the live pending set to the self-healing display syncs through a side channel.
@@ -865,6 +893,20 @@ export function MarkerEditPlugin({
                   event && typeof event === "object" && "clipboardData" in event
                     ? (event as ClipboardEvent)
                     : null,
+                  context.structureProtectionMode === "protected",
+                  // Consumed by $paraMarkerDeletionTransform below, same as the
+                  // INSERT_PARAGRAPH_COMMAND and LOW-priority PASTE_COMMAND handlers arm it for
+                  // the paste paths that reach them — this HIGH-priority claim reaches the
+                  // former only from its second line on, and the latter never.
+                  () => {
+                    context.splitExpected.current = true;
+                  },
+                  // Consumed by $rebuildParas (tier2Rebuild.utils.ts) to scope the own-marker-
+                  // prefix dedup to THIS paste's own update — see Tier2Context.pasteRebuildArmed's
+                  // doc comment for why it must not also fire for typed input.
+                  () => {
+                    context.pasteRebuildArmed.current = true;
+                  },
                 ),
               COMMAND_PRIORITY_HIGH,
             ),
@@ -1073,6 +1115,7 @@ export function MarkerEditPlugin({
         context.splitExpected.current = false;
         context.wholeParaDeleteExpected?.clear();
         context.collapsedDeleteCaretParas?.clear();
+        context.pasteRebuildArmed.current = false;
         context.rebuildAttempted.clear();
         // Typing path: ScriptureReferencePlugin's async scrRef echo re-enters
         // `$moveCursorToVerseStart` and yanks the caret to the para/verse start via

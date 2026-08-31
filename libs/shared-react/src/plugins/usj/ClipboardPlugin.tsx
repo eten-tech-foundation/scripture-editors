@@ -1,7 +1,12 @@
-import { pasteSelection, pasteSelectionAsPlainText } from "./clipboard.utils";
+import {
+  copySelection,
+  cutSelection,
+  pasteSelection,
+  pasteSelectionAsPlainText,
+  registerEmptyCopyGuard,
+} from "./clipboard.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { IS_APPLE } from "@lexical/utils";
-import { COPY_COMMAND, CUT_COMMAND } from "lexical";
+import { IS_APPLE, mergeRegister } from "@lexical/utils";
 import { useEffect } from "react";
 
 export function ClipboardPlugin(): null {
@@ -14,10 +19,10 @@ export function ClipboardPlugin(): null {
 
       if (!shiftKey && key.toLowerCase() === "c") {
         event.preventDefault();
-        editor.dispatchCommand(COPY_COMMAND, null);
+        copySelection(editor);
       } else if (!shiftKey && key.toLowerCase() === "x") {
         event.preventDefault();
-        editor.dispatchCommand(CUT_COMMAND, null);
+        cutSelection(editor);
       } else if (key.toLowerCase() === "v") {
         event.preventDefault();
         if (shiftKey) pasteSelectionAsPlainText(editor);
@@ -25,15 +30,20 @@ export function ClipboardPlugin(): null {
       }
     };
 
-    return editor.registerRootListener(
-      (rootElement: HTMLElement | null, prevRootElement: HTMLElement | null) => {
-        if (prevRootElement !== null) {
-          prevRootElement.removeEventListener("keydown", onKeyDown);
-        }
-        if (rootElement !== null) {
-          rootElement.addEventListener("keydown", onKeyDown);
-        }
-      },
+    return mergeRegister(
+      // Every copy/cut this plugin's shortcuts synthesize — and every one the context menu or an
+      // editor ref synthesizes against the same editor — passes through this guard.
+      registerEmptyCopyGuard(editor),
+      editor.registerRootListener(
+        (rootElement: HTMLElement | null, prevRootElement: HTMLElement | null) => {
+          if (prevRootElement !== null) {
+            prevRootElement.removeEventListener("keydown", onKeyDown);
+          }
+          if (rootElement !== null) {
+            rootElement.addEventListener("keydown", onKeyDown);
+          }
+        },
+      ),
     );
   }, [editor]);
 

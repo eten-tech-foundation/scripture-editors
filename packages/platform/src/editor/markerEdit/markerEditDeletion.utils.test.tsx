@@ -1,21 +1,35 @@
 import { serializeEditorState } from "../adaptors/usj-editor.adaptor";
 import {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
+import {
   $appendCharPara,
   $appendVersePara,
+  copyEvent,
+  plainTextPasteEvent,
+  requireDefined,
+  serializedState,
   testEnvironment,
   viewOptions as standardViewOptions,
 } from "./markerEdit.test-helpers";
 import { $createMarkerPrefix, $setParaMarkerWithPrefix } from "./markerEditDeletion.utils";
+import { MarkerEditPlugin } from "./MarkerEditPlugin";
+import { $selectionToUsfmText } from "./whitespaceDisplay.plugin.utils";
 import { act } from "@testing-library/react";
-import { EMPTY_USJ, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { EMPTY_USJ, MarkerObject, Usj } from "@eten-tech-foundation/scripture-utilities";
 import {
+  $createPoint,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $getState,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   $setState,
+  CUT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   LexicalEditor,
   NODE_STATE_KEY,
@@ -42,6 +56,9 @@ import {
   textTypeState,
   VerseNode,
 } from "shared";
+// Reaching inside only for tests.
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { baseTestEnvironment } from "../../../../../libs/shared-react/src/plugins/usj/react-test.utils";
 
 // jsdom implements `getBoundingClientRect` on Element but not on Range. The Enter-split test
 // below seeds an initial selection, which gives the editor root DOM focus as soon as it mounts;
@@ -899,17 +916,6 @@ describe("multi-line plain-text paste", () => {
   if (typeof globalStubs.ClipboardEvent === "undefined")
     globalStubs.ClipboardEvent = class ClipboardEvent extends Event {};
 
-  /** A paste event whose only payload is `text/plain` — what pasting from a plain-text source
-   * (terminal, text editor, address bar) delivers. */
-  function plainTextPasteEvent(text: string): ClipboardEvent {
-    const clipboardData = {
-      types: ["text/plain"],
-      files: [],
-      getData: (type: string) => (type === "text/plain" ? text : ""),
-    };
-    return { clipboardData, preventDefault: () => undefined } as unknown as ClipboardEvent;
-  }
-
   it("keeps every pasted line as its own prefixed paragraph, caret at the end of the paste", async () => {
     // @lexical/clipboard's text/plain path calls `selection.insertParagraph()` directly per
     // newline — never INSERT_PARAGRAPH_COMMAND — so the engine's Enter handler can't arm
@@ -1037,5 +1043,120 @@ describe("load/engine para prefix drift pin", () => {
     });
 
     expect(engine).toEqual(loaded);
+  });
+});
+
+describe("selection-delete at a settled char-span boundary (WI-2 filed)", () => {
+  // Regression armor for a QA-filed live repro: after typing settled a `\wj …\wj*` char span, a
+  // PROGRAMMATIC DOM selection built with `range.setEndAfter(spanElement)` — anchor in the text
+  // BEFORE the span, focus set immediately after the span's whole DOM element — was deleted, and
+  // the deletion absorbed one character AFTER the selection's own end: the closing curly quote
+  // `”` that immediately follows the span. Mouse-drawn selections never reproduced it, so this
+  // mirrors the DOM shape at the Lexical level with an ELEMENT-point focus (offset = the
+  // CharNode's own index within its parent, plus one — the exact mapping `setEndAfter` produces),
+  // not a text point landing inside either neighboring text node.
+
+  /** `\p “quote \wj words\wj*” after` — built via the real adaptor (USJ → Lexical) so the `\wj`
+   * span carries its genuine settled shape: opening MarkerNode, NBSP-prefixed content, closing
+   * MarkerNode, sandwiched between two plain TextNodes. */
+  function quoteWjUsj(): Usj {
+    return {
+      type: "USJ",
+      version: "3.1",
+      content: [
+        {
+          type: "para",
+          marker: "p",
+          content: ["“quote ", { type: "char", marker: "wj", content: ["words"] }, "” after"],
+        },
+      ],
+    } as unknown as Usj;
+  }
+
+  async function renderQuoteWjEditor() {
+    return baseTestEnvironment(
+      serializedState(quoteWjUsj()),
+      <MarkerEditPlugin viewOptions={standardViewOptions} />,
+    );
+  }
+
+  /**
+   * Selects from just after the opening curly quote (inside `“quote `, the text BEFORE the span)
+   * through an ELEMENT point immediately after the whole `\wj` span — a boundary between the
+   * CharNode and its next sibling, the exact Lexical shape a DOM `range.setEndAfter(spanElement)`
+   * maps to.
+   */
+  function $selectQuoteThroughSpanBoundary(): void {
+    const para = requireDefined($getRoot().getChildren().filter($isParaNode)[0], "para missing");
+    const before = requireDefined(
+      para
+        .getChildren()
+        .find((node) => $isTextNode(node) && node.getTextContent().includes("quote")),
+      "leading quote text not found",
+    );
+    const char = requireDefined(para.getChildren().find($isCharNode), "wj span not found");
+    const selection = $createRangeSelection();
+    selection.anchor = $createPoint(before.getKey(), 1, "text"); // right after the opening “
+    selection.focus = $createPoint(para.getKey(), char.getIndexWithinParent() + 1, "element");
+    $setSelection(selection);
+  }
+
+  /** Select-all, walk it through the copy-text walker, and return the USFM text — the same
+   * byte-exact check `$handleCopyForStandardView` performs on copy/cut. */
+  function $selectAllUsfmText(): string {
+    const root = $getRoot();
+    root.select(0, root.getChildrenSize());
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+    return $selectionToUsfmText(selection);
+  }
+
+  it("CUT_COMMAND: the closing curly quote and everything after it survive byte-exactly; clipboard holds exactly the selected content", async () => {
+    const { editor } = await renderQuoteWjEditor();
+    await act(async () => editor.update($selectQuoteThroughSpanBoundary));
+
+    const { event, getData } = copyEvent();
+    await act(async () => editor.dispatchCommand(CUT_COMMAND, event));
+
+    // Clipboard: exactly the selected content (NBSP inverted to a plain space), nothing more —
+    // in particular no trailing "”" that would prove the cut over-selected.
+    expect(getData("text/plain")).toBe("quote \\wj words\\wj*");
+
+    // The copy-text walker's own read of the post-cut document: the closing curly quote and
+    // " after" must both still be there, adjacent, byte-exact.
+    let usfmSelectAll = "";
+    await act(async () => editor.update(() => (usfmSelectAll = $selectAllUsfmText())));
+    expect(usfmSelectAll).toBe("\\p “” after");
+
+    // The editor's own USJ export agrees — a second, independent read of the same post-cut state.
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), standardViewOptions),
+      "expected a deserialized USJ document",
+    );
+    expect(usj.content).toEqual([{ type: "para", marker: "p", content: ["“” after"] }]);
+  });
+
+  it("plain removeText(): same boundary shape — no character past the selection's end is absorbed", async () => {
+    const { editor } = await renderQuoteWjEditor();
+    await act(async () =>
+      editor.update(() => {
+        $selectQuoteThroughSpanBoundary();
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+        selection.removeText();
+      }),
+    );
+
+    let usfmSelectAll = "";
+    await act(async () => editor.update(() => (usfmSelectAll = $selectAllUsfmText())));
+    expect(usfmSelectAll).toBe("\\p “” after");
+
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), standardViewOptions),
+      "expected a deserialized USJ document",
+    );
+    expect(usj.content).toEqual([{ type: "para", marker: "p", content: ["“” after"] }]);
   });
 });
