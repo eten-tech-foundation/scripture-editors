@@ -3,9 +3,10 @@
 import { usjGen1v1 } from "../../../utilities/src/converters/usj/converter-test.data";
 import Editor from "./Editor";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
+import type { DeltaOp } from "shared-react";
 import Editorial from "../Editorial";
 import { flushQueuedEvents } from "./editor-test.utils";
-import { ContentJsonPath, Usj } from "@eten-tech-foundation/scripture-utilities";
+import { ContentJsonPath, EMPTY_USJ, Usj } from "@eten-tech-foundation/scripture-utilities";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 // Deep import: the marker-menu list component isn't exposed from shared-react's package entry.
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -485,15 +486,24 @@ async function mountFootnoteEditor(): Promise<{
   lexicalEditor: LexicalEditor;
   editorRef: EditorRef;
 }> {
+  return mountEditorWithUsj(usjWithFootnote);
+}
+
+/** Mount an `Editor` over `usj`, optionally with non-default options (e.g. a Power-mode view). */
+async function mountEditorWithUsj(
+  usj: Usj,
+  options?: EditorOptions,
+): Promise<{ lexicalEditor: LexicalEditor; editorRef: EditorRef }> {
   const ref = createRef<EditorRef>();
   let editor: LexicalEditor | undefined;
   await act(async () => {
     render(
       <Editor
         ref={ref}
-        defaultUsj={usjWithFootnote}
+        defaultUsj={usj}
         scrRef={{ book: "GEN", chapterNum: 1, verseNum: 1 }}
         onScrRefChange={vi.fn()}
+        options={options}
       >
         <GrabEditor onEditor={(e) => (editor = e)} />
       </Editor>,
@@ -502,6 +512,23 @@ async function mountFootnoteEditor(): Promise<{
   await flushQueuedEvents();
   if (!editor || !ref.current) throw new Error("Editor did not mount");
   return { lexicalEditor: editor, editorRef: ref.current };
+}
+
+/** The marker of the `CharNode` the caret sits in, or `undefined` when the caret is not in one. */
+function $caretCharMarker(): string | undefined {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return undefined;
+  const charNode = selection.anchor.getNode().getParent();
+  return $isCharNode(charNode) ? charNode.getMarker() : undefined;
+}
+
+/** The first text node whose content is exactly `text`. */
+function $findTextNodeSaying(text: string): LexicalNode | undefined {
+  let found: LexicalNode | undefined;
+  $walk($getRoot(), (node) => {
+    if (!found && $isTextNode(node) && node.getTextContent() === text) found = node;
+  });
+  return found;
 }
 
 /** Depth-first walk of the current editor state (call inside an editor read/update). */
@@ -690,6 +717,119 @@ describe("insert char via the marker menu (PT-3780, popover path)", () => {
     await flushQueuedEvents();
 
     lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("fk"));
+  });
+});
+
+// Creating the footnote itself (unlike the PT-3780 cases above, which insert into an existing one)
+// goes through `$insertNote`, which places the caret only when the note is expanded. That
+// asymmetry is deliberate: a collapsed note's content is `display: none` (usj-nodes.css), and the
+// user types into the host's separate popover editor instead - see the ordering cases below.
+describe("insert the initial footnote marker", () => {
+  it("puts the caret in the new note's ft content when notes are expanded (Power mode)", async () => {
+    const { lexicalEditor, editorRef } = await mountEditorWithUsj(usjWithVerseInParagraphMiddle, {
+      view: {
+        markerMode: "editable",
+        noteMode: "expanded",
+        hasSpacing: false,
+        isFormattedFont: false,
+      },
+    });
+
+    await insertMarkerAtCaret(lexicalEditor, editorRef, () => $findTextNodeSaying("Bravo"), 5, "f");
+
+    lexicalEditor.getEditorState().read(() => $expectCaretInsideNoteMarker("ft"));
+  });
+
+  it("leaves the caret out of the hidden note when notes are collapsed (Simple mode)", async () => {
+    const { lexicalEditor, editorRef } = await mountEditorWithUsj(usjWithVerseInParagraphMiddle);
+
+    await insertMarkerAtCaret(lexicalEditor, editorRef, () => $findTextNodeSaying("Bravo"), 5, "f");
+
+    lexicalEditor.getEditorState().read(() => {
+      expect($caretCharMarker()).toBeUndefined();
+    });
+  });
+});
+
+// The Platform.Bible footnote popover is a separate editor the host feeds via `applyUpdate`, so
+// its insertion point depends on when that editor is focused relative to when its content lands.
+// `focus()` sets no selection on an empty root, and falls back to `selectEnd()` - which lands on
+// the note's trailing spacer, outside its char runs. Only `selectNote` reaches the `ft` content.
+// These pin all three orderings so the host-side fix can be verified from here.
+describe("footnote popover editor: focus vs. note-content ordering", () => {
+  /** What the host pushes into the popover editor: a `\f` note with `fr` and `ft` char runs. */
+  const noteOps: DeltaOp[] = [
+    {
+      insert: {
+        note: {
+          style: "f",
+          caller: "+",
+          contents: {
+            ops: [
+              { insert: "1.1 ", attributes: { char: { style: "fr", closed: "false" } } },
+              { insert: "note text", attributes: { char: { style: "ft", closed: "false" } } },
+            ],
+          },
+        },
+      },
+    },
+  ];
+
+  /** The popover editor's configuration: notes always expanded, as FootnoteEditor mounts it. */
+  const popoverOptions: EditorOptions = {
+    view: {
+      markerMode: "hidden",
+      noteMode: "expanded",
+      hasSpacing: true,
+      isFormattedFont: true,
+    },
+  };
+
+  it("leaves the popover with no insertion point when focus() runs before the note is applied", async () => {
+    const { lexicalEditor, editorRef } = await mountEditorWithUsj(EMPTY_USJ, popoverOptions);
+
+    await act(async () => editorRef.focus());
+    await act(async () => editorRef.applyUpdate(noteOps));
+    await flushQueuedEvents();
+
+    lexicalEditor.getEditorState().read(() => {
+      expect($caretCharMarker()).toBeUndefined();
+    });
+  });
+
+  // Reordering alone is NOT enough, which is the trap worth knowing before changing the host:
+  // Lexical's `focus()` falls back to `root.selectEnd()`, and a note's last child is its trailing
+  // spacer, not its last char. The caret lands in the note but outside any char run, so typed text
+  // would not join `\ft`.
+  it("puts the caret outside the char runs when focus() alone runs after the note is applied", async () => {
+    const { lexicalEditor, editorRef } = await mountEditorWithUsj(EMPTY_USJ, popoverOptions);
+
+    await act(async () => editorRef.applyUpdate(noteOps));
+    await flushQueuedEvents();
+    await act(async () => editorRef.focus());
+
+    lexicalEditor.getEditorState().read(() => {
+      const anchorParent = $isRangeSelection($getSelection())
+        ? $getSelection()?.getNodes()[0]?.getParent()
+        : undefined;
+      expect($isNoteNode(anchorParent)).toBe(true);
+      expect($caretCharMarker()).toBeUndefined();
+    });
+  });
+
+  it("puts the caret in the note's ft content when selectNote runs after the note is applied", async () => {
+    const { lexicalEditor, editorRef } = await mountEditorWithUsj(EMPTY_USJ, popoverOptions);
+
+    await act(async () => editorRef.applyUpdate(noteOps));
+    await flushQueuedEvents();
+    await act(async () => {
+      editorRef.selectNote(0);
+      editorRef.focus();
+    });
+
+    lexicalEditor.getEditorState().read(() => {
+      expect($caretCharMarker()).toBe("ft");
+    });
   });
 });
 

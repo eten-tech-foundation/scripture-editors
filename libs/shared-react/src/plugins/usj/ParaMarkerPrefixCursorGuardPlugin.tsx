@@ -2,6 +2,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import {
   $getNodeByKey,
   $getSelection,
+  $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
   CLICK_COMMAND,
@@ -50,6 +51,8 @@ export function ParaMarkerPrefixCursorGuardPlugin(): null {
  * Advances the cursor past all structural prefix nodes at the start of `para`:
  * - Para-marker prefix (`MarkerNode` or `ImmutableTypedTextNode`) and its trailing NBSP.
  * - Leading verse nodes (`VerseNode` or `ImmutableVerseNode`).
+ * - The `LineBreakNode` the adaptor emits before each verse when `hasSpacing` is false (Power
+ *   mode's own setting), which otherwise stops the walk on the marker line, before the break.
  *
  * Places the cursor at the start of the first content `TextNode` that follows, or at the
  * element offset just after all skipped nodes when no content `TextNode` exists yet.
@@ -70,7 +73,7 @@ export function $advancePastParaPrefixes(para: SomeParaNode): boolean {
         skipCount++;
         child = child.getNextSibling();
       }
-    } else if ($isSomeVerseNode(child)) {
+    } else if ($isSomeVerseNode(child) || $isLineBreakNode(child)) {
       skipCount++;
       child = child.getNextSibling();
     } else {

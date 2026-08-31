@@ -175,6 +175,27 @@ export class VerseNode extends TextNode {
     return self.__unknownAttributes;
   }
 
+  /**
+   * Text typed at either edge of a verse marker belongs to the surrounding content, never to the
+   * marker itself.
+   *
+   * Load-bearing, not cosmetic: `VerseNode` extends `TextNode`, so in Power mode a caret can rest
+   * against it and Lexical would splice the keystroke into the marker's own text - typing produced
+   * `\v 3 X` (after) and `X\v 3 ` (before). Returning `false` makes Lexical redirect into the
+   * neighbouring node instead. Simple mode was unaffected: its verses are `ImmutableVerseNode`
+   * decorators, which take no text at all.
+   *
+   * Safe unconditionally: this node's text is the whole visible marker including its trailing
+   * space (`\v 3 `), so editing the number happens at an interior offset, never at either edge.
+   */
+  override canInsertTextBefore(): false {
+    return false;
+  }
+
+  override canInsertTextAfter(): false {
+    return false;
+  }
+
   override createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
     dom.setAttribute("data-marker", this.__marker);

@@ -94,7 +94,6 @@ import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $getRoot,
   $getSelection,
-  $isTextNode,
   COMMAND_PRIORITY_LOW,
   LexicalEditor,
   SELECTION_CHANGE_COMMAND,
@@ -121,6 +120,7 @@ import {
   $findVerseOrPara,
   $getEffectiveVerseForBcv,
   $resolveVerseNode,
+  $selectVerseContentStart,
   ImmutableVerseNode,
 } from "shared-react";
 
@@ -424,10 +424,12 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   if (!verseOrParaNode) return;
 
   if ($isParaNode(verseOrParaNode)) {
-    const firstChild = verseOrParaNode.getFirstChild();
-    if ($isTextNode(firstChild)) firstChild.select(0, 0);
-    else if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.select(0, 0);
-  } else verseOrParaNode.selectNext(0, 0);
+    // The prefix guard must run BEFORE any `$isTextNode` check on the first child: in Power mode
+    // the para-marker prefix is a `MarkerNode`, which extends `TextNode`, so testing for text
+    // first would drop the caret inside the marker and typed text would land on it (PT-4021).
+    // Only Power mode was affected - `markerMode: "visible"` uses a `DecoratorNode` prefix.
+    if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.selectStart();
+  } else $selectVerseContentStart(verseOrParaNode);
 }
 
 /** `selectionSettled`: the caret is somewhere; the phase decides whose action that was.

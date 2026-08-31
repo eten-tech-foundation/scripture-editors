@@ -3,7 +3,6 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
-  $isTextNode,
   COMMAND_PRIORITY_LOW,
   EditorState,
   SELECTION_CHANGE_COMMAND,
@@ -24,7 +23,12 @@ import {
   removeNodesBeforeNode,
   ScriptureReference,
 } from "shared";
-import { $findThisVerse, $findVerseOrPara } from "shared-react";
+import {
+  $advancePastParaPrefixes,
+  $findThisVerse,
+  $findVerseOrPara,
+  $selectVerseContentStart,
+} from "shared-react";
 
 /**
  * A component (plugin) that keeps the Scripture reference updated.
@@ -129,10 +133,11 @@ function $moveCursorToVerseStart(
   if (!verseOrParaNode) return;
 
   if ($isParaNode(verseOrParaNode)) {
-    const firstChild = verseOrParaNode.getFirstChild();
-    if ($isTextNode(firstChild)) firstChild.select(0, 0);
-    else verseOrParaNode.select(0, 0);
-  } else verseOrParaNode.selectNext(0, 0);
+    // The prefix guard must run BEFORE any `$isTextNode` check on the first child: in Power mode
+    // the para-marker prefix is a `MarkerNode`, which extends `TextNode`, so testing for text
+    // first would drop the caret inside the marker and typed text would land on it (PT-4021).
+    if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.selectStart();
+  } else $selectVerseContentStart(verseOrParaNode);
   hasCursorMovedRef.current = true;
 }
 

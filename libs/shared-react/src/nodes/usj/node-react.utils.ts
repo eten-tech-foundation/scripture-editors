@@ -43,6 +43,7 @@ import {
   $isNoteNode,
   $isParaNode,
   $isSomeChapterNode,
+  $isSynthesizedMarkerNode,
   $isVerseNode,
   $moveSelectionToEnd,
   closingMarkerText,
@@ -685,7 +686,7 @@ export function $selectNextVerse(selection: RangeSelection): boolean {
   }
 
   if (!nextVerse) return false;
-  nextVerse.selectNext(0, 0);
+  $selectVerseContentStart(nextVerse);
   return true;
 }
 
@@ -741,8 +742,52 @@ export function $selectPreviousVerse(selection: RangeSelection): boolean {
   }
 
   if (!prevVerse) return false;
-  prevVerse.selectNext(0, 0);
+  $selectVerseContentStart(prevVerse);
   return true;
+}
+
+/**
+ * Places the caret at the first typing position of the content following `verseNode`.
+ *
+ * Not `selectNext`: that honors its offsets only for a `TextNode` sibling. For an inline ELEMENT
+ * sibling it discards them and selects index 0 *inside* the element, which for a `CharNode` is
+ * ahead of the char's own opening marker - so the first keystroke lands in the marker
+ * (`\nd` -> `X\nd`). `\v 1 \nd Lord\nd*` is ordinary scripture, so this shape is common (PT-4021).
+ *
+ * Leading notes are stepped OVER, not into: verse navigation targets the verse's text, and a
+ * collapsed note's content is `display: none`, so a caret inside one would be invisible.
+ */
+export function $selectVerseContentStart(verseNode: SomeVerseNode): void {
+  let lastSkipped: LexicalNode = verseNode;
+  let node: LexicalNode | null = verseNode.getNextSibling();
+  while ($isNoteNode(node)) {
+    lastSkipped = node;
+    node = node.getNextSibling();
+  }
+
+  if ($isTextNode(node)) {
+    node.select(0, 0);
+  } else if ($isElementNode(node)) {
+    // Skip the element's own marker scaffolding (a CharNode's opening marker). Editable mode
+    // NBSP-prefixes char content, and offset 0 would be re-anchored onto that opening marker by
+    // Lexical's boundary normalization; starting past the NBSP is interior, which it leaves alone.
+    const children = node.getChildren();
+    const contentIndex = children.findIndex((child) => !$isSynthesizedMarkerNode(child));
+    const content = contentIndex < 0 ? undefined : children[contentIndex];
+    if ($isTextNode(content)) {
+      const offset = content.getTextContent().startsWith(NBSP) ? NBSP.length : 0;
+      content.select(offset, offset);
+    } else {
+      // Nested char, annotation wrapper, or a marker-only char: sit at the element offset just
+      // after the opening marker. `selectStart()` would descend back into the marker itself.
+      node.select(Math.max(contentIndex, 1), Math.max(contentIndex, 1));
+    }
+  } else {
+    // No content follows (verse at para end, or only notes after it). Sit AFTER everything
+    // skipped - `selectEnd()` would descend back into the note this function just stepped over.
+    const index = lastSkipped.getIndexWithinParent() + 1;
+    verseNode.getParentOrThrow().select(index, index);
+  }
 }
 
 /**

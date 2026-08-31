@@ -34,6 +34,7 @@ import {
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createMarkerNode,
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
@@ -44,7 +45,10 @@ import {
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
   HIDDEN_NOTE_CALLER,
+  getVisibleOpenMarkerText,
   ImmutableChapterNode,
+  MarkerNode,
+  NBSP,
   NoteNode,
   ParaNode,
   TypedMarkNode,
@@ -380,6 +384,55 @@ describe("$selectNextVerse()", () => {
       if (!$isRangeSelection(selection)) throw new Error("expected range selection");
       const verse = $findThisVerse(selection.anchor.getNode());
       expect(verse?.getNumber()).toBe("1");
+    });
+  });
+
+  // `\v 2 \nd Lord\nd*` in Power mode: the verse's next sibling is an inline element, so a plain
+  // `selectNext(0, 0)` would land at index 0 INSIDE the char, ahead of its opening marker, and the
+  // first keystroke would rewrite the marker rather than the content.
+  it("lands inside the char's content when the next verse opens with a character marker", () => {
+    let paraKey: string;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode, CharNode, MarkerNode]);
+    editor.update(
+      () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createTextNode("text1"),
+            $createVerseNode("2", getVisibleOpenMarkerText("v", "2")),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              $createTextNode(`${NBSP}Lord`),
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+        const para = $getRoot().getFirstChild();
+        if (!para) throw new Error("paragraph not found");
+        paraKey = para.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        const rangeSelection = $createRangeSelection();
+        rangeSelection.anchor = $createPoint(paraKey, 0, "element");
+        rangeSelection.focus = $createPoint(paraKey, 0, "element");
+        $setSelection(rangeSelection);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+        expect($selectNextVerse(selection)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+      const anchorNode = selection.anchor.getNode();
+      // Inside the char's own text, past the NBSP scaffolding - not on the marker.
+      expect($isTextNode(anchorNode)).toBe(true);
+      expect(anchorNode.getTextContent()).toBe(`${NBSP}Lord`);
+      expect(selection.anchor.offset).toBe(NBSP.length);
     });
   });
 });

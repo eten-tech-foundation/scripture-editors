@@ -17,23 +17,36 @@ import { act, render } from "@testing-library/react";
 import {
   $createPoint,
   $createRangeSelection,
+  $createLineBreakNode,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isElementNode,
+  $isRangeSelection,
+  $isTextNode,
   $setSelection,
+  $setState,
   BaseSelection,
   LexicalEditor,
+  LexicalNode,
   SELECTION_CHANGE_COMMAND,
   TextNode,
 } from "lexical";
 import { useEffect, useState } from "react";
 import {
   $createBookNode,
+  $createChapterNode,
+  $createCharNode,
   $createImmutableChapterNode,
+  $createMarkerNode,
+  $createNoteNode,
   $createParaNode,
+  $createVerseNode,
   $isBookNode,
+  NBSP,
   getSelectionStartNode,
+  getVisibleOpenMarkerText,
+  textTypeState,
 } from "shared";
 import { $createImmutableVerseNode, usjReactNodes } from "shared-react";
 
@@ -817,7 +830,353 @@ describe("ScriptureReferencePlugin", () => {
       );
     });
   });
+
+  // These assert where typed text LANDS, never where the caret sits. In Power mode a caret
+  // placed at offset 0 of a paragraph's content is immediately re-anchored by Lexical's boundary
+  // normalization onto the preceding node - the `VerseNode`/`MarkerNode` prefix, both `TextNode`
+  // subclasses - on the next DOM selection read. Asserting the caret's node is therefore racy
+  // (it depends on whether the deferred `selectionchange` has fired yet) AND meaningless: the
+  // user-visible contract is that typing goes into the verse text, not onto the marker.
+  describe("Power mode (markerMode: editable) para-marker prefixes", () => {
+    it("lands typed text in the verse content, not on the marker, after navigating to a verse", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 6 },
+        mockOnScrRefChange,
+        $powerModeListState,
+      );
+      await setScrRef({ book: "GEN", chapterNum: 9, verseNum: 7 });
+
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        expect($childShapeOf($getRoot().getLastChild())).toEqual([
+          "marker=\\li2",
+          `text=${NBSP}`,
+          "linebreak=\n",
+          `verse=${getVisibleOpenMarkerText("v", "7")}`,
+          "text=Xverse seven text ",
+        ]);
+      });
+    });
+
+    // `\v 7 \nd Lord\nd*`: the verse's next sibling is an inline element, the path where
+    // `selectNext` drops the caret ahead of the char's own opening marker.
+    it("lands typed text in the char content when a verse opens with a character marker", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 6 },
+        mockOnScrRefChange,
+        $powerModeCharState,
+      );
+      await setScrRef({ book: "GEN", chapterNum: 9, verseNum: 7 });
+
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getLastChild();
+        if (!$isElementNode(para)) throw new Error("expected a para element");
+        expect($childShapeOf(para.getLastChild())).toEqual([
+          "marker=\\nd",
+          `text=${NBSP}XLord`,
+          "marker=\\nd*",
+        ]);
+      });
+    });
+
+    // A verse whose content opens with a footnote (`\v 7 \f + \ft note\f* text`). The note is
+    // stepped over, so typing goes into the verse's own text rather than into the footnote.
+    it("steps over a leading note so typed text lands in the verse text", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 6 },
+        mockOnScrRefChange,
+        $powerModeNoteState,
+      );
+      await setScrRef({ book: "GEN", chapterNum: 9, verseNum: 7 });
+
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        expect($childShapeOf($getRoot().getLastChild())).toEqual([
+          "marker=\\q1",
+          `text=${NBSP}`,
+          "linebreak=\n",
+          `verse=${getVisibleOpenMarkerText("v", "7")}`,
+          "note=note text",
+          "text=Xverse seven text ",
+        ]);
+      });
+    });
+
+    // Same shape but with nothing after the note: the caret must still not end up inside it.
+    it("keeps typed text out of a leading note that ends the paragraph", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 6 },
+        mockOnScrRefChange,
+        $powerModeNoteAtParaEndState,
+      );
+      await setScrRef({ book: "GEN", chapterNum: 9, verseNum: 7 });
+
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getLastChild();
+        if (!$isElementNode(para)) throw new Error("expected a para element");
+        // The note is untouched; the keystroke landed after it, still inside the paragraph.
+        expect(para.getLastChild()?.getTextContent()).toBe("X");
+        expect($childShapeOf(para)).toEqual([
+          "marker=\\q1",
+          `text=${NBSP}`,
+          "linebreak=\n",
+          `verse=${getVisibleOpenMarkerText("v", "7")}`,
+          "note=note text",
+          "text=X",
+        ]);
+      });
+    });
+
+    // Verse-0 lands on the chapter's first para. When that para holds a verse, Power mode puts a
+    // LineBreakNode between the marker prefix and the verse (`hasSpacing: false`), so the prefix
+    // guard has to skip it too - otherwise the caret stops on the marker line, before the break.
+    it("lands typed text in the verse content when the chapter's first para holds a verse", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 7 },
+        mockOnScrRefChange,
+        $powerModeCharState,
+      );
+      await setScrRef({ book: "GEN", chapterNum: 9, verseNum: 0 });
+
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        expect($childShapeOf($getRoot().getChildAtIndex(2))).toEqual([
+          "marker=\\q1",
+          `text=${NBSP}`,
+          "linebreak=\n",
+          `verse=${getVisibleOpenMarkerText("v", "6")}`,
+          "text=Xverse six text ",
+        ]);
+      });
+    });
+
+    // A caret at the START of a verse marker. `canInsertTextAfter` deliberately says nothing about
+    // this end, so this pins that a keystroke there cannot splice into the marker's own text.
+    it("keeps typed text out of the verse marker when the caret is at its start", async () => {
+      const { editor } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 1 },
+        mockOnScrRefChange,
+        $powerModeListState,
+      );
+
+      await act(async () => {
+        editor.update(() => {
+          const para = $getRoot().getLastChild();
+          if (!$isElementNode(para)) throw new Error("expected a para element");
+          const verse = para.getChildAtIndex(3);
+          if (!$isTextNode(verse)) throw new Error("expected the verse node");
+          verse.select(0, 0);
+        });
+      });
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getLastChild();
+        if (!$isElementNode(para)) throw new Error("expected a para element");
+        expect($childShapeOf(para)).toContain(`verse=${getVisibleOpenMarkerText("v", "7")}`);
+      });
+    });
+
+    // Adjacent verses with no content between them (`\v 21 \v 22 text` - Matt 17:21 and friends).
+    // `canInsertTextAfter: false` redirects a keystroke at the end of verse 21 forward; this pins
+    // that it cannot reach verse 22's marker text.
+    it("keeps typed text out of the next verse marker when two verses are adjacent", async () => {
+      const { editor } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 1 },
+        mockOnScrRefChange,
+        $powerModeAdjacentVersesState,
+      );
+
+      await act(async () => {
+        editor.update(() => {
+          const verse21 = $getRoot().getLastChild();
+          if (!$isElementNode(verse21)) throw new Error("expected a para element");
+          const emptyVerse = verse21.getChildAtIndex(3);
+          if (!$isTextNode(emptyVerse)) throw new Error("expected the verse node");
+          emptyVerse.select(emptyVerse.getTextContentSize(), emptyVerse.getTextContentSize());
+        });
+      });
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        const para = $getRoot().getLastChild();
+        if (!$isElementNode(para)) throw new Error("expected a para element");
+        const shape = $childShapeOf(para);
+        expect(shape).toContain(`verse=${getVisibleOpenMarkerText("v", "21")}`);
+        expect(shape).toContain(`verse=${getVisibleOpenMarkerText("v", "22")}`);
+        expect(para.getTextContent()).toContain("X");
+      });
+    });
+
+    // The chapter's first para has a marker prefix but no verse, so the caret is re-anchored onto
+    // the NBSP trailing space instead. Text absorbed there exports glued to a stray NBSP.
+    it("lands typed text in the paragraph content after navigating to the chapter top (verse 0)", async () => {
+      const { editor, setScrRef } = await testEnvironment(
+        { book: "GEN", chapterNum: 9, verseNum: 7 },
+        mockOnScrRefChange,
+        $powerModeListState,
+      );
+      await setScrRef({ book: "GEN", chapterNum: 9, verseNum: 0 });
+
+      await typeText(editor, "X");
+
+      editor.getEditorState().read(() => {
+        expect($childShapeOf($getRoot().getChildAtIndex(2))).toEqual([
+          "marker=\\s1",
+          `text=${NBSP}`,
+          "text=Xsection heading ",
+        ]);
+      });
+    });
+  });
 });
+
+/**
+ * A Power-mode (`markerMode: "editable"`) chapter whose paragraphs carry `\li1`/`\li2` markers,
+ * built the way the adaptor builds them: a `MarkerNode` prefix, its NBSP trailing space, then the
+ * verse and its content. Mirrors the 1CH 9:6-7 shape of the PT-4021 repro project.
+ */
+function $powerModeListState() {
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createChapterNode("9"),
+    // A marker prefix with NO verse after it: the chapter's first para, so verse-0 navigation
+    // lands here. The node preceding the content is the NBSP trailing space rather than a verse.
+    $createParaNode("s1").append(
+      $createMarkerNode("s1"),
+      $createMarkerTrailingSpace(),
+      $createTextNode("section heading "),
+    ),
+    $createParaNode("li1").append(
+      $createMarkerNode("li1"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      // Power mode carries the visible marker text (`\v 6 `, trailing space included) as the
+      // VerseNode's own text, which is what makes the node a TextNode the caret can land inside.
+      $createVerseNode("6", getVisibleOpenMarkerText("v", "6")),
+      $createTextNode("verse six text "),
+    ),
+    $createParaNode("li2").append(
+      $createMarkerNode("li2"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      $createVerseNode("7", getVisibleOpenMarkerText("v", "7")),
+      $createTextNode("verse seven text "),
+    ),
+  );
+}
+
+/** The NBSP spacer the adaptor emits after a para-marker prefix, matching `createPara`'s shape:
+ * the `marker-trailing-space` textType (without it Lexical merges the spacer into the following
+ * content run) and token mode (which keeps typed text out of the spacer). */
+function $createMarkerTrailingSpace() {
+  const spacer = $setState($createTextNode(NBSP), textTypeState, "marker-trailing-space");
+  return spacer.setMode("token");
+}
+
+/**
+ * Power mode with two adjacent verses and no content between them (`\v 21 \v 22 text`). Note the
+ * adaptor emits a `LineBreakNode` before EVERY verse when `hasSpacing` is false, so consecutive
+ * verses are separated by one rather than sitting directly against each other.
+ */
+function $powerModeAdjacentVersesState() {
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createChapterNode("9"),
+    $createParaNode("q1").append(
+      $createMarkerNode("q1"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      $createVerseNode("21", getVisibleOpenMarkerText("v", "21")),
+      $createLineBreakNode(),
+      $createVerseNode("22", getVisibleOpenMarkerText("v", "22")),
+      $createTextNode("verse twenty-two text "),
+    ),
+  );
+}
+
+/** Power mode where verse 7's content opens with a footnote, followed by the verse's own text. */
+function $powerModeNoteState() {
+  $appendNoteFixture($createTextNode("verse seven text "));
+}
+
+/** As `$powerModeNoteState`, but nothing follows the note - stepping over it leaves no content. */
+function $powerModeNoteAtParaEndState() {
+  $appendNoteFixture();
+}
+
+/**
+ * Shared builder for the note fixtures above.
+ *
+ * They are exposed as no-argument functions rather than one function with a default parameter
+ * because Lexical calls an `editorState` initializer WITH the editor as its argument - a default
+ * would silently receive that editor and evaluate truthy.
+ */
+function $appendNoteFixture(contentAfterNote?: TextNode) {
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createChapterNode("9"),
+    $createParaNode("q1").append(
+      $createMarkerNode("q1"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      $createVerseNode("6", getVisibleOpenMarkerText("v", "6")),
+      $createTextNode("verse six text "),
+    ),
+    $createParaNode("q1").append(
+      $createMarkerNode("q1"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      $createVerseNode("7", getVisibleOpenMarkerText("v", "7")),
+      $createNoteNode("f", "+").append($createCharNode("ft").append($createTextNode("note text"))),
+      ...(contentAfterNote ? [contentAfterNote] : []),
+    ),
+  );
+}
+
+/**
+ * Power mode where verse 7's content opens with a character marker (`\v 7 \nd Lord\nd*`), as the
+ * adaptor builds it: the CharNode wraps its own opening/closing `MarkerNode`s around content whose
+ * text carries the leading NBSP.
+ */
+function $powerModeCharState() {
+  $getRoot().append(
+    $createBookNode("GEN").append($createTextNode("Test Book")),
+    $createChapterNode("9"),
+    $createParaNode("q1").append(
+      $createMarkerNode("q1"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      $createVerseNode("6", getVisibleOpenMarkerText("v", "6")),
+      $createTextNode("verse six text "),
+    ),
+    $createParaNode("q1").append(
+      $createMarkerNode("q1"),
+      $createMarkerTrailingSpace(),
+      $createLineBreakNode(),
+      $createVerseNode("7", getVisibleOpenMarkerText("v", "7")),
+      $createCharNode("nd").append(
+        $createMarkerNode("nd"),
+        $createTextNode(`${NBSP}Lord`),
+        $createMarkerNode("nd", "closing"),
+      ),
+    ),
+  );
+}
+
+/** Each direct child of `element` as `type=text`, for asserting where typed text landed. Only one
+ * level deep, so pass the specific element whose children matter (a para, or a char inside it). */
+function $childShapeOf(element: LexicalNode | null): string[] {
+  if (!$isElementNode(element)) throw new Error("expected an element node");
+  return element.getChildren().map((child) => `${child.getType()}=${child.getTextContent()}`);
+}
 
 function $defaultInitialEditorState() {
   sectionTextNode = $createTextNode("Section Text");
@@ -950,6 +1309,16 @@ async function pressEditor(editor: LexicalEditor) {
   await flushQueuedEvents();
   await act(async () => {
     editor.getRootElement()?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+  });
+}
+
+/** Simulate the user typing `text` at the current caret, the way Lexical's own typing path does. */
+async function typeText(editor: LexicalEditor, text: string) {
+  await act(async () => {
+    editor.update(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) selection.insertText(text);
+    });
   });
 }
 

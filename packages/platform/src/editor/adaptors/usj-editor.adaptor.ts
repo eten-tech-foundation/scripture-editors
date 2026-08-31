@@ -402,7 +402,7 @@ function createPara(
   marker = marker ?? PARA_MARKER_DEFAULT;
   const children: SerializedLexicalNode[] = [];
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space"));
+    children.push(createMarker(marker), createText(NBSP, "marker-trailing-space", "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(marker) + NBSP));
   children.push(...childNodes);
@@ -467,7 +467,7 @@ function createTableCell(
   const children: SerializedLexicalNode[] = [];
   const cellMarker = marker ?? TABLE_CELL_DEFAULT_MARKER;
   if (_viewOptions?.markerMode === "editable")
-    children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space"));
+    children.push(createMarker(cellMarker), createText(NBSP, "marker-trailing-space", "token"));
   else if (_viewOptions?.markerMode === "visible" || _viewOptions?.hasGutterParaMarkers)
     children.push(createImmutableTypedText("marker", openingMarkerText(cellMarker) + NBSP));
   children.push(...childNodes);
