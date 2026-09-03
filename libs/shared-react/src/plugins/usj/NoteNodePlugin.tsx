@@ -1,6 +1,7 @@
 import {
   $isImmutableNoteCallerNode,
   $isImmutableVerseNode,
+  defaultCrossRefCallers,
   defaultNoteCallers,
   ImmutableNoteCallerNode,
   UsjNodeOptions,
@@ -34,6 +35,7 @@ import {
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
+  getEditableCallerText,
   LoggerBasic,
   NBSP,
   NoteNode,
@@ -73,12 +75,15 @@ export function NoteNodePlugin<TLogger extends LoggerBasic>({
 
 /**
  * This hook is responsible for handling updates to `nodeOptions`.
- * @param nodeOptions - Node options that includes the list of potential node callers.
+ * @param nodeOptions - Node options that includes the list of potential note and cross-reference
+ *   callers.
  * @param logger - Logger to use, if any.
  */
 function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
   const previousNoteCallersRef = useRef<string[] | undefined>(undefined);
+  const previousCrossRefCallersRef = useRef<string[] | undefined>(undefined);
   const nodeOptionsNoteCallers = nodeOptions.noteCallers;
+  const nodeOptionsCrossRefCallers = nodeOptions.crossRefCallers;
 
   useEffect(() => {
     let noteCallers = nodeOptionsNoteCallers;
@@ -88,6 +93,15 @@ function useNodeOptions(nodeOptions: UsjNodeOptions, logger?: LoggerBasic) {
       updateCounterStyleSymbols("note-callers", noteCallers, logger);
     }
   }, [logger, nodeOptionsNoteCallers]);
+
+  useEffect(() => {
+    let crossRefCallers = nodeOptionsCrossRefCallers;
+    if (!crossRefCallers || crossRefCallers.length <= 0) crossRefCallers = defaultCrossRefCallers;
+    if (previousCrossRefCallersRef.current !== crossRefCallers) {
+      previousCrossRefCallersRef.current = crossRefCallers;
+      updateCounterStyleSymbols("cross-ref-callers", crossRefCallers, logger);
+    }
+  }, [logger, nodeOptionsCrossRefCallers]);
 }
 
 /**
@@ -174,7 +188,14 @@ function $noteNodeTransform(node: NoteNode, viewOptions: ViewOptions | undefined
   if (nodeChildren.length > 0) {
     const firstChild = nodeChildren[0];
     if ($isTextNode(firstChild) && !$isMarkerNode(firstChild)) {
-      node.insertBefore(firstChild);
+      // Never eject the expanded editable caller text (` caller<NBSP>`, getEditableCallerText):
+      // after the opening glyph is deleted it becomes the note's first child, and ejecting it
+      // plants the caller word in the paragraph on every serialization round (live-observed as a
+      // repeated `word~` spray). It must stay in place so MarkerEditPlugin's note-deletion
+      // transform can recognize the damaged editable note and remove it whole. User-typed stray
+      // text at the note's start (any other text) is still salvaged out.
+      if (firstChild.getTextContent() !== getEditableCallerText(node.getCaller()))
+        node.insertBefore(firstChild);
     }
   }
 }

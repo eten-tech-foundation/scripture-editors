@@ -1,7 +1,7 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { useEffect } from "react";
 import { $isSynthesizedMarkerNode, LoggerBasic, ParaNode, PARA_MARKER_DEFAULT } from "shared";
-import { ViewOptions } from "shared-react";
+import { showParaMarkerPrefix, ViewOptions } from "shared-react";
 
 /**
  * Reverts a paragraph back to the default `\p` marker when the user deletes the visible
@@ -14,6 +14,9 @@ import { ViewOptions } from "shared-react";
  * disappears we read that as "make this a plain paragraph" and rewrite the paragraph's
  * marker to `\p`. The plugin is a no-op in views that don't render the marker (markerMode
  * "hidden" without a gutter), since the user never has the affordance to delete one.
+ *
+ * In editable marker mode the MarkerEditPlugin owns marker-deletion semantics (merge into
+ * the previous paragraph), so this guard stands down there.
  */
 export function ParaMarkerPrefixGuardPlugin({
   viewOptions,
@@ -23,10 +26,14 @@ export function ParaMarkerPrefixGuardPlugin({
   logger?: LoggerBasic;
 }): null {
   const [editor] = useLexicalComposerContext();
+  // The prefix-opt-out check rides in front: with `showParaMarkerPrefixes: false` the adaptor
+  // builds no prefix glyph at all, so a prefix-less paragraph is the CANONICAL shape there —
+  // running the guard anyway read every non-`\p` paragraph as "marker deleted" and rewrote it
+  // (e.g. `\q1` → `\p`) on the first edit that dirtied it. Same predicate as the adaptor and
+  // the marker-edit transforms, so the five sites cannot drift.
   const isEnabled =
-    viewOptions?.markerMode === "editable" ||
-    viewOptions?.markerMode === "visible" ||
-    (viewOptions?.hasGutterParaMarkers ?? false);
+    showParaMarkerPrefix(viewOptions) &&
+    (viewOptions?.markerMode === "visible" || (viewOptions?.hasGutterParaMarkers ?? false));
 
   useEffect(() => {
     if (!isEnabled) return;

@@ -115,6 +115,9 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     focus() {
       editorRef.current?.focus();
     },
+    isFocused() {
+      return editorRef.current?.isFocused() ?? false;
+    },
     undo() {
       editorRef.current?.undo();
     },
@@ -135,6 +138,12 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     },
     getUsj() {
       return editorRef.current?.getUsj();
+    },
+    commitPendingMarkerEdits() {
+      editorRef.current?.commitPendingMarkerEdits();
+    },
+    setTransientInput(input) {
+      editorRef.current?.setTransientInput(input);
     },
     setUsj(usj) {
       editorRef.current?.setUsj(usj);
@@ -186,8 +195,29 @@ const Marginal = forwardRef(function Marginal<TLogger extends LoggerBasic>(
     removeCharacterMarker(marker) {
       return editorRef.current?.removeCharacterMarker(marker) ?? false;
     },
+    replaceCharacterMarker(toMarker, fromMarker) {
+      return editorRef.current?.replaceCharacterMarker(toMarker, fromMarker) ?? false;
+    },
+    extendCharacterMarker(marker, conflictingMarkers) {
+      return editorRef.current?.extendCharacterMarker(marker, conflictingMarkers) ?? false;
+    },
     insertMarker(marker) {
-      editorRef.current?.insertMarker(marker);
+      return editorRef.current?.insertMarker(marker);
+    },
+    getMarkerMenuContext() {
+      return editorRef.current?.getMarkerMenuContext();
+    },
+    applyMarkerMenuSelection(item, opts) {
+      return editorRef.current?.applyMarkerMenuSelection(item, opts);
+    },
+    splitParagraphWithMarker(marker) {
+      editorRef.current?.splitParagraphWithMarker(marker);
+    },
+    commitTypedMarker(typedMarker, options) {
+      return editorRef.current?.commitTypedMarker(typedMarker, options) ?? false;
+    },
+    commitTypedCloser(typedMarker) {
+      return editorRef.current?.commitTypedCloser(typedMarker) ?? false;
     },
     insertNote(marker, caller, selection) {
       editorRef.current?.insertNote(marker, caller, selection);

@@ -17,14 +17,36 @@ function createTestEditor(themeOverrides?: ThemeOverrides) {
   });
 }
 
+/** The subset of the editor's config that `createDOM`/`updateDOM` need. */
+function testConfig(editor: ReturnType<typeof createTestEditor>) {
+  return { theme: editor._config.theme, namespace: editor._config.namespace };
+}
+
 function createDomFor(editor: ReturnType<typeof createTestEditor>, marker: string): HTMLElement {
   let element: HTMLElement | undefined;
   editor.update(() => {
     const node = $createCharNode(marker);
-    element = node.createDOM({
-      theme: editor._config.theme,
-      namespace: editor._config.namespace,
-    });
+    element = node.createDOM(testConfig(editor));
+  });
+  if (!element) throw new Error("CharNode.createDOM did not produce an element");
+  return element;
+}
+
+/**
+ * Renders a CharNode for `fromMarker`, then runs `updateDOM` against a CharNode for `toMarker`,
+ * the way Lexical's reconciler does when a node's marker changes between editor states.
+ */
+function updateDomFor(
+  editor: ReturnType<typeof createTestEditor>,
+  fromMarker: string,
+  toMarker: string,
+): HTMLElement {
+  let element: HTMLElement | undefined;
+  editor.update(() => {
+    const config = testConfig(editor);
+    const prevNode = $createCharNode(fromMarker);
+    element = prevNode.createDOM(config);
+    $createCharNode(toMarker).updateDOM(prevNode, element, config);
   });
   if (!element) throw new Error("CharNode.createDOM did not produce an element");
   return element;
@@ -54,6 +76,70 @@ describe("CharNode createDOM title attribute", () => {
     const element = createDomFor(editor, "wj");
     expect(element.getAttribute("data-marker")).toBe("wj");
     expect(element.classList.contains("usfm_wj")).toBe(true);
+  });
+});
+
+describe("CharNode updateDOM marker refresh", () => {
+  it("swaps the usfm_* class when the marker changes", () => {
+    const editor = createTestEditor();
+    const element = updateDomFor(editor, "nd", "bd");
+    expect(element.classList.contains("usfm_bd")).toBe(true);
+    expect(element.classList.contains("usfm_nd")).toBe(false);
+  });
+
+  it("updates data-marker when the marker changes", () => {
+    const editor = createTestEditor();
+    const element = updateDomFor(editor, "nd", "bd");
+    expect(element.getAttribute("data-marker")).toBe("bd");
+  });
+
+  it("updates title when the marker changes", () => {
+    const editor = createTestEditor();
+    const element = updateDomFor(editor, "nd", "bd");
+    expect(element.getAttribute("title")).toBe("bd");
+  });
+
+  it("leaves title absent when showCharMarkerTitles is false", () => {
+    // createDOM never set a title in this mode; updateDOM must not introduce one.
+    const editor = createTestEditor({ showCharMarkerTitles: false });
+    const element = updateDomFor(editor, "nd", "bd");
+    expect(element.hasAttribute("title")).toBe(false);
+    expect(element.getAttribute("data-marker")).toBe("bd");
+    expect(element.classList.contains("usfm_bd")).toBe(true);
+  });
+
+  it("keeps the type class, which is not marker-derived", () => {
+    const editor = createTestEditor();
+    const element = updateDomFor(editor, "nd", "bd");
+    expect(element.classList.contains(CharNode.getType())).toBe(true);
+  });
+
+  it("changes nothing when the marker is unchanged", () => {
+    const editor = createTestEditor();
+    const element = updateDomFor(editor, "nd", "nd");
+    expect(element.getAttribute("data-marker")).toBe("nd");
+    expect(element.classList.contains("usfm_nd")).toBe(true);
+  });
+});
+
+// The five USFM attribute markers (usfmFragmentToUsj.ts's ATTRIBUTE_MARKERS: ca, cp, va, vp,
+// cat) each degrade to an ordinary standalone char span — same as any other marker — whenever
+// they are NOT adjacent to a target they can fold onto (or carry markup that blocks the fold).
+// createDOM does not special-case them: the marker string alone drives the `usfm_<marker>`
+// class, same as "wj" above, so a project stylesheet that styles `va` (green superscript, say)
+// applies to a standalone `\va ...\va*` span exactly like any other char marker. Pinned here
+// because a FOLDED `\va`/`\vp` display run (attributeDisplay.utils.ts, a verse's following
+// siblings, never a CharNode) needed a SEPARATE fix to carry the same class — see
+// MarkerEditPlugin.tsx's attribute-run mutation listener and attributeClass.utils.test.tsx.
+// `ca`/`cp`/`cat` have no such folded display run today: a chapter's altnumber/pubnumber are
+// never shown on screen at all, and `cat` lives inside an atomic, unexpanded note/sidebar — so
+// this standalone-span pin is their only display-styling coverage.
+describe("standalone attribute-marker char spans (ca/cp/va/vp/cat) get their usfm_<marker> class", () => {
+  it.each(["ca", "cp", "va", "vp", "cat"])("marker %s", (marker) => {
+    const editor = createTestEditor();
+    const element = createDomFor(editor, marker);
+    expect(element.getAttribute("data-marker")).toBe(marker);
+    expect(element.classList.contains(`usfm_${marker}`)).toBe(true);
   });
 });
 

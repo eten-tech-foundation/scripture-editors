@@ -175,10 +175,17 @@ export class ImmutableTableCellNode extends ElementNode {
     };
   }
 
-  // Shadow root: keep editing and selection contained within this cell.
-  override isShadowRoot(): boolean {
-    return true;
-  }
+  // NOT a shadow root, unlike the table and row containers above it. Lexical requires that the
+  // children of a root or shadow root be elements or decorators: `getTopLevelElement()` walks up
+  // until it finds a node whose parent is a root/shadow root and then asserts the node it stopped
+  // on is one of those. A cell's children are the cell's CONTENT — plain `TextNode`s — so marking
+  // the cell a shadow root made that walk stop on a TextNode and throw "Children of root nodes
+  // must be elements or decorators" for any caret inside a cell. That fired on every click in a
+  // table (ScriptureReferencePlugin's selection listener -> `$resolvePosition` -> `$findThisChapter`),
+  // and blanked the editor when a chapter navigation ran the same walk inside an `editor.update()`.
+  // The table and row ARE shadow roots and still isolate selection at the table boundary; a cell
+  // needs no boundary of its own, and containment within a cell is moot now that tables are
+  // read-only (see `ImmutableTableNode.createDOM`).
 }
 
 export function $createImmutableTableCellNode(

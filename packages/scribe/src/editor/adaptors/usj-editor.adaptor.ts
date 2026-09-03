@@ -81,6 +81,7 @@ import {
   UNKNOWN_MARKER_OBJECT_PROPS,
   UNKNOWN_VERSION,
   UnknownNode,
+  unmatchedGlyphText,
   VERSE_MARKER,
   VERSE_MARKER_OBJECT_PROPS,
   VERSE_VERSION,
@@ -101,6 +102,7 @@ import {
   ViewOptions,
   getDefaultViewOptions,
   getVerseNodeClass,
+  isCollapsedNoteMode,
   isSomeSerializedVerseNode,
 } from "shared-react";
 
@@ -410,7 +412,7 @@ function createNote(
   } else {
     callerNode = createNoteCaller(caller, childNodes);
   }
-  const isCollapsed = _viewOptions?.noteMode !== "expanded";
+  const isCollapsed = isCollapsedNoteMode(_viewOptions?.noteMode);
   const unknownAttributes = getUnknownAttributes(markerObject, NOTE_MARKER_OBJECT_PROPS);
 
   let openingMarkerNode: SerializedTextNode | undefined;
@@ -501,6 +503,12 @@ function createUnmatched(marker: string): SerializedImmutableUnmatchedNode {
   return {
     type: ImmutableUnmatchedNode.getType(),
     marker,
+    text: unmatchedGlyphText(marker),
+    detail: 0,
+    format: 0,
+    // Atomic: scribe has no marker-edit engine to settle an in-place edit of the flagged bytes.
+    mode: "token",
+    style: "",
     version: IMMUTABLE_UNMATCHED_VERSION,
   };
 }

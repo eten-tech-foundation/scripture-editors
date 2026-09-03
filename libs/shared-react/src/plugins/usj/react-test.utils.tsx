@@ -94,6 +94,25 @@ export function updateSelection(...args: Parameters<typeof updateSelectionIntern
 }
 
 /**
+ * Reads a mounted editor's `LexicalEditor` off the `.editor-input` DOM node's `__lexicalEditor`
+ * back-reference. This touches a Lexical implementation detail, so it is centralized here rather
+ * than reimplemented per test. Prefer the cleaner handle when the editor component renders
+ * `children` inside its composer: pass Lexical's `<EditorRefPlugin editorRef={ref} />` as a child
+ * and read `ref.current`. Use this reach-in only when that route is unavailable (e.g. the editor
+ * renders through a wrapper that strips `children`, or exposes no children slot); the calling test
+ * should note why.
+ *
+ * @param container - The mounted container from `render(...)` (e.g. `result.container`).
+ */
+export function getEmbeddedLexicalEditor(container: HTMLElement | null | undefined): LexicalEditor {
+  const editorInput = container?.querySelector(".editor-input");
+  if (!editorInput) throw new Error("editor-input element not found");
+  const lexical = (editorInput as unknown as { __lexicalEditor?: LexicalEditor }).__lexicalEditor;
+  if (!lexical) throw new Error("lexical editor handle not found");
+  return lexical;
+}
+
+/**
  * Press the enter key at the selection range in the LexicalEditor.
  *
  * @param editor - The LexicalEditor instance where the selection will be set.
@@ -134,6 +153,33 @@ export async function pressEnterAtSelection(
 }
 
 /**
+ * Presses a key the way the browser does: a real `keydown` on the editor's root element, so
+ * Lexical's own `onKeyDown` routing runs — `KEY_DOWN_COMMAND` first, and then, only if nothing
+ * claimed it, the matching `KEY_ARROW_*` command that Lexical and `@lexical/rich-text` handle
+ * themselves.
+ *
+ * Prefer {@link pressKey} for a plugin that claims at `KEY_DOWN_COMMAND`: it is cheaper and says
+ * exactly what it drives. Use this one when the behavior under test involves what LEXICAL does with
+ * an UNCLAIMED press — its arrow handling moves the caret across block boundaries by itself, and a
+ * bare `KEY_DOWN_COMMAND` dispatch cannot see any of that.
+ *
+ * jsdom performs no native caret movement, so what this adds is Lexical's own handling of the key,
+ * not the browser's.
+ *
+ * @param editor - The Lexical editor instance.
+ * @param key - The key name (e.g. "ArrowRight", "ArrowLeft").
+ */
+export async function pressKeyThroughDom(editor: LexicalEditor, key: string): Promise<void> {
+  const rootElement = editor.getRootElement();
+  if (!rootElement) throw new Error("editor has no root element to press a key on");
+  await act(async () => {
+    rootElement.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+/**
  * Simulates pressing a key by dispatching the KEY_DOWN_COMMAND.
  *
  * @param editor - The Lexical editor instance.
@@ -141,24 +187,25 @@ export async function pressEnterAtSelection(
  * @param domUpdateDelayMS - Optional delay in milliseconds to wait for DOM updates after the key
  *   press. Defaults to -1 (no wait). If set to 0 or a positive number, the function will wait for the
  *   specified time before resolving.
- * @returns A promise that resolves after the key press and optional delay.
+ * @returns The dispatched event, so a test can assert whether a handler CLAIMED the press
+ *   (`defaultPrevented`) and not only where the caret ended up — the two differ wherever jsdom would
+ *   perform no movement of its own, and "the caret did not move" alone passes for either reason.
  */
 export async function pressKey(
   editor: LexicalEditor,
   key: string,
   domUpdateDelayMS = -1,
-): Promise<void> {
+): Promise<KeyboardEvent> {
+  const event = new KeyboardEvent("keydown", { key: key, bubbles: true, cancelable: true });
   await act(async () => {
-    editor.dispatchCommand(
-      KEY_DOWN_COMMAND,
-      new KeyboardEvent("keydown", { key: key, bubbles: true, cancelable: true }),
-    );
+    editor.dispatchCommand(KEY_DOWN_COMMAND, event);
   });
 
   if (domUpdateDelayMS >= 0) {
     // Wait for DOM updates to complete
     await new Promise((resolve) => setTimeout(resolve, domUpdateDelayMS));
   }
+  return event;
 }
 
 /**

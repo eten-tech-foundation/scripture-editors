@@ -4,8 +4,6 @@ import { FloatingBox } from "./FloatingBox";
 import useCursorCoords from "./useCursorCoords";
 import { Placement } from "@floating-ui/dom";
 
-const DOM_ELEMENT = document.body;
-
 const MemoizedFloatingBox = memo(FloatingBox);
 
 export type FloatingMenuCoords = { x: number; y: number } | undefined;
@@ -38,6 +36,9 @@ export default function FloatingBoxAtCursor({ isOpen = false, children }: Cursor
     >
       {renderChildren({ isOpen, placement })}
     </MemoizedFloatingBox>,
-    DOM_ELEMENT,
+    // Read at render rather than at module scope: this module sits in the import graph of the
+    // package's utility entry points, so touching `document` on load throws for any consumer that
+    // imports one of them outside a DOM environment (a Node-environment unit test, SSR).
+    document.body,
   );
 }

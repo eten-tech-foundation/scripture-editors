@@ -1,4 +1,5 @@
 import { $isSomeVerseNode, SomeVerseNode } from "../../nodes/usj";
+import { $advancePastParaPrefixes } from "./ParaMarkerPrefixCursorGuardPlugin";
 import { $findMatchingParent } from "@lexical/utils";
 import {
   $createTextNode,
@@ -41,7 +42,7 @@ export interface ArmedDelete {
 /**
  * Maps a keydown to the structural edit it would cause, or undefined for non-editing keys.
  * Deliberately does NOT early-return on Alt/Ctrl/Meta for Backspace/Delete — Alt/Cmd+Backspace
- * (delete-word / delete-line) are destructive and must be classified as deletions (spec B1).
+ * (delete-word / delete-line) are destructive and must be classified as deletions.
  */
 export function keyDownToIntent(event: KeyboardEvent): EditIntent | undefined {
   if (event.key === "Enter" && !event.shiftKey) return "insertParagraph";
@@ -323,7 +324,7 @@ export function $mergeParaIntoPrevious(para: SomeParaNode): void {
   // When `prev` had content, the junction is the end of its last child; when it was empty the
   // junction is its start — so the caret lands where the two paragraphs joined, not at the end.
   if (junction) $placeCaretAtEnd(junction);
-  else prev.selectStart();
+  else if (!$advancePastParaPrefixes(prev)) prev.selectStart();
 }
 
 /**

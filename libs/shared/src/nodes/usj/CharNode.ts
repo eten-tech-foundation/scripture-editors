@@ -157,6 +157,21 @@ export class CharNode extends ElementNode {
     return marker !== undefined && VALID_CHAR_CROSS_REFERENCE_MARKERS.includes(marker);
   }
 
+  /**
+   * Whether a character marker belongs to the note-content families - footnote or cross-reference.
+   *
+   * These markers only ever occur inside a `NoteNode`, and unlike every other character marker they
+   * are written without a closing marker. Callers branch on this for one reason or the other, so the
+   * predicate names the family rather than either consequence; each call site documents which
+   * consequence it cares about.
+   *
+   * @param marker - The character marker to check.
+   * @returns `true` if the marker is a footnote or cross-reference marker, `false` otherwise.
+   */
+  static isNoteContentMarker(marker: string | undefined): boolean {
+    return CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker);
+  }
+
   static override importDOM(): DOMConversionMap | null {
     return {
       span: (node: HTMLElement) => {
@@ -207,21 +222,32 @@ export class CharNode extends ElementNode {
 
   override createDOM(config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
-    dom.setAttribute("data-marker", this.__marker);
-    // Consumers can suppress the per-char marker tooltip via
-    // `ViewOptions.showCharMarkerTitles = false` - useful when the marker name shouldn't
-    // surface as a browser tooltip on every char span. Default (undefined or true) preserves
-    // the marker hint for consumers that want it while authoring USFM.
-    if (config.theme?.showCharMarkerTitles !== false) {
-      dom.setAttribute("title", this.__marker);
-    }
-    dom.classList.add(this.__type, `usfm_${this.__marker}`);
+    applyMarkerToDom(dom, this.__marker, config);
+    dom.classList.add(this.__type);
     return dom;
   }
 
-  override updateDOM(): boolean {
-    // Returning false tells Lexical that this node does not need its
-    // DOM element replacing with a new copy from createDOM.
+  override updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
+    // Returning false tells Lexical the element can be reused — but reuse means createDOM does not
+    // run again, so a marker change has to be written onto the existing element by hand: the
+    // data-marker, the title (gated by showCharMarkerTitles, same as createDOM), and the usfm_*
+    // class.
+    //
+    // Scope: this span's own attributes and classes, nothing else. The synthesized marker children
+    // that markerMode "editable"/"visible" add are not touched here - $setCharNodeMarker
+    // (node.utils.ts) is what retargets those, and callers changing a marker on a rendered node
+    // should go through it. The collaboration path in delta-apply-update.utils.ts still calls
+    // setMarker directly, so it gets this attribute refresh but not the child retargeting.
+    //
+    // No super.updateDOM() call, unlike ParaNode.updateDOM: ParaNode extends ParagraphNode, which
+    // implements it. CharNode extends ElementNode, which does not, so super would reach
+    // LexicalNode's base method and throw.
+    if (prevNode.__marker !== this.__marker) {
+      dom.classList.remove(`usfm_${prevNode.__marker}`);
+      // The same writes createDOM makes, so the two paths cannot drift: a reused element ends up
+      // indistinguishable from a freshly created one, title gating included.
+      applyMarkerToDom(dom, this.__marker, config);
+    }
     return false;
   }
 
@@ -248,7 +274,16 @@ export class CharNode extends ElementNode {
   // Mutation
 
   override insertNewAfter(_selection: RangeSelection, restoreSelection: boolean): CharNode {
-    const newElement = $createCharNode(this.getMarker());
+    // The continuation span keeps the implicit-close convention when this span has it: splitting
+    // an unclosed (closed="false") span yields two unclosed spans — the same structural-state rule
+    // as the marker-edit split paths ($splitCharNodeAt, $liftOutOfChar). Other unknownAttributes
+    // are deliberately NOT copied (duplicating them would double the `|name="value"` bytes on
+    // serialization).
+    const isUnclosed = this.getUnknownAttributes()?.closed === "false";
+    const newElement = $createCharNode(
+      this.getMarker(),
+      isUnclosed ? { closed: "false" } : undefined,
+    );
     newElement.setDirection(this.getDirection());
     newElement.setFormat(this.getFormatType());
     newElement.setStyle(this.getTextStyle());
@@ -263,6 +298,32 @@ export class CharNode extends ElementNode {
   override isInline(): true {
     return true;
   }
+}
+
+/**
+ * Write a marker onto a `CharNode`'s rendered span.
+ *
+ * Shared by `createDOM` and `updateDOM` so the created and the reused element can't drift. Only the
+ * `usfm_*` class is added, never removed — `updateDOM` removes the previous marker's class itself,
+ * and `createDOM` has no previous marker to remove.
+ *
+ * @param dom - The span to write to.
+ * @param marker - The character marker to apply.
+ * @param config - The editor config, read for the `showCharMarkerTitles` theme flag.
+ */
+function applyMarkerToDom(dom: HTMLElement, marker: string, config: EditorConfig): void {
+  dom.setAttribute("data-marker", marker);
+  // Consumers can suppress the per-char marker tooltip via
+  // `ViewOptions.showCharMarkerTitles = false` - useful when the marker name shouldn't
+  // surface as a browser tooltip on every char span. Default (undefined or true) preserves
+  // the marker hint for consumers that want it while authoring USFM.
+  if (config.theme?.showCharMarkerTitles !== false) {
+    dom.setAttribute("title", marker);
+  } else {
+    // Clear any title a previous render left behind; on a reused element the gate can flip.
+    dom.removeAttribute("title");
+  }
+  dom.classList.add(`usfm_${marker}`);
 }
 
 function $convertCharElement(element: HTMLElement): DOMConversionOutput {

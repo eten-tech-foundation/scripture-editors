@@ -124,6 +124,9 @@ export default function App() {
   const [isReadonly, setIsReadonly] = useState(false);
   const [structureProtectionMode, setStructureProtectionMode] =
     useState<StructureProtectionMode>("off");
+  // Idle marker-settle delay override (editable marker modes): undefined = editor default
+  // (1000ms), -1 = idle clock off, 0 = settle immediately after each edit.
+  const [markerSettleDelayMs, setMarkerSettleDelayMs] = useState<number | undefined>(undefined);
   const [hasExternalUI, setHasExternalUI] = useState(true);
   const [hasSpellCheck, setHasSpellCheck] = useState(false);
   const [textDirection, setTextDirection] = useState<TextDirection>("ltr");
@@ -216,6 +219,7 @@ export default function App() {
             textDirection,
             view: viewOptions,
             nodes: nodeOptions,
+            markerSettleDelayMs,
             debug,
           }
         : { hasExternalUI, debug },
@@ -228,6 +232,7 @@ export default function App() {
       textDirection,
       viewOptions,
       nodeOptions,
+      markerSettleDelayMs,
       debug,
     ],
   );
@@ -515,6 +520,26 @@ export default function App() {
                   <option value="off">Off</option>
                   <option value="guarded">Guarded</option>
                   <option value="protected">Protected</option>
+                </select>
+              </div>
+              <div className="control">
+                <label htmlFor="markerSettleDelaySelect">Marker settle delay</label>
+                <select
+                  id="markerSettleDelaySelect"
+                  value={
+                    markerSettleDelayMs === undefined ? "default" : String(markerSettleDelayMs)
+                  }
+                  onChange={(e) =>
+                    setMarkerSettleDelayMs(
+                      e.target.value === "default" ? undefined : Number(e.target.value),
+                    )
+                  }
+                >
+                  <option value="default">Default (1000 ms)</option>
+                  <option value="-1">Off (-1)</option>
+                  <option value="0">Immediate (0 ms)</option>
+                  <option value="250">250 ms</option>
+                  <option value="1000">1000 ms</option>
                 </select>
               </div>
               <div className="text-direction-options">

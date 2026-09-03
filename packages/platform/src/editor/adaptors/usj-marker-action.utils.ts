@@ -1,12 +1,13 @@
 import { MarkerContent } from "@eten-tech-foundation/scripture-utilities";
 import { SerializedVerseRef } from "@sillsdev/scripture";
-import { $unwrapNode } from "@lexical/utils";
+import { $findMatchingParent, $unwrapNode } from "@lexical/utils";
 import {
   $copyNode,
   $createNodeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
+  $getState,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
@@ -19,8 +20,12 @@ import {
   TextNode,
 } from "lexical";
 import {
+  $charStackContainer,
+  $createCharNode,
+  $createMarkerNode,
   $createNodeFromSerializedNode,
   $findChapter,
+  $innermostCharAncestor,
   $isCharNode,
   $isMarkerNode,
   $isNoteNode,
@@ -28,9 +33,14 @@ import {
   $isSynthesizedMarkerNode,
   $isTypedMarkNode,
   $isVisibleMarkerNode,
+  $liftOutOfCharStack,
+  $normalizeSelectionOutOfGlyphText,
+  $setCharNodeMarker,
   CharNode,
   createLexicalUsjNode,
+  defaultStyleInfo,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
+  StyleInfo,
   getNextVerse,
   getSelectionStartNode,
   isVerseInRange,
@@ -41,9 +51,11 @@ import {
   NoteNode,
   ParaNode,
   ScriptureReference,
+  textTypeState,
 } from "shared";
 import {
   $addTrailingSpace,
+  $advancePastParaPrefixes,
   $findNextVerseAfter,
   $findThisVerse,
   $insertNote,
@@ -54,6 +66,7 @@ import {
   ViewOptions,
 } from "shared-react";
 import usjEditorAdaptor from "./usj-editor.adaptor";
+import { $coveredTextNodes } from "../markerEdit/charFormatting.utils";
 
 interface UsjMarkerActionResult {
   content: MarkerContent[];
@@ -71,6 +84,22 @@ interface UsjMarkerAction {
     newVerseRChapterNum?: number;
     noteText?: string;
   }) => UsjMarkerActionResult;
+}
+
+/**
+ * Extends the shared {@link MarkerAction} `action`/`label` pair with an optional way to read the
+ * freshly-inserted note's TRUE Lexical node key immediately after `action(...)` returns. Only the
+ * note branch of {@link getUsjMarkerAction} populates it; every other marker's returned action
+ * leaves it `undefined`.
+ *
+ * Exists so `EditorRef.insertMarker` (`Editor.tsx`) can hand the host the exact key of the note it
+ * just created, rather than having the host re-derive it from `"delta-doc"` OT coordinates
+ * (`getInsertedNodeKey`). The key is known exactly at insertion, so reporting it directly is both
+ * cheaper and immune to any divergence between the coordinate systems and the op stream — a class
+ * of bug that has bitten this path twice (editable verses, then char attribute runs).
+ */
+export interface UsjMarkerActionWithNoteKey extends MarkerAction {
+  getInsertedNoteKey?: () => string | undefined;
 }
 
 const markerActions: { [marker: string]: UsjMarkerAction } = {
@@ -134,30 +163,48 @@ const markerActions: { [marker: string]: UsjMarkerAction } = {
   },
 };
 
-/** Returns whether the given USFM marker is supported by {@link getUsjMarkerAction}. */
-export function isUsjMarkerSupported(marker: string): boolean {
+/**
+ * Returns whether the given USFM marker is supported by {@link getUsjMarkerAction}.
+ *
+ * Honors `extraValidMarkers` exactly as the adaptor does on load (`UsjNodeOptions` documents the
+ * option as applying to char, para, and note markers alike): a marker the project configures as
+ * valid gets its spans built and accepted by the replace path, so it must be offerable in the
+ * `\` palette and insertable too — an extras-blind check filtered it out of the palette while a
+ * host-built item for it THREW at the insert gates.
+ *
+ * @param marker - The USFM marker to check.
+ * @param extraValidMarkers - Extra markers this project treats as valid.
+ * @returns `true` if the marker is supported.
+ */
+export function isUsjMarkerSupported(
+  marker: string,
+  extraValidMarkers?: readonly string[],
+): boolean {
   return (
-    NoteNode.isValidMarker(marker) ||
+    NoteNode.isValidMarker(marker, extraValidMarkers) ||
     !!markerActions[marker] ||
-    ParaNode.isValidMarker(marker) ||
-    CharNode.isValidMarker(marker)
+    ParaNode.isValidMarker(marker, extraValidMarkers) ||
+    CharNode.isValidMarker(marker, extraValidMarkers)
   );
 }
 
 /**
  * Returns whether the given USFM marker is a character marker, and so can be removed by
- * {@link $removeCharacterMarkerAtSelection}.
+ * {@link $removeCharacterMarkerAtSelection}, replaced by
+ * {@link $replaceCharacterMarkerAtSelection}, or extended by
+ * {@link $extendCharacterMarkerAtSelection} — which gates its `conflictingMarkers` entries through
+ * this too, since each one is removed by the same removal path.
  *
  * Deliberately stricter than {@link isUsjMarkerSupported}: that one also accepts para, note,
- * chapter, and verse markers, but removal only ever targets a `CharNode`, so `"p"` must be
- * rejected. It also honors `extraValidMarkers`, which `isUsjMarkerSupported` does not — a character
- * marker this project configures as valid, and which the adaptor therefore accepts on load, should
- * be removable too.
+ * chapter, and verse markers, but these actions only ever target a `CharNode`, so `"p"` must be
+ * rejected. Both honor `extraValidMarkers` — a character marker this project configures as
+ * valid, and which the adaptor therefore accepts on load, is actionable too.
  *
  * Stricter than `CharNode.isValidMarker` too: that list spreads in the footnote and
  * cross-reference character markers (`"ft"`, `"xt"`, …), but those only ever occur inside a
- * `NoteNode`, which `$getCharNodeToRemove` skips. Accepting them here would promise a removal that
- * can never happen and then silently no-op, so they are rejected up front instead.
+ * `NoteNode`, which `$getMatchingCharNode` skips. Accepting them here would promise an action that
+ * can never happen and then silently no-op, so they are rejected up front instead. That holds for
+ * replacement's `toMarker` as well: a `\ft` span outside a note is not USJ the adaptor produces.
  *
  * @param marker - The USFM marker to check.
  * @param extraValidMarkers - Extra character markers this project treats as valid.
@@ -167,9 +214,37 @@ export function isCharacterMarkerSupported(
   marker: string,
   extraValidMarkers?: readonly string[],
 ): boolean {
-  if (CharNode.isValidFootnoteMarker(marker) || CharNode.isValidCrossReferenceMarker(marker))
-    return false;
+  // Note-content markers only occur inside a NoteNode, which the character-marker actions skip.
+  if (CharNode.isNoteContentMarker(marker)) return false;
   return CharNode.isValidMarker(marker, extraValidMarkers);
+}
+
+/**
+ * Inserts a note for `marker` at the current selection and returns the created NoteNode's TRUE
+ * Lexical key (or undefined when insertion bailed). Call inside `editor.update()`. Shared by the
+ * `getUsjMarkerAction` note action (which wraps it in its own update for the `insertMarker`
+ * entry point) and `$applyMarkerMenuSelection` (already inside an update — a nested update would
+ * be QUEUED, losing the key).
+ */
+export function $insertNoteForMarker(
+  marker: string,
+  reference: SerializedVerseRef,
+  expandedNoteKeyRef: React.MutableRefObject<string | undefined>,
+  viewOptions?: ViewOptions,
+  nodeOptions?: UsjNodeOptions,
+  logger?: LoggerBasic,
+): string | undefined {
+  const noteNode = $insertNote(
+    marker,
+    undefined,
+    undefined,
+    reference,
+    viewOptions ?? getDefaultViewOptions(),
+    nodeOptions ?? {},
+    logger,
+  );
+  if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
+  return noteNode?.getKey();
 }
 
 /** A function that returns a marker action for a given USJ marker */
@@ -181,27 +256,34 @@ export function getUsjMarkerAction(
   logger?: LoggerBasic,
   /** Included for tests, e.g. `{ discrete: true }` */
   editorUpdateOptions?: EditorUpdateOptions,
-): MarkerAction {
+  /** Project stylesheet; falls back to the bundled one. Decides NEST membership. */
+  styleInfo?: StyleInfo,
+): UsjMarkerActionWithNoteKey {
   // Note markers are handled directly via $insertNote (no serialization round-trip).
-  if (NoteNode.isValidMarker(marker)) {
+  if (NoteNode.isValidMarker(marker, nodeOptions?.extraValidMarkers)) {
+    // Captured synchronously inside the `editor.update()` callback below - Lexical's callback
+    // runs synchronously when this is the OUTERMOST update (only the DOM reconciliation/commit
+    // may be deferred), so this is populated by the time `action(...)` returns for the
+    // `insertMarker` entry point. NOTE: a caller already inside an update must NOT go through
+    // this wrapper (the nested update is queued, not run) — use `$insertNoteForMarker` directly,
+    // as `$applyMarkerMenuSelection` does.
+    let insertedNoteKey: string | undefined;
     const action = (currentEditor: { editor: LexicalEditor; reference: SerializedVerseRef }) => {
       currentEditor.editor.update(() => {
-        const noteNode = $insertNote(
+        insertedNoteKey = $insertNoteForMarker(
           marker,
-          undefined,
-          undefined,
           currentEditor.reference,
-          viewOptions ?? getDefaultViewOptions(),
-          nodeOptions ?? {},
+          expandedNoteKeyRef,
+          viewOptions,
+          nodeOptions,
           logger,
         );
-        if (noteNode && !noteNode.getIsCollapsed()) expandedNoteKeyRef.current = noteNode.getKey();
       }, editorUpdateOptions);
     };
-    return { action, label: undefined };
+    return { action, label: undefined, getInsertedNoteKey: () => insertedNoteKey };
   }
 
-  const markerAction = getMarkerAction(marker);
+  const markerAction = getMarkerAction(marker, nodeOptions?.extraValidMarkers);
   // No-op for unsupported markers so the marker menu doesn't crash during render.
   if (!markerAction) return { action: () => undefined, label: undefined };
   const action = (currentEditor: {
@@ -211,7 +293,17 @@ export function getUsjMarkerAction(
   }) => {
     currentEditor.editor.update(() => {
       const selection = $getSelection();
-      if ($isRangeSelection(selection)) currentEditor.noteText = selection.getTextContent();
+      // A marker glyph's bytes are a picture of its node's own state, never operands. Re-express
+      // the selection so no glyph is one, BEFORE any branch below reads the anchor: a caret parked
+      // between two bytes of a closing `\add*` used to split it and strand the remainder in the
+      // paragraph as literal content, and a wrap whose end named an opening glyph took the whole
+      // glyph node with it, deleting the span the glyph identified while its bytes stayed on
+      // screen. One place decides where such a point really is; the branches below then see an
+      // ordinary position and need no glyph cases of their own.
+      if ($isRangeSelection(selection)) {
+        $normalizeSelectionOutOfGlyphText(selection);
+        currentEditor.noteText = selection.getTextContent();
+      }
       const { content, highlightInserted } = markerAction.action(currentEditor);
 
       const serializedLexicalNode = createLexicalUsjNode(content, usjEditorAdaptor, viewOptions);
@@ -219,7 +311,34 @@ export function getUsjMarkerAction(
 
       if ($isRangeSelection(selection)) {
         const node = selection.anchor.getNode();
-        if (selection.getTextContent().length > 0) {
+        const nodeParent = node.getParent();
+        const innermostChar = $innermostCharAncestor(node);
+        const sameNode = selection.anchor.key === selection.focus.key;
+        if (
+          $isCharNode(nodeToInsert) &&
+          innermostChar &&
+          sameNode &&
+          !isNestInPlaceCharNode(nodeToInsert, styleInfo)
+        ) {
+          // A non-NEST style applied INSIDE an open char span: PT9 closes the enclosing char
+          // styles and reopens the ones with content after the point — it never nests the span.
+          $applyNonNestInsideChar(
+            selection,
+            nodeToInsert,
+            node,
+            viewOptions?.markerMode === "editable",
+          );
+        } else if (
+          $isCharNode(nodeToInsert) &&
+          !sameNode &&
+          !isNestInPlaceCharNode(nodeToInsert, styleInfo) &&
+          $isCloseAndReopenEligible(selection)
+        ) {
+          // The same PT9 close-and-reopen for a selection spanning several nodes: the covered
+          // text takes the new style, each crossed span keeps its uncovered tail. Ineligible
+          // shapes (decorators in range, cross-container selections, …) keep the generic wrap.
+          $applyNonNestAcrossNodes(selection, nodeToInsert, viewOptions?.markerMode === "editable");
+        } else if (selection.getTextContent().length > 0) {
           // If the selection has text content, wrap the text selection in an inline node
           $wrapTextSelectionInInlineNode(selection, () =>
             $createNodeFromSerializedNode(serializedLexicalNode),
@@ -232,16 +351,87 @@ export function getUsjMarkerAction(
             const paragraphContent = paragraph.getChildren();
             nodeToInsert.append(...paragraphContent);
             paragraph.replace(nodeToInsert);
-            nodeToInsert.selectStart();
+            if (!($isSomeParaNode(nodeToInsert) && $advancePastParaPrefixes(nodeToInsert)))
+              nodeToInsert.selectStart();
+          }
+        } else if (
+          $isCharNode(nodeToInsert) &&
+          $isTextNode(node) &&
+          !$isMarkerNode(node) &&
+          $isCharNode(node.getParent()) &&
+          selection.isCollapsed() &&
+          // NEST-able only. A non-NEST style at a caret inside ANY char span — nested or note-level
+          // — is already claimed by the `$applyNonNestInsideChar` branch above, whose guard is this
+          // one minus this test. Stating it here rather than branching on it inside keeps that
+          // division visible at the guard instead of implying a second non-NEST path exists.
+          isNestInPlaceCharNode(nodeToInsert, styleInfo)
+        ) {
+          // Caret inside a char span — a body span (`\nd Lord`) or a note's content span (the
+          // `\ft` of an expanded footnote). The generic `selection.insertNodes` fallback below
+          // splices at the nearest BLOCK ancestor and CharNode is inline, so for a note it landed
+          // the new span on the wrapper paragraph AFTER the note (outside `\f*`, invalid), and for
+          // a body span it split the host span and left a closer-less half that triggers a
+          // destructive Tier-2 rebuild. Instead splice at the span's own level, following PT9's
+          // per-style rule (StyleApplicator.ApplyCharacterStyle). This branch is the NEST-able
+          // half of it: styles whose OccursUnder contains NEST (\w, \nd, \wj, ...) nest IN
+          // PLACE — PT9 emits `\+marker` at the caret and closes it immediately, leaving every
+          // open span open. Split only the anchor TEXT and put the new span between the halves,
+          // INSIDE the span holding the caret; its glyphs get the `+` (see below). Non-NEST
+          // styles get PT9's close-all-and-reopen instead, in the `$applyNonNestInsideChar`
+          // branch above — they never reach here.
+          //
+          // `nodeToInsert` already carries the note-content span convention that
+          // `$createNoteContentChar` builds and `createChar` loads: an opening glyph with
+          // placeholder content, and for implicitly-closed footnote/cross-reference content
+          // markers (\fq, \xt, ...) no closing glyph plus closed="false" recorded.
+          const charSpan = node.getParent();
+          if ($isCharNode(charSpan)) {
+            const offset = selection.anchor.offset;
+            if (offset === 0) node.insertBefore(nodeToInsert);
+            else if (offset >= node.getTextContentSize()) node.insertAfter(nodeToInsert);
+            else {
+              const [leftHalf] = node.splitText(offset);
+              leftHalf.insertAfter(nodeToInsert);
+            }
+            // The span now nests inside the caret's char span, so its editable glyphs carry the
+            // `+` (matching the load path) — otherwise a Tier-2 re-tokenization of the visible
+            // text would read the bare `\w` as close-on-bare and flatten the nesting.
+            nodeToInsert.getChildren().forEach((child) => {
+              if ($isMarkerNode(child)) child.setNested(true);
+            });
+            // Caret INSIDE the new span at its content position — same convention as the
+            // generic char path below: typed text appends after the placeholder and
+            // CharNodePlugin strips the placeholder once real content exists.
+            const contentText = nodeToInsert
+              .getChildren()
+              .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+            if (contentText && $isTextNode(contentText)) {
+              contentText.select(
+                contentText.getTextContentSize(),
+                contentText.getTextContentSize(),
+              );
+            } else {
+              nodeToInsert.selectEnd();
+            }
           }
         } else if (
           $isTextNode(node) &&
           !$isMarkerNode(node) &&
-          $isNoteNode(node.getParent()) &&
-          selection.isCollapsed()
+          selection.isCollapsed() &&
+          ($isNoteNode(nodeParent) ||
+            ($isCharNode(nodeParent) && $isNoteNode(nodeParent.getParent())))
         ) {
-          // Inserting into NoteNode
-          let lastInsertedNode: LexicalNode = node.insertAfter(nodeToInsert);
+          // Inserting into a NoteNode. The caret sits on the note's own text (a spacer) or inside
+          // one of its CharNodes; insert the new marker as a sibling within the note so it can't
+          // escape into the surrounding paragraph.
+          const caretChar = $isCharNode(nodeParent) ? nodeParent : undefined;
+          // When the caret is inside a char, split it there: the content after the caret moves into
+          // a following clone so the new marker lands between the two halves (not after the char).
+          const charTail = caretChar
+            ? $collectSiblingsFromCaret(node, selection.anchor.offset)
+            : [];
+          const noteChildAnchor = caretChar ?? node;
+          let lastInsertedNode: LexicalNode = noteChildAnchor.insertAfter(nodeToInsert);
           if ($isVisibleMarkerNode(nodeToInsert)) {
             // We are using visible marker mode so the `nodeToInsert` is just the marker. Get the
             // CharNode with content to insert after it.
@@ -257,7 +447,24 @@ export function getUsjMarkerAction(
             const charNodeToInsert = $createNodeFromSerializedNode(serializedLexicalNode);
             lastInsertedNode = lastInsertedNode.insertAfter(charNodeToInsert);
           }
-          lastInsertedNode.insertAfter($createTextNode(NBSP));
+          if (charTail.length > 0 && caretChar) {
+            // Move the after-caret content into a clone of the split char, right after the marker.
+            // Use $createCharNodeLike (not a hand-rolled $createCharNode) so the clone keeps the
+            // char's identity - notably charIdState - and $charNodeTransform can re-merge the halves
+            // if the marker between them is later removed.
+            const tailChar = $createCharNodeLike(caretChar).append(...charTail);
+            lastInsertedNode.insertAfter(tailChar);
+            if (caretChar.isEmpty()) caretChar.remove();
+          } else if (!$isTextNode(lastInsertedNode.getNextSibling())) {
+            // Add a trailing spacer only if one doesn't already follow. Inserting between a char and
+            // its existing spacer would leave two adjacent spacers, which a note transform collapses
+            // with a selectEnd that steals the caret out of the new marker.
+            lastInsertedNode.insertAfter($createTextNode(NBSP));
+          }
+          // Land the caret inside the new marker's content, not before it. selectEnd
+          // leaves it after the empty-char placeholder, which the placeholder transform strips on
+          // the first keystroke.
+          if ($isElementNode(lastInsertedNode)) lastInsertedNode.selectEnd();
         } else {
           selection.insertNodes([nodeToInsert]);
           $moveVerseFollowingSpaceToPreviousNode(nodeToInsert);
@@ -269,6 +476,24 @@ export function getUsjMarkerAction(
             const nodeSelection = $createNodeSelection();
             nodeSelection.add(nodeToInsert.getKey());
             $setSelection(nodeSelection);
+          } else if ($isCharNode(nodeToInsert)) {
+            // A char span must receive the caret INSIDE, at its content position (PT9: after
+            // inserting `\wj ` you type the span's content). Both outside placements were wrong:
+            // selectStart() descends to the opening glyph's offset 0, so typing edited the glyph
+            // (Tier-1 rename); nextNode.selectStart() put typing after the whole span.
+            const contentText = nodeToInsert
+              .getChildren()
+              .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+            if (contentText && $isTextNode(contentText)) {
+              // End of the empty-content placeholder: typed text appends after it and
+              // CharNodePlugin strips the placeholder prefix once real content exists.
+              contentText.select(
+                contentText.getTextContentSize(),
+                contentText.getTextContentSize(),
+              );
+            } else {
+              nodeToInsert.selectEnd();
+            }
           } else {
             const nextNode = nodeToInsert.getNextSibling();
             if (nextNode) nextNode.selectStart();
@@ -284,20 +509,265 @@ export function getUsjMarkerAction(
   return { action, label: markerAction?.label };
 }
 
-function getMarkerAction(marker: string): UsjMarkerAction | undefined {
+/**
+ * Collect the caret's "tail" within its parent element: the part of `node` after `offset` plus all
+ * following siblings, splitting `node` in place when the caret is mid-text. Used to split a char at
+ * the caret so a new marker can be inserted between the halves.
+ */
+function $collectSiblingsFromCaret(node: TextNode, offset: number): LexicalNode[] {
+  const size = node.getTextContentSize();
+  let tailStart: LexicalNode | null;
+  if (offset <= 0) tailStart = node;
+  else if (offset >= size) tailStart = node.getNextSibling();
+  else tailStart = node.splitText(offset)[1] ?? node.getNextSibling();
+  if (!tailStart) return [];
+  return [tailStart, ...tailStart.getNextSiblings()];
+}
+
+/**
+ * Whether an in-note char apply should NEST the new span in place — inside the span holding the
+ * caret — rather than split that span. PT9's StyleApplicator nests exactly the styles whose
+ * OccursUnder contains NEST (\w, \nd, \wj, ...); other styles get the close-all-and-reopen
+ * shape the split path produces. Nesting additionally requires the built span to carry an
+ * explicit closer: a span with the implicit-close convention (closed="false", no closing glyph —
+ * \xt is the one NEST-able such marker) would swallow the rest of the host span's content on
+ * serialization, since without its own closer the marker runs to the parent's.
+ *
+ * NEST membership is read from the PROJECT stylesheet when the host supplies one, falling back to
+ * the bundled `usfm.sty` — the same `styleInfo ?? defaultStyleInfo` resolution the rest of the
+ * editor uses (see `MarkerValidationPlugin` and `Editor`'s marker-menu items). A project sheet
+ * that adds or removes NEST on a marker therefore decides nest-vs-split for it, rather than the
+ * bundled sheet answering for a marker the project has redefined.
+ */
+function isNestInPlaceCharNode(charNode: CharNode, styleInfo?: StyleInfo): boolean {
+  const effectiveStyleInfo = styleInfo ?? defaultStyleInfo;
+  const occursUnder = effectiveStyleInfo.markers[charNode.getMarker()]?.occursUnder ?? [];
+  return occursUnder.includes("NEST") && charNode.getUnknownAttributes()?.closed !== "false";
+}
+
+/**
+ * Make a char span that now nests inside another char span (its parent is a CharNode) carry the
+ * `+` on its glyphs AND an EXPLICIT closer. Implicitly-closed content markers (\fq, \xt, ...) are
+ * normally built closer-less (closed="false") — the note-content convention where the following
+ * bare marker closes them — but nested that convention breaks two ways: on serialization a
+ * closer-less `\+fq` runs to the parent span's closer and swallows any following nested sibling
+ * (`\ft A \+nd ho\+nd*\+fq\+nd ly\+nd*` re-parses with the second `\+nd` INSIDE `\+fq`); and a
+ * selection wrap into a fresh closer-less span strips its opener glyph and gets unwrapped as a
+ * "deleted opener" (a silent no-op). An explicit closer fixes both, matching PT9's requirement
+ * that an applied span be explicitly terminated.
+ *
+ * `isNested` also decides the `+` prefix: a span nested inside another char span carries it, one
+ * applied at container level does not.
+ */
+function $ensureSpanClosed(charNode: CharNode, isNested: boolean): void {
+  if (isNested)
+    charNode.getChildren().forEach((child) => {
+      if ($isMarkerNode(child)) child.setNested(true);
+    });
+  const hasCloser = charNode
+    .getChildren()
+    .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "closing");
+  if (!hasCloser) charNode.append($createMarkerNode(charNode.getMarker(), "closing", isNested));
+  const attributes = charNode.getUnknownAttributes();
+  if (attributes?.closed === "false") {
+    const rest = { ...attributes };
+    delete rest.closed;
+    charNode.setUnknownAttributes(Object.keys(rest).length > 0 ? rest : undefined);
+  }
+}
+
+/**
+ * Apply a non-NEST char style at a point or selection that sits INSIDE an open char span, following
+ * PT9's StyleApplicator: close every enclosing char style before the point and reopen the ones with
+ * content after it (never nest the new span). The new span — and every reopened right half — is
+ * lifted to the nearest non-char container (the note or paragraph a bare marker would land in) by
+ * the shared close-and-reopen primitive (`$liftOutOfCharStack`, charStack.utils.ts in `shared`).
+ * Handles a collapsed caret and a selection within a single text node; other multi-node selections
+ * fall back to the caller's generic wrap.
+ */
+function $applyNonNestInsideChar(
+  selection: RangeSelection,
+  newSpan: CharNode,
+  anchorNode: LexicalNode,
+  renderGlyphs: boolean,
+): void {
+  let liftTarget: LexicalNode = newSpan;
+  if (selection.anchor.type === "element" && $isCharNode(anchorNode)) {
+    // An ELEMENT point ON the char span itself (a click on a decorator glyph in visible marker
+    // mode resolves here): its offset is a CHILD INDEX, not a text offset. Treating it as a
+    // text position fell through to `insertBefore` on the span, which lands the new span in the
+    // PARAGRAPH — before the whole enclosing span — and the close-and-reopen below then
+    // silently no-ops (the lift's `while ($isCharNode(parent))` never enters). Insert at the
+    // named child boundary INSIDE the span instead, so the lift performs PT9's
+    // close-all-and-reopen as usual.
+    const children = anchorNode.getChildren();
+    const before = children[selection.anchor.offset - 1];
+    const after = children[selection.anchor.offset];
+    if (before) before.insertAfter(newSpan);
+    else if (after) after.insertBefore(newSpan);
+    else anchorNode.append(newSpan);
+  } else if (selection.isCollapsed() || !$isTextNode(anchorNode)) {
+    // Caret: place the (empty) new span at the caret inside the innermost span.
+    const offset = selection.anchor.offset;
+    if ($isTextNode(anchorNode) && offset > 0 && offset < anchorNode.getTextContentSize()) {
+      const [left] = anchorNode.splitText(offset);
+      left.insertAfter(newSpan);
+    } else if ($isTextNode(anchorNode) && offset >= anchorNode.getTextContentSize()) {
+      anchorNode.insertAfter(newSpan);
+    } else {
+      anchorNode.insertBefore(newSpan);
+    }
+  } else {
+    // Selection within one text node: isolate the selected text so it can be lifted out and wrapped.
+    const [start, end] = getSelectionOffsets(selection);
+    let selected: TextNode = anchorNode;
+    if (start > 0) {
+      const parts = selected.splitText(start);
+      selected = parts[parts.length - 1];
+    }
+    if (selected.getTextContentSize() > end - start) selected = selected.splitText(end - start)[0];
+    liftTarget = selected;
+  }
+  // No `closeImplicitSpans`: the new span IS a marker, and a note-content one ends the span it
+  // is written inside just by being written — so nothing is emitted for it.
+  $liftOutOfCharStack(liftTarget, { renderGlyphs });
+  if (liftTarget !== newSpan) {
+    // Wrap the lifted selection text in the new span (now at container level), replacing its
+    // empty-content placeholder and taking the structural NBSP as the span's first content.
+    liftTarget.insertBefore(newSpan);
+    if ($isTextNode(liftTarget) && !liftTarget.getTextContent().startsWith(NBSP))
+      liftTarget.setTextContent(NBSP + liftTarget.getTextContent());
+    const placeholder = newSpan
+      .getChildren()
+      .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+    if (placeholder) placeholder.replace(liftTarget);
+    else newSpan.append(liftTarget);
+  }
+  // Caret inside the new span's content, so typing fills it.
+  const contentText = newSpan
+    .getChildren()
+    .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+  if ($isTextNode(contentText))
+    contentText.select(contentText.getTextContentSize(), contentText.getTextContentSize());
+  else newSpan.selectEnd();
+}
+
+/**
+ * Whether a multi-node selection qualifies for {@link $applyNonNestAcrossNodes}: every leaf in
+ * range is either a marker glyph (crossed spans' presentation — the lift regenerates them) or a
+ * plain content `TextNode`, all leaves share ONE char-stack container (the same paragraph or
+ * note), and at least one sits inside a char span (otherwise there is no stack to close and the
+ * generic wrap is already correct). Attribute display runs, decorators (notes, milestones,
+ * immutable verses), `TextNode` subclasses that render marker bytes (editable verse markers,
+ * unmatched markers), and selections crossing a container boundary all decline — those shapes
+ * keep the generic-wrap fallback the invariants doc records.
+ *
+ * Read-only: safe inside `editor.update()` before any mutation.
+ */
+function $isCloseAndReopenEligible(selection: RangeSelection): boolean {
+  let container: LexicalNode | undefined;
+  let anyInChar = false;
+  for (const node of selection.getNodes()) {
+    if ($isMarkerNode(node)) continue;
+    // getNodes lists a crossed span ELEMENT alongside its own leaves (getNodesBetween includes
+    // the elements on the path); the leaves are what get judged, so the span itself just passes.
+    if ($isCharNode(node)) continue;
+    if (!$isTextNode(node) || node.getType() !== TextNode.getType()) return false;
+    if ($getState(node, textTypeState) === "attribute") return false;
+    const leafContainer = $charStackContainer(node);
+    if (!leafContainer) return false;
+    if (container === undefined) container = leafContainer;
+    else if (!container.is(leafContainer)) return false;
+    if ($innermostCharAncestor(node)) anyInChar = true;
+  }
+  return anyInChar;
+}
+
+/**
+ * Apply a non-NEST char style across a selection spanning several nodes inside one char-stack
+ * container — PT9's close-and-reopen generalized past the single-text-node case: the covered text
+ * takes the new style while each crossed span keeps its uncovered tail. The shape is the unformat
+ * range arm's (`$removeCharFormattingFromSelection`, charFormatting.utils.ts): split the boundary
+ * text nodes so the covered text is whole nodes, lift each covered node out of its entire char
+ * stack (each level closes before it and keeps what still has content after it; a fully covered
+ * level is nothing without its text and is dropped) — then, the step the unformat doesn't need,
+ * wrap the lifted run in the new span at container level. Without this the generic wrap NESTED
+ * the new span where it stood, and a non-NEST marker nested inside another span re-tokenizes as
+ * implicitly closing it — the crossed span destroyed and its closer left unmatched.
+ *
+ * The caller guarantees {@link $isCloseAndReopenEligible}, which is what makes the lifted pieces
+ * land as contiguous siblings the single wrap below can take in order.
+ */
+function $applyNonNestAcrossNodes(
+  selection: RangeSelection,
+  newSpan: CharNode,
+  renderGlyphs: boolean,
+): void {
+  const covered = $coveredTextNodes(selection);
+  if (covered.length === 0) return;
+  covered.forEach((target) => {
+    if (!$innermostCharAncestor(target)) return;
+    $liftOutOfCharStack(target, { renderGlyphs });
+    // Plain text now, so it sheds the structural separator it carried as a span's first content
+    // — read through getLatest, as the unformat arm does: an earlier iteration's reopen may have
+    // re-prefixed this very node through a writable clone.
+    const latest = target.getLatest();
+    const text = latest.getTextContent();
+    if (text.startsWith(NBSP)) latest.setTextContent(text.slice(NBSP.length));
+  });
+
+  const first = covered[0].getLatest();
+  first.insertBefore(newSpan);
+  // The span keeps the shape it was built with — an explicit closer for ordinary markers, the
+  // closer-less closed="false" convention for the note-content families (whatever reopens after
+  // the covered run is what closes those implicitly) — exactly as `$applyNonNestInsideChar`
+  // leaves it for the single-node case.
+  // The first piece becomes the span's content start and takes the structural NBSP separator;
+  // the rest follow it in document order.
+  if (!first.getTextContent().startsWith(NBSP)) first.setTextContent(NBSP + first.getTextContent());
+  const placeholder = newSpan
+    .getChildren()
+    .find((child) => $isTextNode(child) && !$isMarkerNode(child));
+  if (placeholder) placeholder.replace(first);
+  else newSpan.append(first);
+  let previous: TextNode = first.getLatest();
+  covered.slice(1).forEach((piece) => {
+    const latest = piece.getLatest();
+    previous.insertAfter(latest);
+    previous = latest;
+  });
+  previous.select(previous.getTextContentSize(), previous.getTextContentSize());
+}
+
+function getMarkerAction(
+  marker: string,
+  extraValidMarkers?: readonly string[],
+): UsjMarkerAction | undefined {
   let markerAction = markerActions[marker];
   if (!markerAction) {
-    if (ParaNode.isValidMarker(marker)) {
+    if (ParaNode.isValidMarker(marker, extraValidMarkers)) {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: ParaNode.getType(), marker, content: [] };
           return { content: [content] };
         },
       };
-    } else if (CharNode.isValidMarker(marker)) {
+    } else if (CharNode.isValidMarker(marker, extraValidMarkers)) {
       markerAction = {
         action: () => {
           const content: MarkerContent = { type: CharNode.getType(), marker };
+          // Footnote/cross-reference content markers (\fr \ft \xo \xt …) are inserted OPEN by
+          // convention — PT9's inserter emits them closer-less and ParatextData then records
+          // closed="false" (matching `$createNoteContentChar`). This is an insertion DEFAULT keyed
+          // on the marker family, distinct from closer DISPLAY (which keys on state in `createChar`):
+          // now that `createChar` renders a closer for any span lacking closed="false", the default
+          // must be carried explicitly here or a cursor-only insert of these markers would come out
+          // closed. A selection wrap can still promote the span to explicitly closed downstream.
+          if (
+            CharNode.isValidFootnoteMarker(marker) ||
+            CharNode.isValidCrossReferenceMarker(marker)
+          )
+            (content as MarkerContent & { closed?: string }).closed = "false";
           return { content: [content] };
         },
       };
@@ -335,14 +805,33 @@ function $wrapTextSelectionInInlineNode(
       return;
     }
 
-    // Create or reuse wrapper node
+    // Create or reuse wrapper node. The wrapper is created ONCE and reused for every node of the
+    // selection, so only its FIRST use is "fresh" (carries the empty-content placeholder to discard);
+    // later uses already hold real content wrapped for earlier nodes.
+    let isFreshWrapper = false;
     if (!currentWrapper) {
       currentWrapper = createNode();
       targetNode.insertBefore(currentWrapper);
+      isFreshWrapper = true;
+      // A fresh wrapper needs an explicit closer so $wrapNode inserts the content BEFORE it rather
+      // than taking the strip-everything branch, which removes the lone opener of a closer-less
+      // span and leaves a glyph-less span the marker-edit engine unwraps again — a silent no-op.
+      // That bites the note-content families (`\ft`, `\xt`, `\fq` …), which are INSERTED
+      // closer-less by convention: applying one over a selection did nothing at all. Applying a
+      // marker to a selection means "wrap this text", which is a closed span whatever the marker's
+      // insertion default is — the same end state every other char marker already produced.
+      // Keyed on having an opener to lose, so non-editable marker modes (which build no glyphs)
+      // keep their existing shape. Nesting additionally needs `+` glyphs.
+      if ($isCharNode(currentWrapper)) {
+        const hasOpener = currentWrapper
+          .getChildren()
+          .some((child) => $isMarkerNode(child) && child.getMarkerSyntax() === "opening");
+        if (hasOpener) $ensureSpanClosed(currentWrapper, $isCharNode(currentWrapper.getParent()));
+      }
     }
 
     // Wrap the target node
-    $wrapNode(targetNode, currentWrapper);
+    $wrapNode(targetNode, currentWrapper, isFreshWrapper);
   });
 
   // Update selection
@@ -416,22 +905,67 @@ function handleTextNode(
   return splitNodes.length === 3 || end === textLength ? splitNodes[1] : splitNodes[0];
 }
 
-function $wrapNode(node: LexicalNode, wrapper: LexicalNode): void {
+function $wrapNode(node: LexicalNode, wrapper: LexicalNode, isFreshWrapper: boolean): void {
   if ($isTextNode(wrapper)) {
     const text = $moveLeadingSpaceToPreviousNode(node, wrapper);
     wrapper.setTextContent(text);
     node.remove();
   } else if ($isElementNode(wrapper)) {
-    const wrapperChildrenCount = wrapper.getChildrenSize();
-    wrapper.append(node);
-    for (let i = 0; i < wrapperChildrenCount; i++) wrapper.getFirstChild()?.remove();
+    // A freshly created wrapper already carries its own opener/closer glyph children (plus a
+    // placeholder for its otherwise-empty content) when built in "editable" marker mode
+    // (`createChar`, `usj-editor.adaptor.ts:349-356`): preserve those glyphs and discard only
+    // the placeholder, inserting the real wrapped content where the placeholder sat - a
+    // glyph-less span reads to `MarkerEditPlugin` as "the opener was deleted" and gets
+    // unwrapped again immediately (`$charNodeDeletionTransform`). Other marker modes don't
+    // populate glyph children this way, so the original strip-everything behavior (append then
+    // drop whatever pre-existing children there were) is unchanged for them.
+    //
+    // The placeholder/pre-existing children only exist on the FIRST use of the wrapper. When the
+    // SAME wrapper is reused for the next node of a multi-node selection it is NOT fresh, and its
+    // non-marker children are real content already wrapped for an earlier node — stripping them
+    // then would delete that content (keeping only the last node's).
+    const existingChildren = wrapper.getChildren();
+    const closer = existingChildren.find(
+      (child) => $isMarkerNode(child) && child.getMarkerSyntax() !== "opening",
+    );
+    if (closer) {
+      closer.insertBefore(node);
+      if (isFreshWrapper)
+        existingChildren
+          .filter((child) => !$isMarkerNode(child))
+          .forEach((child) => child.remove());
+    } else if (isFreshWrapper) {
+      const wrapperChildrenCount = wrapper.getChildrenSize();
+      wrapper.append(node);
+      for (let i = 0; i < wrapperChildrenCount; i++) wrapper.getFirstChild()?.remove();
+    } else {
+      wrapper.append(node);
+    }
     $moveLeadingSpaceToPreviousNode(node, wrapper);
+    // The span's first content carries the display separator after the opening glyph (`\nd one`,
+    // not `\ndone`) — the structural NBSP convention in markerSeparators.utils.ts. Only the FIRST
+    // wrapped node takes it (later nodes of a multi-node selection are mid-span content), and only
+    // in the editable-glyph shape (an opening MarkerNode child); other marker modes carry no
+    // display separator.
+    if (
+      isFreshWrapper &&
+      $isCharNode(wrapper) &&
+      wrapper.getChildren().some((child) => $isMarkerNode(child)) &&
+      $isTextNode(node) &&
+      !$isMarkerNode(node) &&
+      !node.getTextContent().startsWith(NBSP)
+    )
+      node.setTextContent(NBSP + node.getTextContent());
   }
 }
 
 function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode): string {
   let text = node.getTextContent();
-  if ($isTextNode(node) && wrapper.isInline() && text.startsWith(" ")) {
+  // Only a space that LEADS other content moves out; a space that IS the node's entire content is
+  // the content. Trimming it anyway emptied the wrapped node — wrapping a whitespace-only
+  // selection walked the selected space out of the span and left an empty `\nd \nd*` pair in the
+  // file while the screen showed nothing happened (a silent no-op, which Standard view forbids).
+  if ($isTextNode(node) && wrapper.isInline() && text.startsWith(" ") && text.trimStart() !== "") {
     text = text.trimStart();
     node.setTextContent(text);
     const previousNode = wrapper.getPreviousSibling();
@@ -447,7 +981,7 @@ function $moveLeadingSpaceToPreviousNode(node: LexicalNode, wrapper: LexicalNode
  * Remove a character marker from the given selection, keeping all of its text content.
  *
  * A collapsed selection removes the marker from the entire enclosing `CharNode`. Selections
- * inside a `NoteNode` are skipped (see `$getCharNodeToRemove`). A range selection that only
+ * inside a `NoteNode` are skipped (see `$getMatchingCharNode`). A range selection that only
  * partially covers a `CharNode` — or spans a `CharNode` and its neighbors — is narrowed first by
  * `$splitCharNodeAroundTargets`, so uncovered text keeps its marker. Where that narrowing is
  * impossible — a selection covering only part of a *nested* `CharNode`, which cannot be split at
@@ -467,7 +1001,7 @@ export function $removeCharacterMarkerAtSelection(
   if (selection.isCollapsed()) {
     const anchorNode = selection.anchor.getNode();
     const anchorOffset = selection.anchor.offset;
-    const charNode = $getCharNodeToRemove(anchorNode, marker);
+    const charNode = $getMatchingCharNode(anchorNode, marker);
     if (!charNode) return false;
     const originalSize = $isTextNode(anchorNode) ? anchorNode.getTextContentSize() : 0;
     $removeCharNodeKeepingContent(charNode, viewOptions);
@@ -496,9 +1030,94 @@ export function $removeCharacterMarkerAtSelection(
   const isBackward = selection.isBackward();
   const [startOffset, endOffset] = getSelectionOffsets(selection);
   // Check there is something removable before the loop below starts splitting text nodes, so a
-  // request that ends up a no-op mutates nothing at all. See `$hasRemovableCharNode`.
-  if (!$hasRemovableCharNode(nodes, marker, startOffset, endOffset)) return false;
+  // request that ends up a no-op mutates nothing at all. See `$hasActionableCharNode`.
+  if (!$hasActionableCharNode(nodes, marker, startOffset, endOffset)) return false;
 
+  const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
+  if (targetNodes.length === 0) return false;
+
+  // Belt-and-braces: no current path resolves two targetNodes to the same CharNode key, since
+  // `$splitCharNodeAroundTargets` reads the whole `targetNodes` array and unwrapping detaches the
+  // rest. Kept in case a future change reintroduces one.
+  const handledCharNodeKeys = new Set<string>();
+  let didRemove = false;
+  targetNodes.forEach((targetNode) => {
+    const charNode = $getMatchingCharNode(targetNode, marker);
+    if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
+    handledCharNodeKeys.add(charNode.getKey());
+    // `undefined` means removal would have to affect unselected text — see
+    // `$splitCharNodeAroundTargets`. Leave this CharNode alone rather than over-remove.
+    // `$hasActionableCharNode` above has already established that at least one CharNode in the
+    // selection is *not* refused, so this cannot be the only outcome for the whole call.
+    const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
+    if (coveredCharNode) {
+      $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
+      didRemove = true;
+    }
+  });
+
+  $restoreRangeOverTargets(targetNodes, isBackward);
+
+  return didRemove;
+}
+
+// #region Helper functions for $removeCharacterMarkerAtSelection
+
+/**
+ * Remove a `CharNode` but keep its text content in the parent.
+ *
+ * Synthesized marker children (`markerMode: "editable"` / `"visible"`) are stripped first so no
+ * literal `\nd` / `\nd*` text is left behind, and in `"editable"` mode the NBSP that
+ * `usj-editor.adaptor.ts` prepends to each text child for rendering is trimmed. A `CharNode`
+ * holding nothing but the empty-char placeholder is removed outright rather than unwrapped.
+ *
+ * @param charNode - The `CharNode` to remove.
+ * @param viewOptions - View options, used to decide what counts as synthesized content.
+ */
+function $removeCharNodeKeepingContent(
+  charNode: CharNode,
+  viewOptions: ViewOptions | undefined,
+): void {
+  charNode.getChildren().forEach((child) => {
+    if ($isSynthesizedMarkerNode(child)) child.remove();
+  });
+
+  // Checked before the NBSP trim below: the placeholder IS an NBSP, and the adaptor does not
+  // prepend a second one to it.
+  const remainingChildren = charNode.getChildren();
+  if (remainingChildren.length === 0 || charNode.getTextContent() === EMPTY_CHAR_PLACEHOLDER_TEXT) {
+    charNode.remove();
+    return;
+  }
+
+  if (viewOptions?.markerMode === "editable")
+    remainingChildren.forEach((child) => {
+      const text = child.getTextContent();
+      if ($isTextNode(child) && text.startsWith(NBSP))
+        child.setTextContent(text.slice(NBSP.length));
+    });
+
+  $unwrapNode(charNode);
+}
+
+// #endregion
+
+// #region Helper functions shared by the character marker actions
+
+/**
+ * Resolve the selected nodes to the text nodes a marker action should act on.
+ *
+ * Shared by removal, replacement, and extension. The first and last nodes are trimmed to the
+ * selection offsets by `$getTargetNode`; interior nodes are taken whole. Anything that doesn't
+ * resolve to a `TextNode` — a skipped node, or an element with nothing selectable — is dropped, so
+ * an empty result means the caller has nothing to do.
+ *
+ * @param nodes - The selected nodes, in document order.
+ * @param startOffset - The selection's start offset within the first node.
+ * @param endOffset - The selection's end offset within the last node.
+ * @returns the text nodes to act on.
+ */
+function $getTargetNodes(nodes: LexicalNode[], startOffset: number, endOffset: number): TextNode[] {
   const targetNodes: TextNode[] = [];
   nodes.forEach((node, index) => {
     const targetNode = $getTargetNode(
@@ -510,79 +1129,26 @@ export function $removeCharacterMarkerAtSelection(
     );
     if ($isTextNode(targetNode)) targetNodes.push(targetNode);
   });
-  if (targetNodes.length === 0) return false;
-
-  // Belt-and-braces: no current path resolves two targetNodes to the same CharNode key, since
-  // `$splitCharNodeAroundTargets` reads the whole `targetNodes` array and unwrapping detaches the
-  // rest. Kept in case a future change reintroduces one.
-  const handledCharNodeKeys = new Set<string>();
-  let didRemove = false;
-  targetNodes.forEach((targetNode) => {
-    const charNode = $getCharNodeToRemove(targetNode, marker);
-    if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
-    handledCharNodeKeys.add(charNode.getKey());
-    // `undefined` means removal would have to affect unselected text — see
-    // `$splitCharNodeAroundTargets`. Leave this CharNode alone rather than over-remove.
-    // `$hasRemovableCharNode` above has already established that at least one CharNode in the
-    // selection is *not* refused, so this cannot be the only outcome for the whole call.
-    const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
-    if (coveredCharNode) {
-      $removeCharNodeKeepingContent(coveredCharNode, viewOptions);
-      didRemove = true;
-    }
-  });
-
-  // Restore the range over the same characters so a toolbar caller can re-toggle without
-  // re-selecting: each target covers exactly the selected portion, so the range runs from the
-  // whole first target to the whole last. Three traps make this more than a no-op:
-  //
-  // - `TextNode.setTextContent` (the NBSP trim under `markerMode: "editable"`) mutates `__text`
-  //   without touching selection points, so a focus on a trimmed node ends up one past the new end.
-  // - `isBackward` is captured before the loop: a backward range's anchor is the *last* target, so
-  //   swapping the roles keeps it backward instead of normalizing to forward.
-  // - `$getSelection()` is re-fetched rather than reusing `selection`: `$unwrapNode` splices the
-  //   CharNode out with `NodeCaret.splice`, which calls `replace()` on it (Lexical 0.43.0,
-  //   `NodeCaret.splice` → `target.replace(node)`), and `LexicalNode.replace` clones the active
-  //   selection and `$setSelection`s the clone. So the parameter is left pointing at a detached
-  //   object and mutating it would have no effect. Note this is the CharNode's own
-  //   `ElementNode.replace()`, not `TextNode.replace()`.
-  //
-  // Skipped when a target didn't survive — its CharNode held only the empty-char placeholder and
-  // was removed outright — in which case Lexical's own selection repair applies instead.
-  const currentSelection = $getSelection();
-  const firstTargetNode = targetNodes[0];
-  const lastTargetNode = targetNodes[targetNodes.length - 1];
-  if (
-    $isRangeSelection(currentSelection) &&
-    firstTargetNode.isAttached() &&
-    lastTargetNode.isAttached()
-  ) {
-    const lastOffset = lastTargetNode.getTextContentSize();
-    if (isBackward)
-      currentSelection.setTextNodeRange(lastTargetNode, lastOffset, firstTargetNode, 0);
-    else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
-  }
-
-  return didRemove;
+  return targetNodes;
 }
 
-// #region Helper functions for $removeCharacterMarkerAtSelection
-
 /**
- * Find the `CharNode` a removal should act on, walking up from a target node.
+ * Find the `CharNode` a marker action should act on, walking up from a target node.
+ *
+ * Shared by removal, replacement, and extension.
  *
  * Returns `undefined` when nothing matches, which the caller treats as a no-op for that target
  * node. The walk is per-target, so a selection spanning a matching and a non-matching node still
  * acts on the matching one. A `CharNode` nested inside a `NoteNode` is skipped: `$getTargetNode`
  * only recognizes note interiors one level deep (a leaf whose *immediate* parent is the
  * `NoteNode`), so a marker `CharNode` nested deeper inside a note — the common case — would
- * otherwise still be found and removed by this walk.
+ * otherwise still be found and acted on by this walk.
  *
  * @param node - The node to walk up from.
  * @param marker - The marker to match, or `undefined` to take the innermost `CharNode`.
- * @returns the `CharNode` to remove, or `undefined` if there isn't one.
+ * @returns the matching `CharNode`, or `undefined` if there isn't one.
  */
-function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): CharNode | undefined {
+function $getMatchingCharNode(node: LexicalNode, marker: string | undefined): CharNode | undefined {
   let currentNode: LexicalNode | null = node;
   let matchedCharNode: CharNode | undefined;
   while (currentNode && !$isSomeParaNode(currentNode)) {
@@ -601,11 +1167,36 @@ function $getCharNodeToRemove(node: LexicalNode, marker: string | undefined): Ch
 }
 
 /**
+ * Whether `node` sits anywhere inside a `NoteNode`, at any depth.
+ *
+ * `$isSkippedByMarkerAction` only recognizes note interiors one level deep (a leaf whose *immediate*
+ * parent is the `NoteNode`), so `$getTargetNode` still returns text nested deeper — the common
+ * `NoteNode > CharNode > TextNode` shape. Removal and replacement absorb that because
+ * `$getMatchingCharNode` returns `undefined` for such a node and they read `undefined` as "no match,
+ * do nothing". Extension reads the same `undefined` as "not covered", the opposite meaning, so it
+ * needs this guard to tell the two apart — without it, a gap run inside a note gets wrapped in a new
+ * `CharNode`, contradicting `extendCharacterMarker`'s documented refusal to touch note contents.
+ *
+ * @param node - The node to check.
+ * @returns `true` if a `NoteNode` encloses `node`.
+ */
+function $isInsideNote(node: LexicalNode): boolean {
+  // Bounded at the nearest paragraph (`node` itself included): the shared walk matches the
+  // boundary alongside the target, so "inside a note" is "the first note-or-paragraph ancestor is
+  // a note" — a note ABOVE the enclosing paragraph does not count.
+  const match = $findMatchingParent(
+    node,
+    (current) => $isNoteNode(current) || $isSomeParaNode(current),
+  );
+  return $isNoteNode(match);
+}
+
+/**
  * The selection's nodes that a marker action can actually act on.
  *
  * Deliberately no narrower than `$getTargetNode`: it shares the skip rule via
  * `$isSkippedByMarkerAction` and does not replicate `handleTextNode`'s zero-width filter. So the
- * read-only pre-pass built on it can only ever be more permissive, never wrongly refuse a removal
+ * read-only pre-pass built on it can only ever be more permissive, never wrongly refuse an action
  * that would have happened.
  *
  * @param nodes - The nodes in the selection.
@@ -661,7 +1252,7 @@ function $getFullyCoveredTextKeys(
  * the same parent — and `$getFullyCoveredTextKeys` already accounts for the uncovered pieces the
  * split will create.
  *
- * @param charNode - The `CharNode` a removal would act on.
+ * @param charNode - The `CharNode` a marker action would act on.
  * @param actionableNodes - The selection's actionable nodes.
  * @param fullyCoveredKeys - Keys of the text nodes the selection covers in full.
  * @returns `true` if this `CharNode` would be refused.
@@ -682,7 +1273,10 @@ function $isRefusedForNestedCoverage(
 }
 
 /**
- * Whether the selection contains a `CharNode` matching `marker` that removal would actually strip.
+ * Whether the selection contains a `CharNode` matching `marker` that a marker action would actually
+ * act on.
+ *
+ * Shared by removal, replacement, and extension.
  *
  * Read-only, and answered *before* the splitting pass, so that a request which ends up a no-op
  * leaves the document completely untouched: `handleTextNode`'s `splitText` mutates the tree, and
@@ -693,30 +1287,36 @@ function $isRefusedForNestedCoverage(
  * `$splitCharNodeAroundTargets` would refuse for nested partial coverage.
  *
  * Residual, deliberately not fixed here: when a selection spans two matching `CharNode`s and only
- * one of them is refused, this returns `true` (correctly — a removal does happen), so the split
+ * one of them is refused, this returns `true` (correctly — an action does happen), so the split
  * pass still runs and briefly dirties the refused node's text too. Lexical re-merges it, so the
  * tree is unchanged, but the undo entry covers both. Avoiding that needs the split loop to skip
  * refused nodes, which its index-based offset math can't express without a wider rework.
  *
  * @param nodes - The nodes in the selection.
- * @param marker - The character marker to remove, or `undefined` for the innermost one.
+ * @param marker - The character marker to match, or `undefined` for the innermost one.
  * @param startOffset - The selection's start offset within the first node.
  * @param endOffset - The selection's end offset within the last node.
- * @returns `true` if there is a matching `CharNode` that would be removed.
+ * @param excludeMarker - When given, a `CharNode` already carrying this marker does not count as a
+ *   match. Replacement passes its target marker here so a same-marker request is a true no-op.
+ *   Omitted by removal, where `getMarker() !== undefined` is trivially true, leaving its behavior
+ *   unchanged.
+ * @returns `true` if there is a matching `CharNode` that would be acted on.
  */
-function $hasRemovableCharNode(
+function $hasActionableCharNode(
   nodes: LexicalNode[],
   marker: string | undefined,
   startOffset: number,
   endOffset: number,
+  excludeMarker?: string,
 ): boolean {
   const actionableNodes = $getActionableNodes(nodes);
   const fullyCoveredKeys = $getFullyCoveredTextKeys(nodes, startOffset, endOffset);
   const seenCharNodeKeys = new Set<string>();
   return actionableNodes.some((node) => {
-    const charNode = $getCharNodeToRemove(node, marker);
+    const charNode = $getMatchingCharNode(node, marker);
     if (!charNode || seenCharNodeKeys.has(charNode.getKey())) return false;
     seenCharNodeKeys.add(charNode.getKey());
+    if (charNode.getMarker() === excludeMarker) return false;
     return !$isRefusedForNestedCoverage(charNode, actionableNodes, fullyCoveredKeys);
   });
 }
@@ -787,7 +1387,7 @@ function $isFullyCoveredByTargets(element: ElementNode, targetKeys: Set<string>)
  * selecting only part of a divine-name word (`\nd`) inside red-letter text (`\wj`) and removing
  * `\wj` does nothing, rather than dropping `\wj` from the rest of that divine-name word too.
  *
- * `$hasRemovableCharNode` predicts this same refusal read-only, so a request that would be refused
+ * `$hasActionableCharNode` predicts this same refusal read-only, so a request that would be refused
  * outright never reaches the splitting pass and leaves the document — and the caller's selection —
  * completely untouched.
  *
@@ -815,7 +1415,7 @@ function $splitCharNodeAroundTargets(
     } else if ($isElementNode(child) && targetNodes.some((target) => child.isParentOf(target))) {
       // Refusing here mutates nothing *in this function*, but the caller has already run
       // `handleTextNode`'s `splitText` to build `targetNodes`. So this alone is not enough to keep
-      // a refused request off the undo stack — `$hasRemovableCharNode` screens the whole-call case
+      // a refused request off the undo stack — `$hasActionableCharNode` screens the whole-call case
       // read-only, before any splitting. See its docstring for the residual mixed-selection case.
       if (!$isFullyCoveredByTargets(child, targetKeys)) return undefined;
       coveredIndexes.push(index);
@@ -865,8 +1465,8 @@ function $splitCharNodeAroundTargets(
  * fresh key before calling it, so the copy is genuinely empty. `$copyNode` also skips
  * `$applyNodeReplacement`, which is irrelevant here — no `CharNode` replacement is registered.
  *
- * Don't hand-roll this: `CharNode.insertNewAfter` (CharNode.ts:254) and `ParaNode.insertNewAfter`
- * (ParaNode.ts:286) model a manual copy, but both pair `setStyle` with `getTextStyle()` — a
+ * Don't hand-roll this: `CharNode.insertNewAfter` (CharNode.ts) and `ParaNode.insertNewAfter`
+ * (ParaNode.ts) model a manual copy, but both pair `setStyle` with `getTextStyle()` — a
  * different member (`__textStyle`, the default inline style for children) than `setStyle` writes
  * (`__style`) — so their style copies are silently inert.
  *
@@ -878,43 +1478,334 @@ function $createCharNodeLike(charNode: CharNode): CharNode {
 }
 
 /**
- * Remove a `CharNode` but keep its text content in the parent.
+ * Restore the range over exactly the characters the marker action acted on.
  *
- * Synthesized marker children (`markerMode: "editable"` / `"visible"`) are stripped first so no
- * literal `\nd` / `\nd*` text is left behind, and in `"editable"` mode the NBSP that
- * `usj-editor.adaptor.ts` prepends to each text child for rendering is trimmed. A `CharNode`
- * holding nothing but the empty-char placeholder is removed outright rather than unwrapped.
+ * Shared by removal and extension, so a toolbar caller can re-toggle without re-selecting: each
+ * target covers exactly the selected portion, so the range runs from the whole first target to the
+ * whole last. Three traps make this more than a no-op:
  *
- * @param charNode - The `CharNode` to remove.
- * @param viewOptions - View options, used to decide what counts as synthesized content.
+ * - `TextNode.setTextContent` (removal's NBSP trim, extension's leading-space move) mutates
+ *   `__text` without touching selection points, so a focus on a trimmed node ends up one past the
+ *   new end.
+ * - `isBackward` must be captured by the caller *before* mutating: a backward range's anchor is the
+ *   *last* target, so swapping the roles keeps it backward instead of normalizing to forward.
+ * - `$getSelection()` is re-fetched rather than reusing the caller's `selection`: `$unwrapNode`
+ *   splices a CharNode out with `NodeCaret.splice`, which calls `replace()` on it (Lexical 0.43.0,
+ *   `NodeCaret.splice` → `target.replace(node)`), and `LexicalNode.replace` clones the active
+ *   selection and `$setSelection`s the clone. So the caller's parameter can be a detached object
+ *   that it would be pointless to mutate. Note this is the CharNode's own `ElementNode.replace()`,
+ *   not `TextNode.replace()`.
+ *
+ * Skipped when a target didn't survive — for removal, its CharNode held only the empty-char
+ * placeholder and was removed outright — in which case Lexical's own selection repair applies.
+ *
+ * @param targetNodes - The text nodes the action covered, in document order.
+ * @param isBackward - Whether the original selection was backward.
  */
-function $removeCharNodeKeepingContent(
-  charNode: CharNode,
-  viewOptions: ViewOptions | undefined,
-): void {
-  charNode.getChildren().forEach((child) => {
-    if ($isSynthesizedMarkerNode(child)) child.remove();
-  });
-
-  // Checked before the NBSP trim below: the placeholder IS an NBSP, and the adaptor does not
-  // prepend a second one to it.
-  const remainingChildren = charNode.getChildren();
-  if (remainingChildren.length === 0 || charNode.getTextContent() === EMPTY_CHAR_PLACEHOLDER_TEXT) {
-    charNode.remove();
+function $restoreRangeOverTargets(targetNodes: TextNode[], isBackward: boolean): void {
+  const currentSelection = $getSelection();
+  const firstTargetNode = targetNodes[0];
+  const lastTargetNode = targetNodes[targetNodes.length - 1];
+  if (
+    !$isRangeSelection(currentSelection) ||
+    !firstTargetNode.isAttached() ||
+    !lastTargetNode.isAttached()
+  )
     return;
-  }
 
-  if (viewOptions?.markerMode === "editable")
-    remainingChildren.forEach((child) => {
-      const text = child.getTextContent();
-      if ($isTextNode(child) && text.startsWith(NBSP))
-        child.setTextContent(text.slice(NBSP.length));
-    });
-
-  $unwrapNode(charNode);
+  const lastOffset = lastTargetNode.getTextContentSize();
+  if (isBackward) currentSelection.setTextNodeRange(lastTargetNode, lastOffset, firstTargetNode, 0);
+  else currentSelection.setTextNodeRange(firstTargetNode, 0, lastTargetNode, lastOffset);
 }
 
 // #endregion
+
+/**
+ * Replace a character marker on the given selection, keeping all of its text content.
+ *
+ * A collapsed selection changes the marker on the entire enclosing `CharNode`. Selections inside a
+ * `NoteNode` are skipped (see `$getMatchingCharNode`). Partial coverage is narrowed and refused on
+ * the same terms as removal — see {@link $removeCharacterMarkerAtSelection}.
+ *
+ * Takes no `ViewOptions`, unlike {@link $removeCharacterMarkerAtSelection}: replacement changes no
+ * text and strips no children, so it has nothing marker-mode-dependent to undo. The synthesized
+ * marker children that marker modes add are retargeted rather than removed — see
+ * `$retargetSynthesizedMarkers`.
+ *
+ * @param selection - The current range selection.
+ * @param toMarker - The character marker to change to.
+ * @param fromMarker - The character marker to match, or `undefined` for the innermost one.
+ * @returns `true` if a marker was changed, `false` if the request was a no-op.
+ */
+export function $replaceCharacterMarkerAtSelection(
+  selection: RangeSelection,
+  toMarker: string,
+  fromMarker: string | undefined,
+): boolean {
+  if (selection.isCollapsed()) {
+    const charNode = $getMatchingCharNode(selection.anchor.getNode(), fromMarker);
+    // `CharNode.setMarker` already short-circuits on an unchanged marker, so this check isn't
+    // what keeps a same-marker replace from dirtying the CharNode itself. It guards
+    // `$setCharNodeMarker`'s other work: rewriting the node's synthesized marker children has
+    // no such short-circuit of its own, and a same-marker request must not reach it.
+    if (!charNode || charNode.getMarker() === toMarker) return false;
+    $setCharNodeMarker(charNode, toMarker);
+    return true;
+  }
+
+  const nodes = selection.getNodes();
+  const [startOffset, endOffset] = getSelectionOffsets(selection);
+  // Check there is something to change before the loop below starts splitting text nodes, so a
+  // no-match — or already-`toMarker` — request mutates nothing at all. See
+  // `$hasActionableCharNode`.
+  if (!$hasActionableCharNode(nodes, fromMarker, startOffset, endOffset, toMarker)) return false;
+
+  const targetNodes = $getTargetNodes(nodes, startOffset, endOffset);
+  if (targetNodes.length === 0) return false;
+
+  // No selection restore afterwards, unlike `$removeCharacterMarkerAtSelection`: that one needs
+  // one because `$unwrapNode`'s `replace()` clones the active selection and its NBSP trim changes
+  // text lengths. Replacement changes no text and detaches no node carrying a selection point —
+  // `$splitCharNodeAroundTargets` and `$charNodeTransform` both *move* existing child nodes — so
+  // the original points stay valid.
+  const handledCharNodeKeys = new Set<string>();
+  let didReplace = false;
+  targetNodes.forEach((targetNode) => {
+    const charNode = $getMatchingCharNode(targetNode, fromMarker);
+    if (!charNode || handledCharNodeKeys.has(charNode.getKey())) return;
+    handledCharNodeKeys.add(charNode.getKey());
+    // Re-checked per CharNode, not just in the pre-flight guard above: a selection can span one
+    // CharNode that needs changing and another already carrying `toMarker`.
+    if (charNode.getMarker() === toMarker) return;
+    // `undefined` means the change would have to affect unselected text — see
+    // `$splitCharNodeAroundTargets`. Leave this CharNode alone rather than over-apply.
+    // `$hasActionableCharNode` above has already established that at least one CharNode in the
+    // selection is *not* refused, so this cannot be the only outcome for the whole call.
+    const coveredCharNode = $splitCharNodeAroundTargets(charNode, targetNodes);
+    if (coveredCharNode) {
+      $setCharNodeMarker(coveredCharNode, toMarker);
+      didReplace = true;
+    }
+  });
+
+  return didReplace;
+}
+
+/**
+ * Extend a character marker to cover the whole selection, keeping all of its text content.
+ *
+ * "Extend" means *make the whole selection carry `marker`*, however much of it already does — the
+ * mutation behind the toolbar's partial → all step. Only the sub-ranges not already covered are
+ * wrapped, so no nested identical marker is ever produced: `kolo ` + `\bd Mulu\bd*` becomes one
+ * `\bd` over the lot, never `\bd kolo \bd Mulu\bd*\bd*`. A selection with no existing run of
+ * `marker` is the degenerate case and is wrapped in full.
+ *
+ * Adjacent same-marker `CharNode`s are merged by `$charNodeTransform`
+ * (`CharNodePlugin.tsx`), so this function deliberately stops at "adjacent siblings, never nested".
+ *
+ * Some markers cannot coexist with `marker` — which pairs is an open product question (OQ-6) this
+ * function deliberately does not answer, so `conflictingMarkers` is the caller's list, injected
+ * rather than hard-coded. Each one is removed from the selection via
+ * {@link $removeCharacterMarkerAtSelection} before the gaps are wrapped. Removal is best-effort: a
+ * removal refused for nested partial coverage (see `$splitCharNodeAroundTargets`) leaves that
+ * conflicting marker in place and the extend still proceeds — aborting the whole call would kill
+ * the toolbar's toggle in a case the user cannot see.
+ *
+ * @param selection - The current range selection.
+ * @param marker - The character marker to extend over the selection.
+ * @param conflictingMarkers - Character markers that cannot coexist with `marker` and so are
+ *   removed from the selection first. An entry equal to `marker` itself is ignored: removing and
+ *   then re-wrapping the same run would strip its `CharNode` — including its cid — and rebuild it
+ *   with a fresh identity, silently losing that run's collab identity for no behavioral gain.
+ * @param viewOptions - View options, forwarded to {@link $removeCharacterMarkerAtSelection}.
+ * @returns `true` if the document was changed, `false` if the request was a no-op.
+ */
+export function $extendCharacterMarkerAtSelection(
+  selection: RangeSelection,
+  marker: string,
+  conflictingMarkers: readonly string[] | undefined,
+  viewOptions: ViewOptions | undefined,
+): boolean {
+  // Nothing to cover: "the whole selection" is vacuous for a caret. Unlike removal and replacement,
+  // which act on the enclosing CharNode when collapsed, extend has no analogous meaning.
+  if (selection.isCollapsed()) return false;
+
+  // A conflicting marker equal to `marker` itself would remove and immediately re-wrap the same
+  // run, losing its cid for nothing — see the `conflictingMarkers` param doc. Derived once so the
+  // pre-flight check below and the removal loop can't disagree on which markers actually conflict.
+  const conflictingMarkersExcludingSelf = conflictingMarkers?.filter(
+    (conflictingMarker) => conflictingMarker !== marker,
+  );
+
+  const nodes = selection.getNodes();
+  const [startOffset, endOffset] = getSelectionOffsets(selection);
+  // Both no-op paths are screened read-only, before anything splits: nothing left to cover *and*
+  // no conflicting marker to strip means the document and the selection stay untouched.
+  const hasConflictToRemove = !!conflictingMarkersExcludingSelf?.some((conflictingMarker) =>
+    $hasActionableCharNode(nodes, conflictingMarker, startOffset, endOffset),
+  );
+  if (!hasConflictToRemove && !$hasUncoveredNode(nodes, marker)) return false;
+
+  // Best-effort by design: a removal refused for nested partial coverage (see
+  // `$splitCharNodeAroundTargets`) leaves that conflicting marker in place and the extend still
+  // happens. Aborting the whole call would kill the toolbar's toggle in a case the user can't see.
+  // The selection is re-fetched around every removal: `$unwrapNode`'s `replace()` clones the active
+  // selection, so the object from the previous iteration is detached.
+  let didChange = false;
+  conflictingMarkersExcludingSelf?.forEach((conflictingMarker) => {
+    const currentSelection = $getSelection();
+    if (!$isRangeSelection(currentSelection)) return;
+    if ($removeCharacterMarkerAtSelection(currentSelection, conflictingMarker, viewOptions))
+      didChange = true;
+  });
+
+  const currentSelection = $getSelection();
+  if (!$isRangeSelection(currentSelection)) return didChange;
+  // Recomputed rather than reusing `nodes` and the offsets above: the conflict pass may have
+  // changed both the tree and the selection.
+  const isBackward = currentSelection.isBackward();
+  const [currentStartOffset, currentEndOffset] = getSelectionOffsets(currentSelection);
+  const targetNodes = $getTargetNodes(
+    currentSelection.getNodes(),
+    currentStartOffset,
+    currentEndOffset,
+  );
+  if (targetNodes.length === 0) return didChange;
+
+  // A target is already covered when any ancestor up to the enclosing para carries `marker` — the
+  // same walk removal and replacement use to find their target. Note interiors are screened
+  // separately by `$isInsideNote`, because an absent match means "uncovered" here but "do nothing"
+  // there, and `$getTargetNode` only drops note text one level deep. Kept in step with
+  // `$hasUncoveredNode`, the read-only pre-flight for this same filter.
+  const gapNodes = targetNodes.filter(
+    (targetNode) => !$isInsideNote(targetNode) && !$getMatchingCharNode(targetNode, marker),
+  );
+  if (gapNodes.length > 0) {
+    $groupAdjacentGapRuns(gapNodes).forEach((run) => $wrapRunInCharNode(run, marker));
+    didChange = true;
+  }
+
+  $restoreRangeOverTargets(targetNodes, isBackward);
+  return didChange;
+}
+
+// #region Helper functions for $extendCharacterMarkerAtSelection
+
+/**
+ * Whether any actionable node in the selection is *not* already covered by `marker`.
+ *
+ * The read-only counterpart of the gap filter in `$extendCharacterMarkerAtSelection`, answered
+ * before the splitting pass so a fully covered request never calls `handleTextNode`'s `splitText`
+ * — which would put a documented no-op on the undo stack and produce an empty collab delta.
+ *
+ * Built on `$getActionableNodes`, which is deliberately no narrower than `$getTargetNode`, so this
+ * can only ever be more permissive — it never wrongly refuses an extend that would have happened.
+ *
+ * Note interiors are excluded up front by `$isInsideNote` rather than by an absent
+ * `$getMatchingCharNode` match: unlike removal and replacement, extension treats a missing match as
+ * "uncovered", so without that guard a note's text would read as something left to cover. Must stay
+ * in step with the gap filter in `$extendCharacterMarkerAtSelection`, which screens the same way.
+ *
+ * @param nodes - The nodes in the selection.
+ * @param marker - The character marker being extended.
+ * @returns `true` if there is something left to cover.
+ */
+function $hasUncoveredNode(nodes: LexicalNode[], marker: string): boolean {
+  return $getActionableNodes(nodes).some(
+    (node) => !$isInsideNote(node) && !$getMatchingCharNode(node, marker),
+  );
+}
+
+/**
+ * Split the gap nodes into maximal runs of adjacent siblings — one `CharNode` wrapper each.
+ *
+ * Adjacency is checked with `getNextSibling()`, which subsumes a same-parent check: two nodes under
+ * different parents are never each other's siblings. Both cases have to break the run — gaps
+ * separated by covered content (`kolo ` and ` sana` around `\bd Mulu\bd*`) would have their text
+ * reordered by a shared wrapper, and gaps under different parents would be hoisted out of the
+ * element that holds them.
+ *
+ * Grouping happens before any wrapping: `append` moves a node out of its original parent, so
+ * adjacency can only be read off the untouched tree.
+ *
+ * @param gapNodes - The uncovered text nodes, in document order.
+ * @returns the runs to wrap, in document order.
+ */
+function $groupAdjacentGapRuns(gapNodes: TextNode[]): TextNode[][] {
+  const runs: TextNode[][] = [];
+  let currentRun: TextNode[] | undefined;
+  gapNodes.forEach((gapNode) => {
+    const previousGapNode = currentRun?.[currentRun.length - 1];
+    if (currentRun && previousGapNode?.getNextSibling()?.is(gapNode)) currentRun.push(gapNode);
+    else {
+      currentRun = [gapNode];
+      runs.push(currentRun);
+    }
+  });
+  return runs;
+}
+
+/**
+ * Wrap one run of adjacent uncovered text nodes in a new `CharNode` carrying `marker`.
+ *
+ * The wrapper is inserted where the run already is, then the run is appended into it — the shape
+ * `$wrapSelectionInTypedMarkNode` (`TypedMarkNode.ts`) uses, minus its mark-specific parts.
+ *
+ * When a sibling of the run is already a `CharNode` carrying `marker`, the wrapper copies that
+ * neighbor's identity via `$createCharNodeLike` instead of starting from a bare `$createCharNode`.
+ * A fresh `CharNode` has no cid, and `$charNodeTransform`'s `$hasSameCharAttributes` check refuses
+ * to merge a node that has one with one that doesn't — so in a collab document, where every
+ * `CharNode` gets a cid, an identity-less wrapper would sit beside the neighbor forever instead of
+ * merging into it.
+ *
+ * @remarks Insert-path parity (OQ-7): a marker never starts with a space, matching
+ *   `$moveLeadingSpaceToPreviousNode`'s rule for the insert path. See the call below for the one
+ *   exception.
+ *
+ * @remarks The invariant behind the copied cid: two attached `CharNode`s may share one cid only
+ *   while they stay equivalent. `$charNodeTransform` normally reunites them inside the same
+ *   `editor.update()` (see `$setCharNodeMarker`), so nothing observes the pair. Even unmerged it is
+ *   invisible on the wire, because `$buildCharItem` emits `{style, cid}` per run and quill-delta's
+ *   `push` coalesces adjacent inserts with deep-equal attributes — the split and the merge serialize
+ *   identically. Both of those hold only while the attributes compare equal. An edit that changed
+ *   one half and not the other would break the coalescing and expose the duplicate cid to collab.
+ *   Not reachable today, and deliberately not asserted at runtime: the wrap can't observe a
+ *   divergence a later edit would introduce. The realistic way this breaks is `CharNodePlugin` not
+ *   being mounted — it is wired up only in platform's `Editor.tsx`, so lifting these utils toward
+ *   `shared` would silently start producing permanent duplicate-cid pairs. `Editor.test.tsx`'s
+ *   "covers the whole selection with one marker, not a nested pair" catches that by asserting
+ *   exactly one `char` node survives the merge.
+ *
+ * @remarks Previous-sibling preference: `.find` over `[previousSibling, nextSibling]` always picks
+ *   the previous one when both are same-marker `CharNode`s. This is observable when the two
+ *   neighbors carry different cids: the wrapper can only copy one identity, so it merges with
+ *   whichever side it copied from and the result is two runs, not one, rather than merging with
+ *   both.
+ *
+ * @param run - Adjacent sibling text nodes to wrap.
+ * @param marker - The character marker for the new `CharNode`.
+ */
+function $wrapRunInCharNode(run: TextNode[], marker: string): void {
+  const previousSibling = run[0].getPreviousSibling();
+  const nextSibling = run[run.length - 1].getNextSibling();
+  const neighborCharNode = [previousSibling, nextSibling].find(
+    (sibling): sibling is CharNode => $isCharNode(sibling) && sibling.getMarker() === marker,
+  );
+  const wrapper = neighborCharNode
+    ? $createCharNodeLike(neighborCharNode)
+    : $createCharNode(marker);
+  run[0].insertBefore(wrapper);
+  wrapper.append(...run);
+
+  // Insert-path parity (OQ-7): a marker never starts with a space. Skipped when the previous
+  // sibling is a same-marker CharNode, because `$moveLeadingSpaceToPreviousNode` would insert a
+  // plain space TextNode between the two runs — `$addTrailingSpace` no-ops on an element — and
+  // block the merge that makes them one marker. After merging the space is interior anyway.
+  // `.find` prefers the previous sibling (see the remark above), so identity against it is the
+  // whole test — no need to restate the same-marker rule.
+  const willMergeWithPreviousSibling = neighborCharNode === previousSibling;
+  if (!willMergeWithPreviousSibling) $moveLeadingSpaceToPreviousNode(run[0], wrapper);
+}
 
 /**
  * Moves the leading space of a node following a verse node to the previous node.

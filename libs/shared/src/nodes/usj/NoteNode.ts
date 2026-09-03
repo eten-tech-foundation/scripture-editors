@@ -43,6 +43,27 @@ export type SerializedNoteNode = Spread<
   SerializedElementNode
 >;
 
+/** Which auto-caller family a note belongs to. See {@link getNoteKind}. */
+export type NoteKind = "footnote" | "crossref";
+
+/**
+ * Classifies a note marker into its caller family, matching PT9's Standard view rule
+ * (Paratext repo `ParatextInternalShared/ScriptureViews/Standard.xslt` lines 446-449): a note is a
+ * footnote iff its style starts with `f` or starts with `ef`; EVERY other note style — `x`, `ex`,
+ * and any custom note marker — uses the cross-reference caller sequence.
+ *
+ * Note the deliberate consequence for custom markers: a custom note marker that does not start
+ * with `f`/`ef` (e.g. `zfn`) classifies as a cross-reference — auto-callers from the
+ * cross-reference sequence, hidden-caller default — exactly as PT9 renders it, even if the marker
+ * is semantically a footnote.
+ *
+ * @param marker - The note marker to classify (e.g. `f`, `x`, `ef`, or a custom marker).
+ * @returns `"footnote"` for `f*`/`ef*` markers, `"crossref"` for everything else.
+ */
+export function getNoteKind(marker: string): NoteKind {
+  return marker.startsWith("f") || marker.startsWith("ef") ? "footnote" : "crossref";
+}
+
 /** List of known properties of `MarkerObject` */
 export const NOTE_MARKER_OBJECT_PROPS: (keyof MarkerObject)[] = [
   "type",
@@ -72,7 +93,7 @@ export class NoteNode extends ElementNode {
     super(key);
     this.__marker = marker;
     this.__caller =
-      caller ?? (marker === "x" || marker === "ex" ? HIDDEN_NOTE_CALLER : GENERATOR_NOTE_CALLER);
+      caller ?? (getNoteKind(marker) === "crossref" ? HIDDEN_NOTE_CALLER : GENERATOR_NOTE_CALLER);
     this.__isCollapsed = isCollapsed;
     this.__category = category;
     this.__unknownAttributes = unknownAttributes;
@@ -200,13 +221,24 @@ export class NoteNode extends ElementNode {
       this.__isCollapsed ? "collapsed" : "expanded",
     );
     dom.setAttribute("data-caller", this.__caller);
+    // The stylesheet's `+`-caller counter rules select on the caller family, not per-marker
+    // classes, so custom note markers number correctly (see `getNoteKind` for the PT9 rule).
+    dom.setAttribute("data-note-kind", getNoteKind(this.__marker));
     return dom;
   }
 
-  override updateDOM(prevNode: NoteNode): boolean {
-    // Returning false tells Lexical that this node does not need its
-    // DOM element replacing with a new copy from createDOM.
+  override updateDOM(prevNode: NoteNode, dom: HTMLElement): boolean {
+    // Returning true tells Lexical that this node needs its DOM element
+    // replacing with a new copy from createDOM.
     if (prevNode.__isCollapsed !== this.__isCollapsed) return true;
+
+    if (prevNode.__marker !== this.__marker) {
+      dom.setAttribute("data-marker", this.__marker);
+      dom.classList.remove(`usfm_${prevNode.__marker}`);
+      dom.classList.add(`usfm_${this.__marker}`);
+      dom.setAttribute("data-note-kind", getNoteKind(this.__marker));
+    }
+    if (prevNode.__caller !== this.__caller) dom.setAttribute("data-caller", this.__caller);
 
     return false;
   }
@@ -221,6 +253,7 @@ export class NoteNode extends ElementNode {
         this.getIsCollapsed() ? "collapsed" : "expanded",
       );
       element.setAttribute("data-caller", this.getCaller());
+      element.setAttribute("data-note-kind", getNoteKind(this.getMarker()));
     }
 
     return { element };
