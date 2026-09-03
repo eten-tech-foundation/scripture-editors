@@ -9,6 +9,7 @@ import {
   isUsjMarkerSupported,
 } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
+import { useLoadGate } from "./use-load-gate.hook";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import {
@@ -68,6 +69,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -268,6 +270,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   }
   const stableLogger = loggerRef.current;
 
+  // Annotations address the loaded document, so they wait for the load in flight (#515).
+  const { handleLoadingChange, noteLoadRequested, runWhenLoaded } = useLoadGate(stableLogger);
+  // `LoadStatePlugin` only reports a load from its own passive effect, and a consumer's LAYOUT
+  // effect runs before every passive effect in the commit - including at mount, which is the first
+  // moment a consumer can touch the ref at all. So close the gate here instead: a change to any
+  // input of that plugin's reload effect means a reload is coming, and this layout effect runs
+  // before the consumer's own. Keep these dependencies a SUBSET of that effect's (`scripture`,
+  // `viewOptions`, `logger`, plus the `key={loadTrigger}` remount below) - anything else would
+  // close the gate for a load that never arrives.
+  useLayoutEffect(() => {
+    noteLoadRequested();
+  }, [loadTrigger, noteLoadRequested, stableLogger, usj, viewOptions]);
+
   // Editable-mode document-first marker-menu harness (drives shared-react's `UsjNodesMenuPlugin`
   // "editableHarness" branch; see its doc comment). `undefined` outside markerMode "editable" so
   // the plugin falls back to its legacy typeahead unaffected. Built from the same `EditorRef`
@@ -446,6 +461,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         transientInputRef.current = undefined;
         // This can happen when using `applyUpdate` since `usj` won't change.
         const shouldForceReload = deepEqual(usj, incomingUsj);
+        // A load is now certain, but React hasn't re-rendered yet, so neither the gate's layout
+        // effect above nor LoadStatePlugin has seen it. Without this, an annotation set in this
+        // same tick would address the outgoing document and be discarded by the load (#515).
+        noteLoadRequested();
         setUsj(incomingUsj);
         if (shouldForceReload) setLoadTrigger((prev) => prev + 1);
       }
@@ -529,18 +548,23 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         onMouseLeave = fourth.onMouseLeave;
       }
 
-      annotationRef.current?.setAnnotation(
-        selection,
-        externalTypedMarkType(type),
-        id,
-        onClick,
-        onRemove,
-        onMouseEnter,
-        onMouseLeave,
+      runWhenLoaded(() =>
+        annotationRef.current?.setAnnotation(
+          selection,
+          externalTypedMarkType(type),
+          id,
+          onClick,
+          onRemove,
+          onMouseEnter,
+          onMouseLeave,
+        ),
       );
     },
     removeAnnotation(type, id) {
-      annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id);
+      // Gated for the same reason `setAnnotation` is, and so the pair keeps its issue order: an
+      // un-gated removal alongside a queued set would run against the outgoing document while its
+      // set ran against the loaded one.
+      runWhenLoaded(() => annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id));
     },
     formatPara(blockMarker) {
       editorRef.current?.update(() => {
@@ -950,6 +974,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}
             viewOptions={viewOptions}
+            onLoadingChange={handleLoadingChange}
             logger={stableLogger}
           />
           <OnSelectionChangePlugin onChange={onSelectionChange} />
