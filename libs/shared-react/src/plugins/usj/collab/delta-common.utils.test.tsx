@@ -3,18 +3,36 @@ import {
   $createImmutableVerseNode,
   $isImmutableVerseNode,
 } from "../../../nodes/usj/ImmutableVerseNode";
+import { $isSomeVerseNode } from "../../../nodes/usj/node-react.utils";
+import { getDefaultViewOptions, ViewOptions } from "../../../views/view-options.utils";
+import { CharNodePlugin } from "../CharNodePlugin";
 import { baseTestEnvironment } from "../react-test.utils";
-import { $getNodeFromOTPosition, $getOTPositionOfNode } from "./delta-common.utils";
-import { $createTextNode, $getRoot, $isTextNode, $setState, LexicalNode } from "lexical";
+import { $applyUpdate } from "./delta-apply-update.utils";
+import { getEditorDelta } from "./editor-delta.adaptor";
 import {
+  $getNodeFromOTPosition,
+  $getOTPositionOfNode,
+  $getReplaceEmbedOps,
+  DeltaOp,
+  getInsertedNodeKey,
+} from "./delta-common.utils";
+import { act } from "@testing-library/react";
+import { $createTextNode, $getRoot, $isTextNode, $setState, LexicalNode } from "lexical";
+import { ReactNode } from "react";
+import {
+  $createAttributeRunNode,
   $createBookNode,
+  $createChapterNode,
   $createCharNode,
   $createImmutableChapterNode,
   $createImpliedParaNode,
+  $createMarkerNode,
   $createMilestoneNode,
   $createNoteNode,
+  $createCursorPlaceholderNode,
   $createParaNode,
   $createUnknownNode,
+  $createVerseNode,
   $isBookNode,
   $isImmutableChapterNode,
   $isImpliedParaNode,
@@ -23,7 +41,11 @@ import {
   $isParaNode,
   charIdState,
   GENERATOR_NOTE_CALLER,
+  getVisibleOpenMarkerText,
+  NBSP,
+  NoteNode,
   segmentState,
+  textTypeState,
 } from "shared";
 
 describe("$getOTPositionOfNode", () => {
@@ -53,6 +75,29 @@ describe("$getOTPositionOfNode", () => {
     const position = editor.getEditorState().read(() => $getOTPositionOfNode(textNode));
 
     expect(position).toBe(0);
+  });
+
+  it("counts a bare cursor host as 0 so OT positions stay aligned with peers (PT-4308)", async () => {
+    const { editor } = await testEnvironment(() => {
+      targetNode = $createTextNode("text");
+      // The real empty-verse shape: a host sits between two verse markers (the verses keep it from
+      // merging into adjacent text). Verse (1) + host (0) + verse (1) → the text lands at 2, exactly
+      // as if the host were not there.
+      $getRoot().append(
+        $createImpliedParaNode().append(
+          $createImmutableVerseNode("1"),
+          $createCursorPlaceholderNode(),
+          $createImmutableVerseNode("2"),
+          targetNode,
+        ),
+      );
+    });
+    if (!targetNode) throw new Error("targetNode not initialized");
+    const textNode = targetNode;
+
+    const position = editor.getEditorState().read(() => $getOTPositionOfNode(textNode));
+
+    expect(position).toBe(2);
   });
 
   it("should return correct position for chapter embed", async () => {
@@ -1048,6 +1093,618 @@ describe("$getNodeFromOTPosition", () => {
   });
 });
 
-async function testEnvironment($initialEditorState?: () => void) {
-  return baseTestEnvironment($initialEditorState);
+/**
+ * "apply" coordinates: positions that agree with `$applyUpdate`'s insert/delete traversals,
+ * where EVERY embed is opaque (1 unit, children skipped). In editable marker mode an
+ * editable `ChapterNode` carries a glyph text child (e.g. "\c 1 ", 5 chars) that the legacy
+ * "delta-doc" counting descends into (chapter = 6) while `$applyUpdate` treats the chapter
+ * as an opaque embed (chapter = 1). Host-local produce→apply round trips
+ * (`$getReplaceEmbedOps`) must use "apply" coordinates or every replace lands 5 units late.
+ */
+describe("apply coordinates (opaque element embeds)", () => {
+  /** Editable chapter glyph text: "\c" + NBSP + "1" + " " = 5 chars. */
+  const chapterGlyph = getVisibleOpenMarkerText("c", "1");
+
+  let noteNode: NoteNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * ├─ ChapterNode "1" ── TextNode "\c 1 "        (glyph, 5 chars)
+   * └─ ParaNode "p"
+   *    ├─ TextNode "first "                       (6 chars)
+   *    ├─ NoteNode f (caller, \fr span, \ft span)
+   *    └─ TextNode " tail"                        (5 chars)
+   * ```
+   *
+   * apply coordinates: chapter (1) + "first " (6) → note at 7.
+   * delta-doc coordinates: chapter (1) + glyph (5) + "first " (6) → note at 12.
+   */
+  function $buildEditableChapterDoc() {
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    $getRoot().append(
+      $createChapterNode("1").append($createTextNode(chapterGlyph)),
+      $createParaNode("p").append(
+        $createTextNode("first "),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "1:1 note text"),
+          $createCharNode("fr").append($createTextNode("1:1 ")),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  function requireNote(): NoteNode {
+    if (!noteNode) throw new Error("noteNode not initialized");
+    return noteNode;
+  }
+
+  it("$getOTPositionOfNode treats an editable chapter as opaque in apply coordinates", async () => {
+    const { editor } = await testEnvironment($buildEditableChapterDoc);
+    const note = requireNote();
+
+    const applyPosition = editor.getEditorState().read(() => $getOTPositionOfNode(note, "apply"));
+    const legacyPosition = editor.getEditorState().read(() => $getOTPositionOfNode(note));
+
+    // chapter (1) + "first " (6) = 7
+    expect(applyPosition).toBe(7);
+    // Legacy delta-doc counting is unchanged: chapter (1) + glyph (5) + "first " (6) = 12
+    expect(legacyPosition).toBe(12);
+  });
+
+  it("$getNodeFromOTPosition reverse-maps the apply-coordinate retain back to the note", async () => {
+    const { editor } = await testEnvironment($buildEditableChapterDoc);
+    const note = requireNote();
+
+    editor.getEditorState().read(() => {
+      const applyPosition = $getOTPositionOfNode(note, "apply");
+      if (applyPosition === undefined) throw new Error("apply position not found");
+
+      // Forward/reverse are the same coordinate map: the retain produced for the note must
+      // resolve back to the note.
+      expect($getNodeFromOTPosition(applyPosition, "apply")).toBe(note);
+      // Legacy delta-doc reverse mapping is unchanged.
+      expect($getNodeFromOTPosition(12)).toBe(note);
+    });
+  });
+
+  it("replaces a note in place via $getReplaceEmbedOps + $applyUpdate in editable mode", async () => {
+    const { editor } = await testEnvironment($buildEditableChapterDoc, <CharNodePlugin />);
+    const note = requireNote();
+    const editableView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "editable" };
+
+    const insertEmbedOps: DeltaOp[] = [
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: { ops: [{ insert: "replaced", attributes: { char: { style: "ft" } } }] },
+          },
+        },
+      },
+    ];
+    const ops = editor
+      .getEditorState()
+      .read(() => $getReplaceEmbedOps(note.getKey(), insertEmbedOps));
+    if (!ops) throw new Error("replace embed ops not produced");
+
+    await act(async () => {
+      editor.update(() => {
+        $applyUpdate(ops, editableView, {});
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getLastChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+
+      // The old note is REPLACED in place: still exactly one note, at the same child slot.
+      const notes = para.getChildren().filter($isNoteNode);
+      expect(notes).toHaveLength(1);
+      expect(para.getChildAtIndex(1)).toBe(notes[0]);
+      expect(notes[0].getTextContent()).toContain("replaced");
+
+      // No character was eaten from adjacent text.
+      const firstText = para.getChildAtIndex(0);
+      if (!$isTextNode(firstText)) throw new Error("leading text not found");
+      expect(firstText.getTextContent()).toBe("first ");
+      const lastText = para.getLastChild();
+      if (!$isTextNode(lastText)) throw new Error("trailing text not found");
+      expect(lastText.getTextContent()).toBe(" tail");
+
+      // The chapter glyph is untouched.
+      const chapter = $getRoot().getFirstChild();
+      expect(chapter?.getTextContent()).toBe(chapterGlyph);
+
+      // `getInsertedNodeKey` in apply coordinates resolves the retain to the NEW note —
+      // the reverse lookup `Editor.applyUpdate` uses to report the inserted node.
+      expect(getInsertedNodeKey(ops, editor.getEditorState(), "apply")).toBe(notes[0].getKey());
+    });
+  });
+});
+
+/**
+ * A paragraph's own marker-prefix glyph (`\p`) and its NBSP `marker-trailing-space` separator are
+ * presentation scaffolding excluded from PRODUCE-side content ops (editor-delta.adaptor.ts) and
+ * from "delta-doc" position counting — but NOT from "apply" position counting. `$applyUpdate`'s
+ * own insert/delete/attribute traversals (delta-apply-update.utils.ts) count every OT text node's
+ * raw length unconditionally and do not skip these nodes, and "apply" coordinates are DEFINED as
+ * whatever those traversals do (see {@link OTCoordinateSystem} in delta-common.utils.ts). If
+ * "apply" counting excluded the prefix too, a replace-embed retain computed via
+ * `$getOTPositionOfNode("apply")` would land short of where `$applyUpdate` actually walks to,
+ * missing the old embed on delete and leaving the replacement APPENDED instead of substituted.
+ */
+describe("apply coordinates (paragraph marker-prefix glyph and separator)", () => {
+  let noteNode: NoteNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ MarkerNode "\p"                        (glyph, 2 chars)
+   *    ├─ TextNode NBSP (marker-trailing-space)   (separator, 1 char)
+   *    ├─ TextNode "first "                       (6 chars)
+   *    ├─ NoteNode f (caller, \fr span, \ft span)
+   *    └─ TextNode " tail"                        (5 chars)
+   * ```
+   *
+   * apply coordinates: glyph (2) + separator (1) + "first " (6) → note at 9.
+   * delta-doc coordinates: glyph (0, excluded) + separator (0, excluded) + "first " (6) → note at 6.
+   */
+  function $buildParaPrefixDoc() {
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    const separator = $createTextNode(NBSP);
+    $setState(separator, textTypeState, "marker-trailing-space");
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        separator,
+        $createTextNode("first "),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "1:1 note text"),
+          $createCharNode("fr").append($createTextNode("1:1 ")),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  function requireNote(): NoteNode {
+    if (!noteNode) throw new Error("noteNode not initialized");
+    return noteNode;
+  }
+
+  it("counts the para prefix glyph and separator in apply coordinates but not delta-doc", async () => {
+    const { editor } = await testEnvironment($buildParaPrefixDoc);
+    const note = requireNote();
+
+    const applyPosition = editor.getEditorState().read(() => $getOTPositionOfNode(note, "apply"));
+    const legacyPosition = editor.getEditorState().read(() => $getOTPositionOfNode(note));
+
+    // glyph (2) + separator (1) + "first " (6) = 9
+    expect(applyPosition).toBe(9);
+    // delta-doc excludes the prefix and separator: "first " (6) = 6
+    expect(legacyPosition).toBe(6);
+  });
+
+  it("$getNodeFromOTPosition reverse-maps the apply-coordinate retain back to the note across a para prefix", async () => {
+    const { editor } = await testEnvironment($buildParaPrefixDoc);
+    const note = requireNote();
+
+    editor.getEditorState().read(() => {
+      const applyPosition = $getOTPositionOfNode(note, "apply");
+      if (applyPosition === undefined) throw new Error("apply position not found");
+
+      expect($getNodeFromOTPosition(applyPosition, "apply")).toBe(note);
+      // Legacy delta-doc reverse mapping is unchanged.
+      expect($getNodeFromOTPosition(6)).toBe(note);
+    });
+  });
+
+  it("replaces a note in place via $getReplaceEmbedOps + $applyUpdate across a paragraph's own marker prefix", async () => {
+    const { editor } = await testEnvironment($buildParaPrefixDoc, <CharNodePlugin />);
+    const note = requireNote();
+    const editableView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "editable" };
+
+    const insertEmbedOps: DeltaOp[] = [
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: { ops: [{ insert: "replaced", attributes: { char: { style: "ft" } } }] },
+          },
+        },
+      },
+    ];
+    const ops = editor
+      .getEditorState()
+      .read(() => $getReplaceEmbedOps(note.getKey(), insertEmbedOps));
+    if (!ops) throw new Error("replace embed ops not produced");
+
+    await act(async () => {
+      editor.update(() => {
+        $applyUpdate(ops, editableView, {});
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+
+      // The old note is REPLACED in place: still exactly one note — not appended alongside it,
+      // which is the shape a mis-aligned retain produces (delete misses, insert still succeeds).
+      const notes = para.getChildren().filter($isNoteNode);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].getTextContent()).toContain("replaced");
+
+      // The prefix, separator, and adjacent text are untouched — nothing eaten by a
+      // miscounted retain landing inside them instead of at the note.
+      expect(para.getChildAtIndex(0)?.getTextContent()).toBe("\\p");
+      const separator = para.getChildAtIndex(1);
+      if (!$isTextNode(separator)) throw new Error("separator not found");
+      expect(separator.getTextContent()).toBe(NBSP);
+      const firstText = para.getChildAtIndex(2);
+      if (!$isTextNode(firstText)) throw new Error("leading text not found");
+      expect(firstText.getTextContent()).toBe("first ");
+      const lastText = para.getLastChild();
+      if (!$isTextNode(lastText)) throw new Error("trailing text not found");
+      expect(lastText.getTextContent()).toBe(" tail");
+    });
+  });
+});
+
+/**
+ * Hand-built directly (rather than via the forward adaptor) to pin the `$getNodeOTContribution`
+ * ancestor exclusion in isolation.
+ *
+ * Coordinate decision (see `delta-common.utils.ts`'s `$getNodeOTContribution` doc comment):
+ * excluded ONLY in `"delta-doc"` coordinates, mirroring `editor-delta.adaptor.ts`'s ops exclusion
+ * for the SAME bytes. `"apply"` coordinates deliberately keep counting a wrapped piece's raw text
+ * length — `$applyUpdate`'s own traversal functions do not special-case `AttributeRunNode` at
+ * all, so they treat the wrapper as an ordinary, un-special-cased `ElementNode` (zero contribution
+ * of its own, descend into children) and count each child's raw text length exactly as they
+ * already do for a LOOSE run's pieces: wrapping a run changes NOTHING about what `$applyUpdate`
+ * actually does to it. Excluding it in "apply" coordinates here, ahead of `$applyUpdate` itself
+ * changing, would disagree with where `$applyUpdate` really walks to — the same "apply"
+ * coordinates must equal `$applyUpdate`'s existing behavior" principle the para-prefix-glyph/
+ * marker-trailing-space exclusion above already documents.
+ */
+describe("apply coordinates (AttributeRunNode wrapper pieces)", () => {
+  let milestoneNode: LexicalNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ MilestoneNode "qt-s"                        (embed, 1 unit)
+   *    ├─ AttributeRunNode "milestone" wrapper
+   *    │   ├─ MarkerNode "\qt-s" (opening)             (glyph, 5 chars)
+   *    │   ├─ TextNode NBSP+|sid="q1" (attribute)       (10 chars)
+   *    │   └─ MarkerNode "\*" (selfClosing)             (glyph, 2 chars)
+   *    └─ TextNode " tail"                              (5 chars)
+   * ```
+   *
+   * apply coordinates: milestone (1) + opening (5) + attribute (10) + closing (2) → tail at 18.
+   * delta-doc coordinates: milestone (1) + wrapper pieces (0, excluded) → tail at 1.
+   */
+  function $buildWrappedMilestoneDoc() {
+    const milestone = $createMilestoneNode("qt-s", "q1");
+    milestoneNode = milestone;
+    const wrapper = $createAttributeRunNode("milestone");
+    const attribute = $createTextNode(`${NBSP}|sid="q1"`);
+    $setState(attribute, textTypeState, "attribute");
+    wrapper.append(
+      $createMarkerNode("qt-s", "opening"),
+      attribute,
+      $createMarkerNode("", "selfClosing"),
+    );
+    $getRoot().append($createParaNode("p").append(milestone, wrapper, $createTextNode(" tail")));
+  }
+
+  function requireMilestone(): LexicalNode {
+    if (!milestoneNode) throw new Error("milestoneNode not initialized");
+    return milestoneNode;
+  }
+
+  it("excludes wrapped run pieces from position counting in delta-doc coordinates but not apply", async () => {
+    const { editor } = await testEnvironment($buildWrappedMilestoneDoc);
+
+    const tailPosition = editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+      const tail = para.getLastChild();
+      if (!tail) throw new Error("tail text not found");
+      return {
+        apply: $getOTPositionOfNode(tail, "apply"),
+        deltaDoc: $getOTPositionOfNode(tail),
+      };
+    });
+
+    // milestone (1) + opening (5) + attribute (10) + closing (2) = 18
+    expect(tailPosition.apply).toBe(18);
+    // delta-doc excludes every wrapped piece: milestone (1) alone = 1
+    expect(tailPosition.deltaDoc).toBe(1);
+  });
+
+  it("$getNodeFromOTPosition reverse-maps the apply-coordinate retain back to the milestone across its wrapper", async () => {
+    const { editor } = await testEnvironment($buildWrappedMilestoneDoc);
+    const milestone = requireMilestone();
+
+    editor.getEditorState().read(() => {
+      const applyPosition = $getOTPositionOfNode(milestone, "apply");
+      if (applyPosition === undefined) throw new Error("apply position not found");
+
+      expect($getNodeFromOTPosition(applyPosition, "apply")).toBe(milestone);
+      // Legacy delta-doc reverse mapping is unchanged: the milestone is still at 0.
+      expect($getNodeFromOTPosition(0)).toBe(milestone);
+    });
+  });
+});
+
+/**
+ * A char span's attribute run is NOT wrapped — the display-run registry declares it "a direct
+ * TextNode child, never wrapped and never a glyph" (`displayRunRegistry.ts`'s char descriptor,
+ * `byteFormat.writer: "owner-children"`). So `$hasAttributeRunAncestor` cannot see it, and the
+ * delta-doc arm must recognize it by its `textType` state instead — exactly as the ops stream
+ * already does (`editor-delta.adaptor.ts`'s `isNodeAttributeText`).
+ *
+ * This is the shape real editable-mode documents carry at rest for any `\w …|strong="…"\w*`, so a
+ * delta-doc count that includes those bytes disagrees with the op stream on ordinary Scripture and
+ * mis-resolves `getInsertedNodeKey`'s reverse lookup for anything after the span.
+ */
+describe("delta-doc coordinates (a char span's own unwrapped attribute run)", () => {
+  let attributeNode: LexicalNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ CharNode "w"
+   *    │   ├─ MarkerNode "\w" (opening)                  (glyph)
+   *    │   ├─ TextNode NBSP+"grace"                       (content)
+   *    │   ├─ TextNode NBSP+|strong="G5485" (attribute)   (display; ops exclude it)
+   *    │   └─ MarkerNode "\w*" (closing)                  (glyph)
+   *    └─ TextNode " tail"
+   * ```
+   */
+  function $buildCharAttributeDoc() {
+    const attribute = $createTextNode(`${NBSP}|strong="G5485"`);
+    $setState(attribute, textTypeState, "attribute");
+    attributeNode = attribute;
+    const char = $createCharNode("w").append(
+      $createMarkerNode("w", "opening"),
+      $createTextNode(`${NBSP}grace`),
+      attribute,
+      $createMarkerNode("w", "closing"),
+    );
+    $getRoot().append($createParaNode("p").append(char, $createTextNode(" tail")));
+  }
+
+  it("excludes a char span's attribute run from delta-doc counting but not apply", async () => {
+    const { editor } = await testEnvironment($buildCharAttributeDoc);
+    if (!attributeNode) throw new Error("attributeNode not initialized");
+    const attribute = attributeNode;
+
+    const { apply, deltaDoc, attributeLength } = editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+      const tail = para.getLastChild();
+      if (!tail) throw new Error("tail text not found");
+      return {
+        apply: $getOTPositionOfNode(tail, "apply"),
+        deltaDoc: $getOTPositionOfNode(tail),
+        attributeLength: attribute.getTextContentSize(),
+      };
+    });
+
+    if (apply === undefined || deltaDoc === undefined)
+      throw new Error("tail position not resolved");
+
+    // "apply" keeps counting the raw text, matching what `$applyUpdate`'s traversals actually walk.
+    expect(apply).toBeGreaterThan(attributeLength);
+    // delta-doc drops exactly those bytes — the same ones the ops stream omits.
+    expect(deltaDoc).toBe(apply - attributeLength);
+  });
+});
+
+/**
+ * The acceptance property behind the host's retired `correctEditingNoteKeyAfterInsert`: after a
+ * note is inserted, the host reads the new note's key by reverse-mapping the retain out of the OP
+ * STREAM (`getInsertedNodeKey` over `onUsjChange` ops) and opens its popover on that key. If the
+ * delta-doc lookup counts bytes the ops stream omitted, that retain resolves to a node BEFORE the
+ * note and the popover's Save silently no-ops on a key that is not a note.
+ *
+ * The retain here is therefore derived from `getEditorDelta`, never from `$getOTPositionOfNode`:
+ * taking it from the position helper would make both sides of the round trip use the same
+ * counting and could not detect the two sides disagreeing, which IS the bug.
+ */
+describe("inserted-note key resolution across a preceding char attribute run", () => {
+  let noteNode: NoteNode | undefined;
+
+  function $buildCharAttributeNoteDoc() {
+    const attribute = $createTextNode(`${NBSP}|strong="G5485"`);
+    $setState(attribute, textTypeState, "attribute");
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createCharNode("w").append(
+          $createMarkerNode("w", "opening"),
+          $createTextNode(`${NBSP}grace`),
+          attribute,
+          $createMarkerNode("w", "closing"),
+        ),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "note text"),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  it("resolves the note the ops stream points at, not a node shifted by the attribute bytes", async () => {
+    const { editor } = await testEnvironment($buildCharAttributeNoteDoc);
+    if (!noteNode) throw new Error("noteNode not initialized");
+    const note = noteNode;
+    const editorState = editor.getEditorState();
+
+    // Walk the real op stream to the note embed; its running length is the retain a genuine
+    // insert produces.
+    const { ops: deltaOps } = getEditorDelta(editorState);
+    let retain = 0;
+    for (const op of deltaOps) {
+      const { insert } = op;
+      if (insert && typeof insert === "object" && "note" in insert) break;
+      retain += typeof insert === "string" ? insert.length : 1;
+    }
+
+    const insertOps: DeltaOp[] = [
+      { retain },
+      {
+        insert: {
+          note: { style: "f", caller: GENERATOR_NOTE_CALLER, contents: { ops: [] } },
+        },
+      },
+    ];
+
+    expect(getInsertedNodeKey(insertOps, editorState)).toBe(note.getKey());
+  });
+});
+
+/**
+ * An editable `VerseNode` (a TextNode subclass whose `__text` IS the "\v 1 " glyph) counts as ONE
+ * opaque OT unit — the same 1 unit as the doc delta's verse embed op and as `$applyUpdate`'s
+ * traversals — NOT its glyph-text length. So the two coordinate systems coincide across a verse,
+ * and the footnote-popover save path (`$getReplaceEmbedOps` → retain via
+ * `$getOTPositionOfNode("apply")` → `$applyUpdate`) lands on the SAME node whether the retain
+ * crosses a verse or not.
+ */
+describe("editable verse counts as one OT unit (embed)", () => {
+  let noteNode: NoteNode | undefined;
+
+  /**
+   * Editable-mode document shape:
+   *
+   * ```
+   * root
+   * └─ ParaNode "p"
+   *    ├─ VerseNode "1" ── "\v 1 "   (glyph; ONE OT unit, not its 5-char glyph length)
+   *    ├─ TextNode "first "          (6 chars)
+   *    ├─ NoteNode f (caller, \fr span, \ft span)
+   *    └─ TextNode " tail"
+   * ```
+   *
+   * Both coordinate systems: verse (1) + "first " (6) → note at 7.
+   */
+  function $buildEditableVerseDoc() {
+    const note = $createNoteNode("f", GENERATOR_NOTE_CALLER);
+    noteNode = note;
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createVerseNode("1", "\\v 1 "),
+        $createTextNode("first "),
+        note.append(
+          $createImmutableNoteCallerNode(GENERATOR_NOTE_CALLER, "1:1 note text"),
+          $createCharNode("fr").append($createTextNode("1:1 ")),
+          $createCharNode("ft").append($createTextNode("note text")),
+        ),
+        $createTextNode(" tail"),
+      ),
+    );
+  }
+
+  function requireNote(): NoteNode {
+    if (!noteNode) throw new Error("noteNode not initialized");
+    return noteNode;
+  }
+
+  it("counts a preceding editable verse as 1 unit in both coordinate systems", async () => {
+    const { editor } = await testEnvironment($buildEditableVerseDoc);
+    const note = requireNote();
+
+    editor.getEditorState().read(() => {
+      // verse (1) + "first " (6) = 7 in BOTH systems — no glyph-length drift.
+      expect($getOTPositionOfNode(note, "apply")).toBe(7);
+      expect($getOTPositionOfNode(note)).toBe(7);
+      // Forward/reverse agree in both systems.
+      expect($getNodeFromOTPosition(7, "apply")).toBe(note);
+      expect($getNodeFromOTPosition(7)).toBe(note);
+    });
+  });
+
+  it("replaces a note after an editable verse via $getReplaceEmbedOps + $applyUpdate (retain crosses the verse)", async () => {
+    const { editor } = await testEnvironment($buildEditableVerseDoc, <CharNodePlugin />);
+    const note = requireNote();
+    const editableView: ViewOptions = { ...getDefaultViewOptions(), markerMode: "editable" };
+
+    const insertEmbedOps: DeltaOp[] = [
+      {
+        insert: {
+          note: {
+            style: "f",
+            caller: GENERATOR_NOTE_CALLER,
+            contents: { ops: [{ insert: "replaced", attributes: { char: { style: "ft" } } }] },
+          },
+        },
+      },
+    ];
+    const ops = editor
+      .getEditorState()
+      .read(() => $getReplaceEmbedOps(note.getKey(), insertEmbedOps));
+    if (!ops) throw new Error("replace embed ops not produced");
+    // The retain crosses the verse as ONE unit: verse (1) + "first " (6) = 7.
+    expect(ops[0]).toEqual({ retain: 7 });
+
+    await act(async () => {
+      editor.update(() => {
+        $applyUpdate(ops, editableView, {});
+      });
+    });
+
+    editor.getEditorState().read(() => {
+      const para = $getRoot().getFirstChild();
+      if (!$isParaNode(para)) throw new Error("para not found");
+
+      // The old note is REPLACED in place: still exactly one note.
+      const notes = para.getChildren().filter($isNoteNode);
+      expect(notes).toHaveLength(1);
+      expect(notes[0].getTextContent()).toContain("replaced");
+
+      // The verse embed is untouched — its glyph is intact and nothing was spliced into it.
+      const verse = para.getChildren().find($isSomeVerseNode);
+      if (!verse) throw new Error("verse not found");
+      expect(verse.getTextContent()).toBe("\\v 1 ");
+
+      // No character was eaten from the text on either side of the note.
+      const firstText = para.getChildAtIndex(1);
+      if (!$isTextNode(firstText)) throw new Error("leading text not found");
+      expect(firstText.getTextContent()).toBe("first ");
+      const lastText = para.getLastChild();
+      if (!$isTextNode(lastText)) throw new Error("trailing text not found");
+      expect(lastText.getTextContent()).toBe(" tail");
+
+      // The reverse lookup in apply coordinates resolves the retain to the NEW note.
+      expect(getInsertedNodeKey(ops, editor.getEditorState(), "apply")).toBe(notes[0].getKey());
+    });
+  });
+});
+
+async function testEnvironment($initialEditorState?: () => void, children?: ReactNode | undefined) {
+  return baseTestEnvironment($initialEditorState, children);
 }

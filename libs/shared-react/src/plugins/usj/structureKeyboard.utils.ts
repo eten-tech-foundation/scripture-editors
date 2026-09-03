@@ -42,7 +42,7 @@ export interface ArmedDelete {
 /**
  * Maps a keydown to the structural edit it would cause, or undefined for non-editing keys.
  * Deliberately does NOT early-return on Alt/Ctrl/Meta for Backspace/Delete — Alt/Cmd+Backspace
- * (delete-word / delete-line) are destructive and must be classified as deletions (spec B1).
+ * (delete-word / delete-line) are destructive and must be classified as deletions.
  */
 export function keyDownToIntent(event: KeyboardEvent): EditIntent | undefined {
   if (event.key === "Enter" && !event.shiftKey) return "insertParagraph";

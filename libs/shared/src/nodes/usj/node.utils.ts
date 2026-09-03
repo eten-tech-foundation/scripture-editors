@@ -1,24 +1,33 @@
 /** Utility functions for editor nodes */
 
 import { MARKER_OBJECT_PROPS, MarkerObject } from "@eten-tech-foundation/scripture-utilities";
+import { $findMatchingParent } from "@lexical/utils";
 import {
+  $createTextNode,
   $getCommonAncestor,
+  $getSelection,
   $getState,
   $isElementNode,
   $isLineBreakNode,
   $isRangeSelection,
   $isTextNode,
+  $setState,
   BaseSelection,
   ElementNode,
   LexicalEditor,
   LexicalNode,
+  NODE_STATE_KEY,
   NodeKey,
   RangeSelection,
   SerializedLexicalNode,
   SerializedTextNode,
   TextNode,
 } from "lexical";
-import { charIdState, textTypeState } from "../collab/delta.state.js";
+import {
+  charIdState,
+  MARKER_TRAILING_SPACE_TEXT_TYPE,
+  textTypeState,
+} from "../collab/delta.state.js";
 import {
   $isImmutableTypedTextNode,
   ImmutableTypedTextNode,
@@ -47,6 +56,7 @@ import { $isNoteNode, NoteNode } from "./NoteNode.js";
 import { $isParaNode, ParaNode } from "./ParaNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import { EMPTY_CHAR_PLACEHOLDER_TEXT, NBSP, UnknownAttributes } from "./node-constants.js";
+import { isCursorPlaceholderOnly } from "../../plugins/CursorHandler/index.js";
 
 export type NodesWithMarker =
   | BookNode
@@ -202,20 +212,13 @@ export function $findThisChapter(node: LexicalNode | null | undefined) {
 }
 
 /**
- * Traverses up the node tree from startNode to find the first ancestor NoteNode.
+ * Traverses up the node tree from startNode (itself included) to find the first ancestor NoteNode.
+ * A named convenience over `$findMatchingParent` — the one shared ancestor-walk.
  * @param startNode - The node to start the upward search from.
  * @returns The first ancestor NoteNode found, or `undefined` if none exists before the root.
  */
 export function $findFirstAncestorNoteNode(startNode: LexicalNode): NoteNode | undefined {
-  let currentNode: LexicalNode | null = startNode;
-
-  while (currentNode !== null) {
-    if ($isNoteNode(currentNode)) return currentNode;
-    currentNode = currentNode.getParent();
-  }
-
-  // Reached the root without finding a NoteNode
-  return undefined;
+  return $findMatchingParent(startNode, $isNoteNode) ?? undefined;
 }
 
 /**
@@ -292,6 +295,10 @@ export function $isSomeParaNode(node: LexicalNode | null | undefined): node is S
 
 /**
  * Check if a node is a descendant of a potential ancestor node.
+ *
+ * Deliberately NOT delegated to `$findMatchingParent`: this walk excludes the starting node (a
+ * node is not its own descendant) and must be able to match the RootNode's key, which
+ * `$findMatchingParent` never tests.
  *
  * @param node - The node to check.
  * @param ancestorKey - The key of the potential ancestor node.
@@ -404,19 +411,24 @@ export function removeNodesBeforeNode(
 /**
  * Gets the opening marker text.
  * @param marker - The USFM marker.
+ * @param nested - Whether the span nests inside another char span. A nested span's marker carries
+ *   the `+` prefix (`\+w`) — ParatextData's writer rule and PT9's on-screen display for USFM ≤3.0,
+ *   where `+` is what makes a bare char marker nest instead of closing the enclosing span. The
+ *   glyph must show it so a re-tokenization of the visible text reproduces the same nesting.
  * @returns the opening marker text.
  */
-export function openingMarkerText(marker: string): string {
-  return `\\${marker}`;
+export function openingMarkerText(marker: string, nested = false): string {
+  return `\\${nested ? "+" : ""}${marker}`;
 }
 
 /**
  * Gets the closing marker text.
  * @param marker - The USFM marker.
+ * @param nested - Whether the span nests inside another char span (see {@link openingMarkerText}).
  * @returns the closing marker text.
  */
-export function closingMarkerText(marker: string): string {
-  return `\\${marker}*`;
+export function closingMarkerText(marker: string, nested = false): string {
+  return `\\${nested ? "+" : ""}${marker}*`;
 }
 
 /**
@@ -433,8 +445,21 @@ export function parseNumberFromMarkerText(
 ): string {
   const openMarkerText = openingMarkerText(marker);
   if (text?.startsWith(openMarkerText)) {
-    const numberText = parseInt(text.slice(openMarkerText.length), 10);
-    if (!isNaN(numberText)) number = numberText.toString();
+    // Skip the NBSP/space separator inserted by `getVisibleOpenMarkerText`.
+    const rest = text.slice(openMarkerText.length).replace(/^[\s ]+/, "");
+    // The number is the whole WORD, valid or not — the same scan Paratext 9's GetNextWord applies
+    // and the same one Tier 1 uses to keep the glyph and the node in step
+    // (`leadingAttributeGlyphRegexes`). Anything narrower drops displayed bytes on the way to the
+    // file: a bridge the user is still typing (`5-`), a typo (`5--`, `5*`), a half-typed segment
+    // (`5-Da`) are all on screen and in the node's own number, so a grammar that recognized only
+    // well-formed numbers would save something the editor is not showing.
+    //
+    // The word still ends where the leading-attribute rule says it does, which is what keeps this
+    // from swallowing content: whitespace ends it (`\v 7 5` is verse 7 plus body text `5`) and so
+    // does a backslash (`\v 2\ Da` is verse 2 plus the literal), because both are the tokenizer's
+    // own name-scan terminators.
+    const match = /^([^ \u00A0\\]+)/.exec(rest);
+    if (match) number = match[1];
   }
   return number;
 }
@@ -452,17 +477,34 @@ export function getVisibleOpenMarkerText(marker: string, content: string | undef
   return text;
 }
 
+/** The `textType` NodeState of a serialized node, if any — the serialize-only mirror of the live
+ * `$getState(node, textTypeState)`. */
+function serializedTextType(node: SerializedLexicalNode): string | undefined {
+  const state = (node as { [NODE_STATE_KEY]?: unknown })[NODE_STATE_KEY];
+  if (state && typeof state === "object" && "textType" in state) {
+    const textType = (state as { textType?: unknown }).textType;
+    if (typeof textType === "string") return textType;
+  }
+  return undefined;
+}
+
 /**
  * Recursively extracts text content from a serialized Lexical node and its descendants.
  * Excludes marker nodes (both MarkerNode and ImmutableTypedTextNode with type "marker").
  * @param node - The serialized node to process.
  * @returns The concatenated text content.
  */
-// Keep this function in sync with `$getTextContentExcludingMarkers`.
+// Keep this function in sync with `$getTextContentExcludingMarkers`. The two are deliberately
+// parallel rather than merged: this one walks SERIALIZED nodes (plain objects, `children` arrays),
+// the other walks LIVE nodes (Lexical accessors inside a read) — a shared core would need a
+// node-accessor abstraction that costs more than the ~20 duplicated lines it would save.
 function extractTextFromNode(node: SerializedLexicalNode): string {
   // Skip marker nodes - they're structural/formatting elements, not content
   if (isSerializedMarkerNode(node)) return "";
   if (isSerializedImmutableTypedTextNode(node) && node.textType === "marker") return "";
+  // The attribute display run (textType "attribute") is engine-owned presentation, not content —
+  // exclude its bytes (`|gloss`) from note-preview text.
+  if (isSerializedTextNode(node) && serializedTextType(node) === "attribute") return "";
 
   if (isSerializedTextNode(node) && node.text !== NBSP) return node.text;
 
@@ -533,6 +575,8 @@ function $getTextContentExcludingMarkers(node: LexicalNode): string {
   // Skip marker nodes
   if ($isMarkerNode(node)) return "";
   if ($isVisibleMarkerNode(node)) return "";
+  // The attribute display run (textType "attribute") is engine-owned presentation, not content.
+  if ($isTextNode(node) && $getState(node, textTypeState) === "attribute") return "";
 
   // For text nodes, return the text
   if ($isTextNode(node)) return node.getTextContent();
@@ -635,8 +679,8 @@ export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
  * The old marker is read from the node itself rather than taken from a caller-supplied "from"
  * marker, which callers may not know when the innermost marker was targeted.
  *
- * A child whose text is neither the opening nor the closing form of the old marker is left
- * verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
+ * A child whose text is neither the opening nor the closing form of the old marker — in either the
+ * plain or the nested (`\\+nd`) spelling — is left verbatim rather than rewritten by guesswork. This applies to both synthesized child flavors: a
  * `MarkerNode` is a `TextNode` in default (non-token) mode, so a selection anchored inside its
  * visible text can `splitText` it into a fragment whose `__marker` is stale but whose text no
  * longer matches — rewriting that verbatim would re-expand it to the wrong marker.
@@ -646,8 +690,13 @@ export function $setCharNodeMarker(charNode: CharNode, marker: string): void {
  */
 function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void {
   const fromMarker = charNode.getMarker();
+  // Both spellings: a nested span's glyphs carry the `+` (`\\+nd`), and matching only the plain
+  // form left them unmatched, so a marker change inside another span rewrote the node while its
+  // glyphs — and the bytes they serialize to — kept the old marker.
   const openingText = openingMarkerText(fromMarker);
+  const nestedOpeningText = openingMarkerText(fromMarker, true);
   const closingText = closingMarkerText(fromMarker);
+  const nestedClosingText = closingMarkerText(fromMarker, true);
   // Note-content markers are written without a closing marker, so a closing child is removed rather
   // than retargeted to a form `addClosingMarker` would never emit.
   const dropsClosingMarker = CharNode.isNoteContentMarker(toMarker);
@@ -657,18 +706,24 @@ function $retargetSynthesizedMarkers(charNode: CharNode, toMarker: string): void
     if (!$isSynthesizedMarkerNode(child)) return;
 
     const text = child.getTextContent();
-    const isOpening = text === openingText;
-    const isClosing = !isOpening && text === closingText;
+    const isOpening = text === openingText || text === nestedOpeningText;
+    const isClosing = !isOpening && (text === closingText || text === nestedClosingText);
     if (!isOpening && !isClosing) return;
 
     if (isClosing && dropsClosingMarker) {
       child.remove();
       return;
     }
-    // MarkerNode.setMarker recomputes the node's text for us.
+    // MarkerNode.setMarker recomputes the node's text for us, nesting included — it re-derives
+    // from its own stored nesting rather than from anything read here.
     if ($isMarkerNode(child)) child.setMarker(toMarker);
-    else if ($isVisibleMarkerNode(child))
-      child.setTextContent(isOpening ? openingMarkerText(toMarker) : closingMarkerText(toMarker));
+    else if ($isVisibleMarkerNode(child)) {
+      // A visible glyph stores no nesting, so carry over the nesting its text already showed.
+      const nested = text.startsWith(openingMarkerText("", true));
+      child.setTextContent(
+        isOpening ? openingMarkerText(toMarker, nested) : closingMarkerText(toMarker, nested),
+      );
+    }
   });
 }
 
@@ -846,9 +901,10 @@ function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNod
 /**
  * Checks whether a node is presentation-only and therefore not part of USJ content:
  * line breaks, marker scaffolding (editable and visible), marker-trailing-space or
- * attribute text, and empty or NBSP-only spacer text (which the editor→USJ conversion
- * drops as well; ideally the USJ→editor conversion would create such spacers as
- * presentation-typed text nodes instead — follow-up work).
+ * attribute text (as a plain TextNode or as an opaque block's folded ImmutableTypedTextNode
+ * display run, e.g. an UnknownNode's `\cat` byte display), and empty or NBSP-only spacer text
+ * (which the editor→USJ conversion drops as well; ideally the USJ→editor conversion would
+ * create such spacers as presentation-typed text nodes instead — follow-up work).
  * @param node - The node to check.
  * @returns `true` if the node must be skipped when computing USJ content indexes.
  */
@@ -857,14 +913,92 @@ export function $shouldIgnoreNodeForContentIndexes(node: LexicalNode | null | un
   if ($isLineBreakNode(node)) return true;
   if ($isMarkerNode(node)) return true;
   if ($isVisibleMarkerNode(node)) return true;
+  // ImmutableTypedTextNode's "attribute" flavor (an opaque block's folded attribute-byte display
+  // run, e.g. an UnknownNode's `\cat ...\cat*`) is a DecoratorNode, not a TextNode, so it never
+  // reaches the $isTextNode branch below — mirror the "marker" flavor handled above by
+  // $isVisibleMarkerNode.
+  if ($isImmutableTypedTextNode(node) && node.getTextType() === "attribute") return true;
   if ($isTextNode(node)) {
     const textType = $getState(node, textTypeState);
-    if (textType === "marker-trailing-space" || textType === "attribute") return true;
+    if (textType === MARKER_TRAILING_SPACE_TEXT_TYPE || textType === "attribute") return true;
 
     const text = node.getTextContent();
-    if (text === "" || text === NBSP) return true;
+    // "" / NBSP are presentation-only; a bare cursor host (EmptyVerseCaretGuardPlugin) likewise
+    // carries no content, so it must not shift annotation content indexes while it rests.
+    if (text === "" || text === NBSP || isCursorPlaceholderOnly(text)) return true;
   }
   return false;
+}
+
+/**
+ * Creates the engine-owned NBSP separator that sits between an editable marker glyph and its
+ * content (the `[glyph, separator, ...content]` prefix layout). Token mode so typing at the
+ * separator's boundary can never insert INTO it — Lexical routes boundary insertions into a new
+ * plain sibling TextNode instead. Without token mode, a fresh empty paragraph (whose caret
+ * fallback is the separator's end) absorbed typed text into this node (`<NBSP>asdf`), which the
+ * serializer — matching the separator by exact-NBSP text — then leaked into USJ content (`\p
+ * ~asdf` in USFM, and a non-convergent PDP echo loop in the host). The forward adaptor builds the
+ * SERIALIZED twin of this node with the same {@link MARKER_TRAILING_SPACE_TEXT_TYPE} tag and
+ * token mode.
+ *
+ * Mutating factory (creates a node): call inside `editor.update()`.
+ */
+export function $createMarkerTrailingSeparator(): TextNode {
+  const separator = $createTextNode(NBSP);
+  $setState(separator, textTypeState, MARKER_TRAILING_SPACE_TEXT_TYPE);
+  separator.setMode("token");
+  return separator;
+}
+
+/**
+ * Prepends the structural NBSP that leads an editable char span's text content (after the opening
+ * glyph), if not already present. The prefix separates the glyph from the content so caret
+ * placement and Tier-2 fragment building can address the content boundary; the reverse adaptor
+ * strips it on serialization. String-building code paths (the forward adaptor,
+ * `$createNoteContentChar`, the delta materializer) prepend the same `NBSP` when constructing
+ * content text.
+ *
+ * Mutating: call inside `editor.update()`.
+ */
+export function $withCharContentNbspPrefix(node: TextNode): void {
+  const text = node.getTextContent();
+  if (!text.startsWith(NBSP)) node.setTextContent(NBSP + text);
+}
+
+/**
+ * Whether `node` is the engine-owned marker-trailing NBSP separator (see
+ * {@link $createMarkerTrailingSeparator}). Read-only: call inside
+ * `editor.getEditorState().read(...)` or an update.
+ *
+ * Deliberately NOT a `node is TextNode` type predicate: a false result must not narrow the node
+ * away from `TextNode` (an untagged plain text node also returns false), which a type predicate's
+ * false branch would wrongly do.
+ */
+export function $isMarkerTrailingSeparator(node: LexicalNode | null | undefined): boolean {
+  return $isTextNode(node) && $getState(node, textTypeState) === MARKER_TRAILING_SPACE_TEXT_TYPE;
+}
+
+/**
+ * Whether `element`'s para-prefix separator is MISSING while the collapsed caret sits at its
+ * site — on the prefix glyph, on the element itself (an element point), or at the very start of
+ * the node after the glyph. This is where the caret lands when the user deletes the separator,
+ * and it is the para-prefix twin of the char opener's caret-boundary rule
+ * (markerSeparators.utils.ts): while it holds, healing the byte back would be healing against a
+ * user edit, so the heal and the settle both defer to caret departure. One definition, used by
+ * both the deletion transform's grace and the departure settle's re-pend, so the two can never
+ * disagree about what "at the site" means. Read-only: call inside
+ * `editor.getEditorState().read(...)` or an update.
+ */
+export function $paraPrefixSeparatorCaretHeld(element: ElementNode): boolean {
+  const glyph = element.getFirstChild();
+  if (!$isSynthesizedMarkerNode(glyph) || glyph === null) return false;
+  if ($isMarkerTrailingSeparator(glyph.getNextSibling())) return false;
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchorNode = selection.anchor.getNode();
+  if (anchorNode.is(glyph) || anchorNode.is(element)) return true;
+  const next = glyph.getNextSibling();
+  return next !== null && anchorNode.is(next) && selection.anchor.offset === 0;
 }
 
 /**

@@ -87,6 +87,7 @@ import {
   IMMUTABLE_VERSE_VERSION,
   ImmutableNoteCallerNode,
   ImmutableVerseNode,
+  isCollapsedNoteMode,
   NoteCallerOnClick,
   SerializedImmutableNoteCallerNode,
   SerializedImmutableVerseNode,
@@ -403,7 +404,7 @@ function createNote(
   } else {
     callerNode = createNoteCaller(caller, childNodes);
   }
-  const isCollapsed = _viewOptions?.noteMode !== "expanded";
+  const isCollapsed = isCollapsedNoteMode(_viewOptions?.noteMode);
   const unknownAttributes = getUnknownAttributes(markerObject, NOTE_MARKER_OBJECT_PROPS);
 
   let openingMarkerNode: SerializedTextNode | undefined;

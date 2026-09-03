@@ -6,17 +6,17 @@
   "properties": {
     "usfmStyleUrl": {
       "type": "string",
-      "description": "URL to the USFM style file",
+      "description": "URL or workspace-relative path to the USFM style file (vendored path preferred for deterministic regeneration)",
       "$default": {
         "$source": "argv",
         "index": 0
       },
-      "x-prompt": "What is the URL of the USFM style file?"
+      "x-prompt": "What is the URL or path of the USFM style file?"
     },
     "outputPath": {
       "type": "string",
-      "description": "Where to save the resulting file",
-      "default": "libs/shared/src/utils"
+      "description": "Where to save the resulting file. Only libs/shared/src/utils/usfm works as-is: the generated defaultStyleInfo.ts imports StyleInfo from the hand-written ./styleInfo.js next to it, so any other output path emits an unresolvable import.",
+      "default": "libs/shared/src/utils/usfm"
     }
   },
   "required": ["usfmStyleUrl"]

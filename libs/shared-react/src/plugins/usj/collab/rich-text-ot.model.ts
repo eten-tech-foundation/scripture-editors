@@ -93,8 +93,22 @@ export interface OTMilestoneEmbed extends OTParaAttribute {
   who?: string;
   /** Status */
   status?: "start" | "end";
+  /**
+   * The order the source document authored this milestone's attributes in, when that is NOT the
+   * canonical (`sid`-first) order — mirrors `MilestoneNode.attributeOrder`, and must cross the
+   * wire with the embed: a receiving client rebuilds the milestone from this embed alone, and
+   * without the order its display run heals the attributes back to canonical order, writing
+   * reordered bytes into the file on the next settle. Absent means canonical, so documents
+   * written before this field existed keep their meaning.
+   */
+  attributeOrder?: string[];
 }
-export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = ["style", "sid", "eid"];
+export const OT_MILESTONE_PROPS: (keyof OTMilestoneEmbed)[] = [
+  "style",
+  "sid",
+  "eid",
+  "attributeOrder",
+];
 
 /**
  * A Delta operation that inserts a Note embed.

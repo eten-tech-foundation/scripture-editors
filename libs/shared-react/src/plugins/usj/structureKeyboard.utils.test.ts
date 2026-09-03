@@ -164,7 +164,7 @@ describe("structureKeyboard.utils", () => {
   });
 });
 
-describe("keyDownToIntent (B1 — modifier mapping)", () => {
+describe("keyDownToIntent — modifier mapping", () => {
   const ev = (key: string, mods: KeyboardEventInit = {}) =>
     new KeyboardEvent("keydown", { key, ...mods });
 

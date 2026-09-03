@@ -1,0 +1,423 @@
+import {
+  $createAttributeRunNode,
+  $isAttributeRunNode,
+  AttributeRunNode,
+  isSerializedAttributeRunNode,
+  SerializedAttributeRunNode,
+} from "./AttributeRunNode.js";
+import { $createMilestoneNode } from "./MilestoneNode.js";
+import { $createParaNode, ParaNode } from "./ParaNode.js";
+import { createBasicTestEnvironment } from "./test.utils.js";
+import { $createMarkerNode } from "../features/MarkerNode.js";
+import { usjBaseNodes } from "./index.js";
+import {
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
+  ElementNode,
+  LexicalEditor,
+  SerializedElementNode,
+  TextNode,
+} from "lexical";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+describe("AttributeRunNode", () => {
+  describe("create/clone/serialize round-trip", () => {
+    it("creates a node reporting the given runKind, and $isAttributeRunNode recognizes it", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const node = $createAttributeRunNode("va");
+        expect(node.getRunKind()).toBe("va");
+        expect($isAttributeRunNode(node)).toBe(true);
+      });
+    });
+
+    it("$isAttributeRunNode returns false for an unrelated node", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        expect($isAttributeRunNode($createTextNode("x"))).toBe(false);
+        expect($isAttributeRunNode(null)).toBe(false);
+        expect($isAttributeRunNode(undefined)).toBe(false);
+      });
+    });
+
+    it("static getType() reports 'attribute-run'", () => {
+      expect(AttributeRunNode.getType()).toBe("attribute-run");
+    });
+
+    it("clone() preserves runKind and key", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const node = $createAttributeRunNode("vp");
+        const cloned = AttributeRunNode.clone(node);
+        expect(cloned.getRunKind()).toBe("vp");
+        expect(cloned.getKey()).toBe(node.getKey());
+      });
+    });
+
+    it("setRunKind() returns the same instance when the runKind is unchanged", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const node = $createAttributeRunNode("milestone");
+        expect(node.setRunKind("milestone")).toBe(node);
+      });
+    });
+
+    it("exportJSON() returns the { type, runKind, version } shape", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const node = $createAttributeRunNode("milestone");
+        expect(node.exportJSON()).toMatchObject({
+          type: "attribute-run",
+          runKind: "milestone",
+          version: 1,
+        });
+      });
+    });
+
+    it("round-trips a 'vp' wrapper through JSON export and re-import", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode, ParaNode], () => {
+        $getRoot().append($createParaNode("p").append($createAttributeRunNode("vp")));
+      });
+
+      const serialized = editor.getEditorState().toJSON();
+      const para = serialized.root.children[0] as SerializedElementNode;
+      const serializedWrapper = para.children[0] as SerializedAttributeRunNode;
+      expect(serializedWrapper).toMatchObject({
+        type: "attribute-run",
+        runKind: "vp",
+        version: 1,
+      });
+
+      // Lexical assigns fresh node keys on JSON import (keys are ephemeral per editor instance,
+      // never serialized), so the round-trip is verified by walking the reconstructed tree rather
+      // than looking up the original node's key.
+      const parsedState = editor.parseEditorState(serialized);
+      parsedState.read(() => {
+        const restoredPara = $getRoot().getFirstChild();
+        const restored = $isElementNode(restoredPara) ? restoredPara.getFirstChild() : null;
+        expect($isAttributeRunNode(restored)).toBe(true);
+        if ($isAttributeRunNode(restored)) expect(restored.getRunKind()).toBe("vp");
+      });
+    });
+
+    it("isSerializedAttributeRunNode recognizes its own serialized shape and rejects others", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const node = $createAttributeRunNode("va");
+        expect(isSerializedAttributeRunNode(node.exportJSON())).toBe(true);
+      });
+      expect(isSerializedAttributeRunNode({ type: "text", version: 1 })).toBe(false);
+      expect(isSerializedAttributeRunNode(null)).toBe(false);
+      expect(isSerializedAttributeRunNode(undefined)).toBe(false);
+    });
+  });
+
+  describe("createDOM()", () => {
+    it("adds only the 'attribute-run' class for a milestone run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("milestone").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_va")).toBe(false);
+        expect(element.classList.contains("usfm_vp")).toBe(false);
+      });
+    });
+
+    it("adds the 'attribute-run' and 'usfm_va' classes for a va run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("va").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_va")).toBe(true);
+        expect(element.classList.contains("usfm_vp")).toBe(false);
+      });
+    });
+
+    it("adds the 'attribute-run' and 'usfm_vp' classes for a vp run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("vp").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_vp")).toBe(true);
+        expect(element.classList.contains("usfm_va")).toBe(false);
+      });
+    });
+
+    it("adds the 'attribute-run' and 'usfm_ca' classes for a ca run", () => {
+      // The chapter's \ca run must render with the SAME stylesheet styling a standalone
+      // `char ca` span gets (non-bold green), not the generic dim attribute-run look — the
+      // same wrapper-carries-the-marker-class mechanism va/vp already use.
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("ca").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_ca")).toBe(true);
+        expect(element.classList.contains("usfm_cp")).toBe(false);
+      });
+    });
+
+    it("adds the 'attribute-run' and 'usfm_cp' classes for a cp run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("cp").createDOM();
+        expect(element.classList.contains("attribute-run")).toBe(true);
+        expect(element.classList.contains("usfm_cp")).toBe(true);
+        expect(element.classList.contains("usfm_ca")).toBe(false);
+      });
+    });
+
+    it("adds no marker-specific class for a cat run", () => {
+      // `cat` keeps the generic dim attribute-run look: unlike ca/cp there is no standalone
+      // stylesheet styling it must visually match.
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const element = $createAttributeRunNode("cat").createDOM();
+        expect(Array.from(element.classList)).toEqual(["attribute-run"]);
+      });
+    });
+  });
+
+  describe("updateDOM()", () => {
+    it("syncs from 'va' to 'vp' in place and returns false", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("va");
+        const dom = prev.createDOM();
+        expect(dom.classList.contains("usfm_va")).toBe(true);
+
+        const next = $createAttributeRunNode("vp");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_va")).toBe(false);
+        expect(dom.classList.contains("usfm_vp")).toBe(true);
+        expect(dom.classList.contains("attribute-run")).toBe(true);
+      });
+    });
+
+    it("removes 'usfm_va' with no replacement class when a run becomes a milestone run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("va");
+        const dom = prev.createDOM();
+
+        const next = $createAttributeRunNode("milestone");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_va")).toBe(false);
+        expect(dom.classList.contains("usfm_vp")).toBe(false);
+        expect(dom.classList.contains("attribute-run")).toBe(true);
+      });
+    });
+
+    it("adds 'usfm_vp' when a milestone run becomes a vp run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("milestone");
+        const dom = prev.createDOM();
+
+        const next = $createAttributeRunNode("vp");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_vp")).toBe(true);
+      });
+    });
+
+    it("syncs from 'ca' to 'cp' in place and returns false", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("ca");
+        const dom = prev.createDOM();
+        expect(dom.classList.contains("usfm_ca")).toBe(true);
+
+        const next = $createAttributeRunNode("cp");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_ca")).toBe(false);
+        expect(dom.classList.contains("usfm_cp")).toBe(true);
+        expect(dom.classList.contains("attribute-run")).toBe(true);
+      });
+    });
+
+    it("removes 'usfm_ca' with no replacement class when a ca run becomes a milestone run", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("ca");
+        const dom = prev.createDOM();
+
+        const next = $createAttributeRunNode("milestone");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_ca")).toBe(false);
+        expect(Array.from(dom.classList)).toEqual(["attribute-run"]);
+      });
+    });
+
+    it("leaves classes untouched and still returns false when runKind is unchanged", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const prev = $createAttributeRunNode("va");
+        const dom = prev.createDOM();
+
+        const next = $createAttributeRunNode("va");
+        const needsReplace = next.updateDOM(prev, dom);
+
+        expect(needsReplace).toBe(false);
+        expect(dom.classList.contains("usfm_va")).toBe(true);
+        expect(Array.from(dom.classList).sort()).toEqual(["attribute-run", "usfm_va"]);
+      });
+    });
+  });
+
+  describe("exportDOM()", () => {
+    it("returns a DocumentFragment (no wrapper markup, but children still export)", () => {
+      // Not null: @lexical/html's $appendNodesToHTML treats a null element as "skip this
+      // subtree" and never walks the children, so the run's glyphs AND its value text vanished
+      // from the text/html clipboard flavor while text/plain kept them. A fragment contributes
+      // no wrapper markup of its own while letting the children export.
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        const node = $createAttributeRunNode("va");
+        const { element } = node.exportDOM();
+        expect(element).toBeInstanceOf(DocumentFragment);
+      });
+    });
+  });
+
+  describe("Mutation overrides", () => {
+    it("isInline() is true", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        expect($createAttributeRunNode("va").isInline()).toBe(true);
+      });
+    });
+
+    it("canBeEmpty() is true (empty wrappers are transient husks removed elsewhere, not by Lexical's own normalization)", () => {
+      const { editor } = createBasicTestEnvironment([AttributeRunNode]);
+      editor.update(() => {
+        expect($createAttributeRunNode("va").canBeEmpty()).toBe(true);
+      });
+    });
+  });
+
+  // Why `ArrowNavigationPlugin` (shared-react) resolves horizontal arrow traversal from the tree in
+  // editable-marker mode instead of leaving it to Lexical and the browser. Lexical moves a collapsed
+  // caret across a `DecoratorNode` itself
+  // (`RangeSelection.modify` → `$modifySelectionAroundDecoratorsAndBlocks`) only while the
+  // decorator is a SIBLING of the caret's own node; its fallback scan, which does walk out
+  // through ancestors, claims only NON-inline decorators, and a `MilestoneNode` is inline
+  // (`DecoratorNode.isInline()` defaults to `true`). Putting the run's glyphs inside this
+  // wrapper made the milestone the WRAPPER's sibling rather than the glyph's, so Lexical now
+  // declines and defers to the browser's native `Selection.modify`. That delegation is the trap:
+  // the browser is left to carry the caret backward across the milestone's empty
+  // `contenteditable="false"` decorator span, which it does not do.
+  //
+  // What these two tests demonstrate is the DELEGATION — which side of the boundary Lexical
+  // resolves for itself — with the native move stubbed to a no-op so nothing depends on jsdom
+  // (which implements none) or on real caret geometry. The browser's own refusal is not modelled
+  // here; only a live run can show that. They are characterization pins on Lexical, not on our
+  // fix: if a future Lexical starts resolving the wrapped shape itself, the second test fails —
+  // which is the signal to re-measure how much of the plugin-side traversal is still earning its
+  // keep.
+  describe("caret traversal across the wrapper's leading edge", () => {
+    const restoreNativeModify: (() => void)[] = [];
+
+    afterEach(() => {
+      restoreNativeModify.splice(0).forEach((restore) => restore());
+    });
+
+    /**
+     * Stubs the browser's native `Selection.modify` to a no-op and reports the spy. jsdom
+     * implements no `modify` at all, so the property is defined outright rather than spied on.
+     */
+    function stubNativeModify() {
+      const domSelection = window.getSelection();
+      if (!domSelection) throw new Error("no DOM selection");
+      const previous = Object.getOwnPropertyDescriptor(domSelection, "modify");
+      const spy = vi.fn();
+      Object.defineProperty(domSelection, "modify", {
+        configurable: true,
+        writable: true,
+        value: spy,
+      });
+      restoreNativeModify.push(() => {
+        if (previous) Object.defineProperty(domSelection, "modify", previous);
+        else Reflect.deleteProperty(domSelection, "modify");
+      });
+      return spy;
+    }
+
+    /**
+     * A paragraph reading `before ` + a `qt-s` milestone + its `\qt-s`…`\*` glyph pair, with the
+     * pair either inside an `AttributeRunNode` (today's shape) or riding loose as bare following
+     * siblings (the shape before the run was wrapped).
+     */
+    function milestoneRunEditor(shape: "wrapped" | "loose"): LexicalEditor {
+      return createBasicTestEnvironment(usjBaseNodes, () => {
+        const glyphs = [$createMarkerNode("qt-s", "opening"), $createMarkerNode("", "selfClosing")];
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createTextNode("before "),
+            $createMilestoneNode("qt-s", "ms1"),
+            ...(shape === "wrapped"
+              ? [$createAttributeRunNode("milestone").append(...glyphs)]
+              : glyphs),
+            $createTextNode(" after"),
+          ),
+        );
+      }).editor;
+    }
+
+    it("hops out of a LOOSE (pre-wrapper) run itself, without consulting the browser", () => {
+      const editor = milestoneRunEditor("loose");
+      const nativeModify = stubNativeModify();
+
+      editor.update(
+        () => {
+          const para = $getRoot().getFirstChildOrThrow<ElementNode>();
+          const [precedingText, , openingGlyph] = para.getChildren();
+          (openingGlyph as TextNode).select(0, 0);
+
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("no range selection");
+          selection.modify("move", true, "character");
+
+          expect(nativeModify).not.toHaveBeenCalled();
+          expect(selection.anchor.key).toBe(precedingText.getKey());
+          expect(selection.anchor.offset).toBe("before ".length);
+        },
+        { discrete: true },
+      );
+    });
+
+    it("delegates a WRAPPED run's leading edge to the browser's native move instead", () => {
+      const editor = milestoneRunEditor("wrapped");
+      const nativeModify = stubNativeModify();
+
+      editor.update(
+        () => {
+          const para = $getRoot().getFirstChildOrThrow<ElementNode>();
+          const wrapper = para.getChildren()[2] as AttributeRunNode;
+          const openingGlyph = wrapper.getFirstChildOrThrow<TextNode>();
+          openingGlyph.select(0, 0);
+
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("no range selection");
+          selection.modify("move", true, "character");
+
+          expect(nativeModify).toHaveBeenCalled();
+          expect(selection.anchor.key).toBe(openingGlyph.getKey());
+          expect(selection.anchor.offset).toBe(0);
+        },
+        { discrete: true },
+      );
+    });
+  });
+});

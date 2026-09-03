@@ -7,17 +7,26 @@ import {
   ImmutableVerseNode,
 } from "../../nodes/usj";
 import { $advancePastParaPrefixes } from "./ParaMarkerPrefixCursorGuardPlugin";
+import { $opaqueBlockAncestor } from "./OpaqueBlockGuardPlugin";
 import { ViewOptions } from "../../views/view-options.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $findMatchingParent } from "@lexical/utils";
 import {
+  $getRoot,
   $getSelection,
+  $isDecoratorNode,
+  $isElementNode,
+  $isLineBreakNode,
   $isRangeSelection,
+  $isTextNode,
   COMMAND_PRIORITY_HIGH,
+  ElementNode,
   KEY_DOWN_COMMAND,
   LexicalEditor,
   LexicalNode,
+  PointType,
   RangeSelection,
+  TextNode,
 } from "lexical";
 import { useEffect } from "react";
 import {
@@ -25,18 +34,151 @@ import {
   $getNextNode,
   $getPreviousNode,
   $isBookNode,
+  $isCharNode,
   $isImmutableChapterNode,
   $isImmutableTypedTextNode,
   $isMarkerNode,
+  $isMilestoneNode,
   $isNoteNode,
   $isSomeParaNode,
+  $placeCaretAtBoundary,
+  CharNode,
   ImmutableChapterNode,
   NoteNode,
 } from "shared";
 
+/** A minimal rectangle shape ({@link DOMRect}-compatible) for visual-line comparisons. */
+interface LineRect {
+  top: number;
+  bottom: number;
+  height: number;
+}
+
+/**
+ * Is there a visual line beyond the caret in `direction`, among a set of candidate line rects?
+ * Pure geometry, kept separate from the DOM so it is unit-testable ({@link $caretHasVisualLineBeyond}
+ * supplies the rects). Returns `false` for a zero-height caret (e.g. jsdom has no layout) so callers
+ * fall back to their default rather than act on a phantom line.
+ *
+ * A wrapped line sits clear of the caret's own line, so this compares the line gap (a rect that
+ * starts below the caret / ends above it) rather than raw top/bottom — otherwise a taller inline on
+ * the caret's *own* line (a verse number or note caller) would read as a wrapped line. The
+ * tolerance scales with caret height so it holds across font sizes and zoom.
+ *
+ * @param caretRect - The collapsed caret's bounding rect.
+ * @param lineRects - Candidate per-line rects to test (e.g. from `Range.getClientRects()`).
+ * @param direction - `"down"` looks for a line below the caret; `"up"` a line above.
+ */
+export function hasVisualLineBeyondCaret(
+  caretRect: LineRect,
+  lineRects: LineRect[],
+  direction: "up" | "down",
+): boolean {
+  if (caretRect.height === 0) return false;
+  const tolerance = caretRect.height / 4; // sub-pixel slack, well under a full line gap.
+  return lineRects.some((rect) =>
+    direction === "down"
+      ? rect.top >= caretRect.bottom - tolerance
+      : rect.bottom <= caretRect.top + tolerance,
+  );
+}
+
+/**
+ * Whether the current verse's text has a wrapped line beyond the caret in `direction`. Custom
+ * verse-to-verse navigation only fires from a verse's first visual line, so this stops ArrowDown
+ * from skipping the rest of a wrapped verse and jumping to the next one.
+ *
+ * The verse's content is measured across blocks — bounded by the surrounding `[data-marker="v"]`
+ * verse markers — because a verse can wrap across several `\q` poetry paragraphs; measuring only the
+ * caret's own paragraph would miss those lines. Returns `false` when layout cannot be measured
+ * (e.g. jsdom), so the caller keeps the existing verse-jump.
+ */
+function $caretHasVisualLineBeyond(editor: LexicalEditor, direction: "up" | "down"): boolean {
+  if (typeof window === "undefined") return false;
+  const domSelection = window.getSelection();
+  if (!domSelection || domSelection.rangeCount === 0) return false;
+  const root = editor.getRootElement();
+  if (!root) return false;
+
+  try {
+    const caretRange = domSelection.getRangeAt(0);
+    // Only measure this editor's caret: ignore a selection that lives elsewhere on the page or in
+    // another document (an iframe host), which would otherwise be measured against our markers.
+    if (!root.contains(caretRange.startContainer)) return false;
+    const caretRect = caretRange.getBoundingClientRect();
+    const caretStart = caretRange.cloneRange();
+    caretStart.collapse(true);
+
+    // Bound the measurement to the current verse: the last marker strictly before the caret (so the
+    // verse whose content the caret is in) and the first marker after it. The comparison is
+    // position-based (a plain sibling walk can't handle element-point carets, e.g. a caret at an
+    // element offset between decorator siblings), so it scans markers in document order. This runs
+    // only on ArrowUp/ArrowDown at a verse boundary — not on every keystroke — over one editor's
+    // worth of verses (a chapter), so the linear scan is not a hot path.
+    const markers = Array.from(root.querySelectorAll('[data-marker="v"]'));
+    let current: Element | undefined;
+    let next: Element | undefined;
+    for (const marker of markers) {
+      const markerRange = document.createRange();
+      markerRange.selectNode(marker);
+      if (caretStart.compareBoundaryPoints(Range.START_TO_START, markerRange) > 0) {
+        current = marker;
+      } else {
+        next = marker;
+        break;
+      }
+    }
+    if (!current) return false;
+
+    const contentRange = document.createRange();
+    contentRange.setStartAfter(current);
+    if (next) contentRange.setEndBefore(next);
+    else contentRange.setEnd(root, root.childNodes.length);
+    return hasVisualLineBeyondCaret(
+      caretRect,
+      Array.from(contentRange.getClientRects()),
+      direction,
+    );
+  } catch {
+    // No layout engine (e.g. jsdom: Range has no getBoundingClientRect): cannot detect a wrapped
+    // line, so fall back to the existing verse-jump rather than suppressing it.
+    return false;
+  }
+}
+
+/**
+ * Handles an ArrowUp/ArrowDown press for verse-to-verse navigation. Intercepts only when the caret
+ * is at a verse boundary and native movement would leave the verse; when the verse wraps onto
+ * further lines it yields to the browser's visual-line movement instead.
+ *
+ * @returns `true` (and prevents default) when it moved the caret to an adjacent verse; otherwise
+ *   `false` so Lexical/the browser handles the key.
+ */
+function $navigateVerseVertically(
+  editor: LexicalEditor,
+  selection: RangeSelection,
+  direction: "up" | "down",
+  event: KeyboardEvent,
+): boolean {
+  // Don't intercept when the caret isn't at a verse boundary, or when the verse wraps onto a
+  // further line in this direction (let the browser move by visual line instead). `||` short-circuits
+  // so the DOM measurement only runs once the cheap boundary check passes.
+  if (
+    !$shouldAttemptVerticalVerseNavigation(selection) ||
+    $caretHasVisualLineBeyond(editor, direction)
+  )
+    return false;
+  const isHandled =
+    direction === "up" ? $selectPreviousVerse(selection) : $selectNextVerse(selection);
+  if (isHandled) event.preventDefault();
+  return isHandled;
+}
+
 /**
  * Registers arrow-key handling for USJ scripture: verse-to-verse vertical movement when needed,
- * and horizontal movement around notes and chapter boundaries.
+ * and horizontal movement around notes and chapter boundaries. In editable-marker mode it also
+ * normalizes horizontal traversal — plain arrows and shift-extensions alike — so every press
+ * crosses exactly one piece of rendered content.
  *
  * TODO: When the caret is before an empty verse number in an otherwise empty para, pressing up or
  * down moves the caret to after the verse number in the para above/below rather than staying
@@ -71,33 +213,65 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
 
     const $handleKeyDown = (event: KeyboardEvent): boolean => {
       const selection = $getSelection();
-      if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+      if (!$isRangeSelection(selection)) return false;
 
-      if (event.key === "ArrowUp") {
-        if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
-        if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
-        const isHandled = $selectPreviousVerse(selection);
+      // Display runs and glyph text — the stacked invisible positions the normalizer exists for —
+      // are built only in editable-marker mode; the other views keep the browser's own traversal.
+      const normalizesStops = viewOptions?.markerMode === "editable";
+      const rootElement = editor.getRootElement();
+
+      // Shift+horizontal arrow grows the selection by the same visible stops the collapsed caret
+      // walks: the FOCUS moves one rendered position, the anchor stays put. Without it, selecting
+      // through a display run inherits the traversal the normalizer exists to replace — the focus
+      // stalls on invisible stops, and at a run's left edge it could not move at all, because
+      // Lexical hands an extend across a zero-width decorator to the browser exactly as it does a
+      // collapsed move. Shift ONLY: ctrl/alt/meta arrows keep their own word and line granularity.
+      if (
+        normalizesStops &&
+        rootElement &&
+        (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+        event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        const textDirection = getEditorTextDirection(rootElement);
+        const isHandled = $extendOneVisibleStop(
+          selection,
+          isMovingForward(textDirection, event.key) ? "next" : "previous",
+        );
         if (isHandled) event.preventDefault();
         return isHandled;
       }
-      if (event.key === "ArrowDown") {
+
+      if (!selection.isCollapsed()) return false;
+
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
-        if (!$shouldAttemptVerticalVerseNavigation(selection)) return false;
-        const isHandled = $selectNextVerse(selection);
-        if (isHandled) event.preventDefault();
-        return isHandled;
+        const direction = event.key === "ArrowUp" ? "up" : "down";
+        return $navigateVerseVertically(editor, selection, direction, event);
       }
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return false;
 
-      const inputDiv = editor.getRootElement();
-      if (!inputDiv) return false;
+      if (!rootElement) return false;
 
-      const direction = inputDiv.dir || "ltr";
+      const direction = getEditorTextDirection(rootElement);
+      // The `\fp` boundary hops apply only to plain arrow moves: modified arrows (shift range
+      // extension, word/line jumps) keep native semantics.
+      const hasModifier = event.shiftKey || event.altKey || event.ctrlKey || event.metaKey;
       let isHandled = false;
       if (isMovingForward(direction, event.key)) {
-        isHandled = $handleForwardNavigation(selection);
+        isHandled =
+          (!hasModifier && $crossOpaqueConstruct(selection, "next")) ||
+          (!hasModifier && $handleForwardFpNavigation(selection)) ||
+          $handleForwardNavigation(selection) ||
+          (!hasModifier && normalizesStops && $moveOneVisibleStop(selection, "next"));
       } else if (isMovingBackward(direction, event.key)) {
-        isHandled = $handleBackwardNavigation(selection, viewOptions);
+        isHandled =
+          (!hasModifier && $crossOpaqueConstruct(selection, "previous")) ||
+          (!hasModifier && $handleBackwardFpNavigation(selection)) ||
+          $handleBackwardNavigation(selection, viewOptions) ||
+          (!hasModifier && normalizesStops && $moveOneVisibleStop(selection, "previous"));
       }
 
       if (isHandled) event.preventDefault();
@@ -110,6 +284,24 @@ function useArrowKeys(editor: LexicalEditor, viewOptions: ViewOptions | undefine
 
 // --- Helper functions for direction checking ---
 
+/**
+ * The direction the editor's content reads in, from its root element — what "forward" means for a
+ * horizontal arrow key. It lives here because arrow navigation is the only caller; it is exported
+ * only so the unit test can reach it, as `hasVisualLineBeyondCaret` above is.
+ *
+ * KNOWN GAP: a project configured for "auto" direction reads as `"ltr"` here. `TextDirectionPlugin`
+ * returns early without setting `dir` on the root when the configured direction is `"auto"`, and
+ * the host forwards `"auto"` through unchanged — so `dir` stays empty and every direction-sensitive
+ * behavior below moves the wrong logical way for an RTL script. The likely fix is
+ * `getComputedStyle(rootElement).direction`, which reflects what `dir="auto"` resolved to and picks
+ * up a direction set in CSS as well; it changes caret behavior for every RTL user and jsdom has no
+ * layout to resolve it, so it needs validating against a real RTL project first. Every direction
+ * read goes through here, so that is a one-place change.
+ */
+export function getEditorTextDirection(rootElement: HTMLElement): string {
+  return rootElement.dir || "ltr";
+}
+
 function isMovingForward(direction: string, key: string): boolean {
   return (
     (direction === "ltr" && key === "ArrowRight") || (direction === "rtl" && key === "ArrowLeft")
@@ -120,6 +312,577 @@ function isMovingBackward(direction: string, key: string): boolean {
   return (
     (direction === "ltr" && key === "ArrowLeft") || (direction === "rtl" && key === "ArrowRight")
   );
+}
+
+// --- Two caret stops around the `\fp` visual line break ---
+//
+// An expanded note's `\fp` (footnote paragraph) span renders with a CSS-generated line break
+// before it (`.note.expanded .usfm_fp::before`). The pseudo content has no DOM position, so the
+// browser collapses the caret positions on either side of the visual newline and skips one stop:
+// moving forward it jumps from the end of the previous line straight past the start of the `\fp`
+// span, and moving backward it can skip the span start on the way out. These handlers restore the
+// two stops: end of the previous line, then the very start of the `\fp` span on the new line.
+
+/** The given node if it is a `\fp` span whose leading line break renders (expanded note). */
+function $getFpBoundaryCharNode(node: LexicalNode | null | undefined): CharNode | undefined {
+  if (!$isCharNode(node) || node.getMarker() !== "fp") return undefined;
+  const note = $findFirstAncestorNoteNode(node);
+  if (!note || note.getIsCollapsed()) return undefined;
+  return node;
+}
+
+/** Helper to handle the forward hop onto the start of a `\fp` span at its visual line break. */
+function $handleForwardFpNavigation(selection: RangeSelection): boolean {
+  const fpNode = $getFpBoundaryCharNode($getNextNode(selection));
+  if (!fpNode) return false;
+
+  // A text caret is only at the boundary when it sits at the very end of its text.
+  const anchor = selection.anchor;
+  if (anchor.type === "text" && anchor.offset !== anchor.getNode().getTextContentSize()) {
+    return false;
+  }
+
+  // Land at the start of the new visual line: the span's first content boundary — offset 0 of its
+  // first text (the editable marker glyph, or content text when glyphs are hidden), or an element
+  // point when a non-text first child (the non-editable marker glyph) hosts no caret there.
+  $placeCaretAtBoundary(fpNode, 0);
+  return true;
+}
+
+/** Helper to handle backward hops at the start of a `\fp` span and its visual line break. */
+function $handleBackwardFpNavigation(selection: RangeSelection): boolean {
+  const anchor = selection.anchor;
+  const anchorNode = anchor.getNode();
+
+  if (anchor.type === "text") {
+    const fpNode = $getFpBoundaryCharNode(anchorNode.getParent());
+    if (!fpNode || !anchorNode.is(fpNode.getFirstChild())) return false;
+
+    if (anchor.offset === 1) {
+      // caret after first character of the span's first text → stop at the span start (start of
+      // the new visual line) instead of letting the browser collapse the boundary and skip it
+      anchorNode.select(0, 0);
+      return true;
+    }
+    if (anchor.offset !== 0) return false;
+    // caret at span start → hop over the visual newline to the end of the previous line
+    return $selectBeforeFpSpan(fpNode);
+  }
+
+  // Element caret at the very start of the `\fp` span (before a non-text first child, e.g. the
+  // non-editable marker glyph).
+  if (anchor.offset === 0) {
+    const fpNode = $getFpBoundaryCharNode(anchorNode);
+    if (!fpNode) return false;
+    return $selectBeforeFpSpan(fpNode);
+  }
+  return false;
+}
+
+/** Place the caret at the end of the content preceding the `\fp` span (end of the previous line). */
+function $selectBeforeFpSpan(fpNode: CharNode): boolean {
+  const prevNode = fpNode.getPreviousSibling();
+  if (!prevNode) return false;
+
+  if ($isTextNode(prevNode)) {
+    prevNode.select();
+    return true;
+  }
+  if ($isElementNode(prevNode)) {
+    // end of the previous span's content (e.g. the `\ft` span, or a preceding `\fp`)
+    const lastDescendant = prevNode.getLastDescendant();
+    if ($isTextNode(lastDescendant)) lastDescendant.select();
+    else prevNode.selectEnd();
+    return true;
+  }
+  // Decorator sibling (e.g. the note caller): place the caret between it and the `\fp` span so
+  // the existing note-boundary handling can take over from there on the next press.
+  const parent = fpNode.getParent();
+  if (!parent) return false;
+  const fpIndex = fpNode.getIndexWithinParent();
+  parent.select(fpIndex, fpIndex);
+  return true;
+}
+
+// --- The visible-stop normalizer ---
+//
+// ONE rule for horizontal arrow traversal, replacing the per-shape hops that preceded it: an
+// unmodified arrow press must cross exactly ONE piece of RENDERED content — a visible character, or
+// a visible atom (a note caller, an immutable glyph, a collapsed note) crossed whole. Everything
+// that renders nothing is stepped over, however many tree positions it contributes: element
+// boundaries, wrapper seams, and zero-width decorators such as a `MilestoneNode`, whose `decorate()`
+// returns "".
+//
+// Those invisible positions are the whole problem. A milestone anchor sits between the text before
+// it and its own `\qt-s`…`\*` display run, so the run's leading seam alone stacks up to five tree
+// positions at ONE screen location — end of the preceding text, before the anchor, after the anchor,
+// the wrapper's own start, offset 0 of its first glyph. Lexical and the browser stop at several of
+// them, so a press moved the caret without moving anything the eye could follow; a caret in a marker
+// glyph merely changes colour, from the paragraph's black to the run's dim grey. Nested spans stack
+// more seams (`\add word\add*\qt-s\*` measured three presses to cross `*`→`\`), and where the seam
+// is a zero-width decorator with no text on the far side the browser refuses the move outright, so
+// the caret could not leave a run leftward at all.
+//
+// Two halves make one press equal one visible crossing:
+//   - MOVE: from the caret, walk in the press direction, skipping everything that renders nothing,
+//     until the first rendered thing; cross exactly it. Crossing a visible text node means landing
+//     one grapheme INTO it, not at its edge — the edge is the position the caret just left.
+//   - CANONICALIZE: where several tree positions share one screen location, only ONE is a resting
+//     place — the outermost, earliest in document order: the end of the nearest preceding visible
+//     text. That is Lexical's own convention for a plain text/text seam
+//     (`resolveSelectionPointOnBoundary`), extended across the invisible nodes it does not look
+//     through. It keeps round trips exact — N presses one way and N back returns to the very same
+//     tree position — and it keeps typing predictable, since the two positions flanking a run's
+//     opening glyph put typed text in different nodes.
+//
+// Scope: unmodified ArrowLeft/ArrowRight, collapsed caret, editable-marker mode (where display runs
+// and glyph text exist at all), and only within the caret's own block. At a block edge this declines
+// and the existing paragraph/line handling runs — which means the FIRST press into a new paragraph
+// is not normalized: a paragraph opening with a milestone still costs one invisible press on entry,
+// since the press that arrives there crossed a block edge and was never this rule's to resolve.
+//
+// PRECEDENCE: this runs LAST in both chains, so the note, chapter, book and `\fp` handlers above get
+// first refusal and keep their own contracts unchanged. Where one of them claims, one-crossing and
+// canonicalization simply do not apply — `$selectBeforeFpSpan`, for instance, deliberately rests on
+// element points this rule would never leave the caret on. That is the intended split: those
+// handlers encode specific editorial behavior, and this one only decides what "one press" means
+// wherever nothing else has an opinion.
+//
+// One seam is invisible to any classifier by construction: an expanded note's `\fp` line break is a
+// CSS pseudo-element (`.note.expanded .usfm_fp::before`) with no node behind it, so no tree walk can
+// see that a line ended. `$handleForwardFpNavigation`/`$handleBackwardFpNavigation` own that seam
+// and run first — it must stay that way.
+//
+// Direction is LOGICAL — `isMovingForward` maps the physical key through the root's `dir`, so RTL
+// mirrors for free. Claiming the key keeps Lexical's own `KEY_ARROW_*` handling from running at
+// all, so `$moveCharacter` never double-applies and no native `Selection.modify` is consulted; the
+// whole traversal is decided from the tree, which is also what makes press counts measurable
+// without browser caret geometry.
+//
+// Clicks and programmatic selection are untouched — this is arrow traversal only, so a caret parked
+// on a non-canonical position by other means is normalized by its next arrow press rather than
+// underneath the user.
+//
+// KNOWN APPROXIMATIONS, both disclosed rather than silently smoothed:
+//   - Moves that stay INSIDE one text node are declined, so the browser keeps applying its own
+//     grapheme and bidi rules there — the cases a tree walk cannot see. The one exception is a
+//     backward step off a text node's first character, which must be claimed because its landing
+//     needs canonicalizing. A backward step that lands on offset 0 from further in (only possible
+//     when the FIRST grapheme spans several code units) is left to the browser and so rests on a
+//     non-canonical position until the next boundary press normalizes it.
+//   - Visual bidi order inside mixed-direction text is not modelled; traversal is logical.
+
+type TraversalDirection = "next" | "previous";
+
+/** Where a resolved move lands: a text point, or an element point between two children. */
+type CaretLanding =
+  | { kind: "text"; node: TextNode; offset: number }
+  | { kind: "element"; node: ElementNode; offset: number };
+
+/**
+ * Segments text into user-perceived characters. The type is in the lib target, but the runtime is
+ * not guaranteed to have it — where it is missing, the code-point fallbacks below still keep the
+ * caret off the inside of a surrogate pair.
+ */
+const graphemeSegmenter: Intl.Segmenter | undefined =
+  typeof Intl.Segmenter === "undefined"
+    ? undefined
+    : new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** The offset just past `text`'s first grapheme — where a forward crossing into it lands. */
+function firstGraphemeEnd(text: string): number {
+  if (graphemeSegmenter) {
+    for (const { segment } of graphemeSegmenter.segment(text)) return segment.length;
+  }
+  const codePoint = text.codePointAt(0);
+  return codePoint === undefined ? 0 : String.fromCodePoint(codePoint).length;
+}
+
+/**
+ * The offset where `text`'s last grapheme begins — where a backward crossing into it lands.
+ *
+ * Scans the whole string: `Intl.Segmenter` only walks forward, and a bounded tail scan can be wrong,
+ * because whether a trailing code point begins a grapheme depends on what precedes it. The strings
+ * are marker glyphs and short attribute values, and one runs per boundary press.
+ */
+function lastGraphemeStart(text: string): number {
+  if (graphemeSegmenter) {
+    let start = 0;
+    for (const { index } of graphemeSegmenter.segment(text)) start = index;
+    return start;
+  }
+  const codePoint = text.codePointAt(Math.max(0, text.length - 2));
+  const isSurrogatePair = codePoint !== undefined && codePoint > 0xffff;
+  return Math.max(0, text.length - (isSurrogatePair ? 2 : 1));
+}
+
+/** The block the traversal is confined to — arrows leave a block through the handlers above. */
+function $blockOf(node: LexicalNode): ElementNode | undefined {
+  for (let current: LexicalNode | null = node; current; current = current.getParent()) {
+    if ($isElementNode(current) && !current.isInline()) return current;
+  }
+  return undefined;
+}
+
+/**
+ * A marker glyph belonging to a READ-ONLY construct — a table's `\tr` and `\tc1`, and whatever a
+ * future opaque kind renders the same way.
+ *
+ * Everywhere else in standard view a marker glyph is editable text, and walking through it IS the
+ * affordance: retyping `\q1` to `\q2` is how a paragraph gets retagged. Inside an opaque construct
+ * that affordance is a lie — every gesture that would edit those bytes is refused
+ * (`OpaqueBlockGuardPlugin`), and a table has no settle scope to reconcile a change with the file
+ * even if one landed. A caret resting between the `\` and the `t` of `\tr` is a position from which
+ * nothing is possible, so the glyph is treated as what it is: display, crossed whole.
+ */
+function $isOpaqueConstructGlyph(node: LexicalNode | null | undefined): boolean {
+  return !!node && $isMarkerNode(node) && $opaqueBlockAncestor(node) !== undefined;
+}
+
+/** Text the caret walks through one character at a time. */
+function $isTraversableText(node: LexicalNode | null | undefined): node is TextNode {
+  return (
+    $isTextNode(node) &&
+    !node.isToken() &&
+    !$isOpaqueConstructGlyph(node) &&
+    node.getTextContentSize() > 0
+  );
+}
+
+/**
+ * Occupies space on screen but holds no caret positions of its own: crossing it is a single stop,
+ * and the caret never lands inside.
+ *
+ * The list is deliberately explicit, because a node wrongly called invisible is stepped over
+ * silently — the caret sails past it and the press lands a stop too far. Anything new that takes up
+ * room without offering caret positions belongs here.
+ */
+function $isVisibleAtom(node: LexicalNode): boolean {
+  // A line break occupies the rest of its line and ends it. Its two sides are genuinely different
+  // places, so it is crossed like any other glyph — never skipped. The unformatted view puts one
+  // before every verse, so getting this wrong strands a whole view's line starts and ends.
+  if ($isLineBreakNode(node)) return true;
+  // A COLLAPSED note shows only its caller; its hidden content must not be walked into. The flag is
+  // undefined until the note plugin settles it, and an unsettled note counts as expanded, matching
+  // what is on screen before the collapse lands.
+  if ($isNoteNode(node)) return node.getIsCollapsed() === true;
+  // Token-mode text is indivisible by Lexical's own rule, and a read-only construct's marker glyph
+  // is indivisible by ours — see `$isOpaqueConstructGlyph`.
+  if ($isTextNode(node))
+    return (node.isToken() || $isOpaqueConstructGlyph(node)) && node.getTextContentSize() > 0;
+  // Every decorator renders SOMETHING — a note caller, an immutable glyph, a verse or chapter
+  // number — except the zero-width anchors listed here, which render nothing at all. A new
+  // zero-width decorator must join this list, or traversal will come to rest on it.
+  if ($isDecoratorNode(node)) return !$isMilestoneNode(node);
+  return false;
+}
+
+/** The next node in document order in `direction`, stepping out of ancestors, bounded by `block`. */
+function $stepOver(
+  from: LexicalNode,
+  direction: TraversalDirection,
+  block: ElementNode,
+): LexicalNode | undefined {
+  for (let current: LexicalNode | null = from; current && !current.is(block); ) {
+    const sibling = direction === "next" ? current.getNextSibling() : current.getPreviousSibling();
+    if (sibling) return sibling;
+    current = current.getParent();
+  }
+  return undefined;
+}
+
+/**
+ * The first node rendering anything, starting AT `seed` and walking `direction` — descending into
+ * elements that are not atoms, stepping over everything invisible.
+ */
+function $scanForRendered(
+  seed: LexicalNode | undefined,
+  direction: TraversalDirection,
+  block: ElementNode,
+): LexicalNode | undefined {
+  for (let cursor = seed; cursor; ) {
+    if ($isVisibleAtom(cursor)) return cursor;
+    if ($isElementNode(cursor)) {
+      const child = direction === "next" ? cursor.getFirstChild() : cursor.getLastChild();
+      cursor = child ?? $stepOver(cursor, direction, block);
+      continue;
+    }
+    if ($isTraversableText(cursor)) return cursor;
+    cursor = $stepOver(cursor, direction, block);
+  }
+  return undefined;
+}
+
+/** The node a scan should consider first when leaving the caret's position in `direction`. */
+function $scanSeed(
+  anchorNode: LexicalNode,
+  anchorOffset: number,
+  anchorType: "text" | "element",
+  direction: TraversalDirection,
+  block: ElementNode,
+): LexicalNode | undefined {
+  if (anchorType === "element" && $isElementNode(anchorNode)) {
+    const child = anchorNode.getChildAtIndex(
+      direction === "next" ? anchorOffset : anchorOffset - 1,
+    );
+    return child ?? $stepOver(anchorNode, direction, block);
+  }
+  // A text point INSIDE an atom — token-mode text such as a paragraph's marker-trailing separator
+  // — sits at one of that atom's own edges, so the atom is the very thing this press has to cross.
+  // Seeding a sibling skips it and lands a stop too far: from the right edge of `\q1 `'s
+  // separator, a backward press sailed past the separator into the glyph and came to rest between
+  // `q` and `1`. Only seed the atom when it still has content on the side we are moving toward; at
+  // its far edge the atom is already behind the caret and the scan should go on to the sibling.
+  if (
+    anchorType === "text" &&
+    $isVisibleAtom(anchorNode) &&
+    (direction === "next" ? anchorOffset < anchorNode.getTextContentSize() : anchorOffset > 0)
+  )
+    return anchorNode;
+  return $stepOver(anchorNode, direction, block);
+}
+
+/**
+ * The single resting position for the screen location `landing` sits at.
+ *
+ * The preference is backward — the end of the nearest preceding visible text — and deliberately the
+ * opposite of the forward one the content-boundary convention states (`$placeCaretAtBoundary`,
+ * shared): what precedes an arrow landing is rendered content the caret has just walked over, so the
+ * end of it is the outermost position at that location, whereas what precedes a content boundary is
+ * structure that typed text must not merge into.
+ */
+function $canonicalize(landing: CaretLanding, block: ElementNode): CaretLanding {
+  // A text point with a character before it in its own node is already the outermost position at
+  // its location — nothing invisible separates it from rendered content on its left.
+  if (landing.kind === "text" && landing.offset > 0) return landing;
+
+  const seed = $scanSeed(landing.node, landing.offset, landing.kind, "previous", block);
+  const rendered = $scanForRendered(seed, "previous", block);
+  // Nothing rendered precedes it (the block's leading edge): the landing is already outermost.
+  if (!rendered) return landing;
+  if ($isTraversableText(rendered))
+    return { kind: "text", node: rendered, offset: rendered.getTextContentSize() };
+
+  const parent = rendered.getParent();
+  if (!parent) return landing;
+  return { kind: "element", node: parent, offset: rendered.getIndexWithinParent() + 1 };
+}
+
+/** Where a single press lands from `point`, or `undefined` when the block edge leaves nothing to cross. */
+function $resolveOneVisibleStop(
+  point: PointType,
+  direction: TraversalDirection,
+): CaretLanding | undefined {
+  const anchorNode = point.getNode();
+  const block = $blockOf(anchorNode);
+  if (!block) return undefined;
+
+  // Inside a text node the browser's own grapheme and bidi handling is better than a tree walk, so
+  // those moves are declined — except a backward step off the first character, whose landing at
+  // offset 0 is one of the stacked positions and has to be canonicalized.
+  if (point.type === "text" && $isTraversableText(anchorNode)) {
+    if (direction === "next" && point.offset < anchorNode.getTextContentSize()) return undefined;
+    if (direction === "previous" && point.offset > 1) return undefined;
+    if (direction === "previous" && point.offset === 1)
+      return $canonicalize({ kind: "text", node: anchorNode, offset: 0 }, block);
+  }
+
+  const seed = $scanSeed(anchorNode, point.offset, point.type, direction, block);
+  const rendered = $scanForRendered(seed, direction, block);
+  if (!rendered) return undefined;
+
+  if ($isTraversableText(rendered)) {
+    const text = rendered.getTextContent();
+    const offset = direction === "next" ? firstGraphemeEnd(text) : lastGraphemeStart(text);
+    return $canonicalize({ kind: "text", node: rendered, offset }, block);
+  }
+
+  const parent = rendered.getParent();
+  if (!parent) return undefined;
+  const index = rendered.getIndexWithinParent();
+  return $canonicalize(
+    { kind: "element", node: parent, offset: direction === "next" ? index + 1 : index },
+    block,
+  );
+}
+
+/**
+ * Applies one visible stop in `direction`. `collapse` walks the caret; `extend` moves only the
+ * selection's focus, so a shift-arrow grows the range by the same stops. `false` leaves the press to
+ * other handling.
+ */
+function $applyOneVisibleStop(
+  selection: RangeSelection,
+  direction: TraversalDirection,
+  alter: "collapse" | "extend",
+): boolean {
+  // A collapsed move reads the anchor and an extend reads the focus — the live end of the range,
+  // so it stays correct for a selection that was already extended backwards.
+  const point = alter === "collapse" ? selection.anchor : selection.focus;
+  const landing = $resolveOneVisibleStop(point, direction);
+  if (!landing) return false;
+  // Already there (a canonicalization that resolved back onto the point): report the press as
+  // unhandled rather than claiming a keystroke that changes nothing.
+  if (
+    landing.node.is(point.getNode()) &&
+    landing.offset === point.offset &&
+    landing.kind === point.type
+  ) {
+    return false;
+  }
+  if (alter === "collapse") {
+    landing.node.select(landing.offset, landing.offset);
+    return true;
+  }
+  selection.focus.set(landing.node.getKey(), landing.offset, landing.kind);
+  return true;
+}
+
+/** Moves the caret one visible stop in `direction`; `false` leaves the press to other handling. */
+function $moveOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
+  return $applyOneVisibleStop(selection, direction, "collapse");
+}
+
+/** Extends the selection's focus one visible stop, leaving its anchor where it is. */
+function $extendOneVisibleStop(selection: RangeSelection, direction: TraversalDirection): boolean {
+  return $applyOneVisibleStop(selection, direction, "extend");
+}
+
+// --- Crossing a read-only construct whole ---
+//
+// A read-only construct is not a place a caret can BE. `ImmutableTableNode` (and `UnknownNode`)
+// render the whole block `contenteditable="false"`, so the browser draws no caret anywhere inside
+// one and its own arrow handling will not move a caret out of one either. A caret that gets in is
+// therefore invisible AND unrecoverable: neither key brings it back, and ArrowUp/ArrowDown scroll
+// the view rather than move anything.
+//
+// Getting in was never the browser's doing, which is what made this hard to place. Lexical's own
+// `RangeSelection.modify` descends into the next BLOCK whenever a press would leave the caret's
+// block (`$modifySelectionAroundDecoratorsAndBlocks`, core), and `@lexical/rich-text` claims the
+// arrow key at EDITOR priority to apply it and calls `preventDefault` — so the press never reaches
+// the browser, and the caret is placed inside a block Lexical is happy to address and the browser
+// cannot render a caret in.
+//
+// The rule below is therefore about the ONE press that would enter: it crosses the construct WHOLE
+// and lands on the far side, which is the same treatment the construct's own marker glyphs already
+// get one level down. Everything else about read-only constructs is unchanged — the caret still
+// traverses inside one it is already in, shift-extension still reaches in (a construct's bytes are
+// selectable and copyable, which is what read-only is FOR), and nothing is hidden.
+//
+// Scoped by the caret's BLOCK EDGE, so an inline read-only construct — an `\optbreak`, a `\ref`
+// sitting among the words of a paragraph — is never what this rule sees: it is inside the caret's
+// own block, never the block's sibling, and the visible-stop rules above continue to own it.
+//
+// NOT gated on marker mode. A construct the editor cannot model is read-only in every view, which
+// is the same reasoning `OpaqueBlockGuardPlugin` records for taking no `viewOptions` at all.
+
+/**
+ * Whether `point` has no rendered content left to cross within `bound` — the press leaves it.
+ *
+ * Asks the same two questions a visible-stop move asks, in the same vocabulary, so "the press
+ * leaves this block" cannot drift from "the normalizer found nothing more to cross in it".
+ */
+function $isAtEdgeOf(point: PointType, direction: TraversalDirection, bound: ElementNode): boolean {
+  const node = point.getNode();
+  // A move that stays inside one text node never reaches an edge, whichever way it goes.
+  if (point.type === "text" && $isTraversableText(node)) {
+    if (direction === "next" ? point.offset < node.getTextContentSize() : point.offset > 0)
+      return false;
+  }
+  const seed = $scanSeed(node, point.offset, point.type, direction, bound);
+  return $scanForRendered(seed, direction, bound) === undefined;
+}
+
+/**
+ * The first node rendering anything beyond `construct` in `direction`, stepping OVER any further
+ * read-only construct rather than coming to rest in it.
+ *
+ * Two tables back to back have no position between them — there is nothing there to put a caret on
+ * — so they are crossed together rather than one per press.
+ */
+function $renderedBeyondConstructs(
+  construct: LexicalNode,
+  direction: TraversalDirection,
+): LexicalNode | undefined {
+  const root = $getRoot();
+  for (let skipping: LexicalNode | undefined = construct; skipping; ) {
+    const seed = $stepOver(skipping, direction, root);
+    const rendered = seed && $scanForRendered(seed, direction, root);
+    if (!rendered) return undefined;
+    skipping = $opaqueBlockAncestor(rendered);
+    if (!skipping) return rendered;
+  }
+  return undefined;
+}
+
+/**
+ * Crosses a read-only construct WHOLE when this press would otherwise enter it.
+ *
+ * Runs FIRST in both arrow chains, ahead of the note, `\fp` and visible-stop handlers, because it
+ * decides whether the press leaves the caret's block at all — and because one of those handlers
+ * (the hop past a collapsed note at a paragraph's end) would otherwise place the caret inside the
+ * construct itself. Its predicate is narrow enough to take that position safely: it claims only
+ * when the caret is at its own block's edge AND the block's neighbour is a construct, which is a
+ * press no other handler here has an opinion about.
+ *
+ * @returns `true` when the press was claimed — including the refusal when nothing beyond the
+ *   construct can hold a caret, where leaving the caret put is the point.
+ */
+function $crossOpaqueConstruct(selection: RangeSelection, direction: TraversalDirection): boolean {
+  const point = selection.anchor;
+  const node = point.getNode();
+  // From INSIDE a construct this rule has nothing to say: the caret is already somewhere it exists
+  // to prevent, and the glyph-atom rules above own the traversal there.
+  if ($opaqueBlockAncestor(node)) return false;
+
+  const block = $blockOf(node);
+  if (!block || !$isAtEdgeOf(point, direction, block)) return false;
+
+  const neighbour = $stepOver(block, direction, $getRoot());
+  const construct = neighbour && $opaqueBlockAncestor(neighbour);
+  if (!construct) return false;
+
+  const rendered = $renderedBeyondConstructs(construct, direction);
+  // Nothing beyond it can hold a caret (a document ending in a table): refuse the move and leave
+  // the caret where the user can see it. Letting the press through is how it gets lost.
+  if (!rendered) return true;
+
+  if ($isTraversableText(rendered)) {
+    const offset = direction === "next" ? 0 : rendered.getTextContentSize();
+    rendered.select(offset, offset);
+    return true;
+  }
+  const parent = rendered.getParent();
+  // An unparented landing cannot be selected; refuse rather than enter the construct.
+  if (!parent) return true;
+  const index = rendered.getIndexWithinParent() + (direction === "next" ? 0 : 1);
+  parent.select(index, index);
+  return true;
+}
+
+/**
+ * Places the caret in the block just past a collapsed note that ends it.
+ *
+ * A note that is its block's last child has nothing after it, so the landing is an element point
+ * with no text node of its own — and a browser draws no insertion point where there is no rendered
+ * text. Giving that position something to render in is `TrailingNoteCaretGuardPlugin`'s job, not
+ * this one's: it materializes a transient zero-width caret host past the note once the caret comes
+ * to rest here, so the landing stays a plain element point in the tree and this rule stays about
+ * WHERE the caret goes rather than what renders it.
+ *
+ * Which side of the note the caret belongs on is settled here and is not a rendering question. A
+ * collapsed note's content is hidden, so a caret inside one is invisible AND typing silently edits
+ * the note body instead of the paragraph — the wrong bytes change. Outside the note, nothing has
+ * changed and one backward press recovers, so it is strictly the better landing.
+ *
+ * Mutating: call inside `editor.update()`; dispatched from the arrow handling below.
+ */
+function $selectPastTrailingNote(note: NoteNode): void {
+  const parent = note.getParent();
+  // Detached from any block: leave the caret where the user can still see it.
+  if (!parent) return;
+  const indexPastNote = note.getIndexWithinParent() + 1;
+  parent.select(indexPastNote, indexPastNote);
 }
 
 /** Helper to handle forward arrow key navigation logic */
@@ -154,9 +917,7 @@ function $handleForwardNavigation(selection: RangeSelection): boolean {
     // caret between verse and collapsed note → move past note
     const nodeAfterNote = nextNode.getNextSibling();
     if (nodeAfterNote) nodeAfterNote.selectStart();
-    // TODO: we probably need a space character after a note at the end of a para to allow caret
-    // placement after the note. Currently typing will go into the note.
-    else nextNode.selectEnd();
+    else $selectPastTrailingNote(nextNode);
     return true;
   }
 
@@ -169,8 +930,8 @@ function $handleForwardNavigation(selection: RangeSelection): boolean {
     // caret before closing note marker → move past note
     const nodeAfterNote = nextNodeParent.getNextSibling();
     if (nodeAfterNote) nodeAfterNote.selectStart();
-    // TODO: we probably need a space character after a note at the end of a para to allow caret
-    // placement after the note. Currently typing will go into the note.
+    else if (nextNodeParent.getIsCollapsed()) $selectPastTrailingNote(nextNodeParent);
+    // An EXPANDED note's own end is rendered, so it stays a legitimate resting place.
     else nextNodeParent.selectEnd();
     return true;
   }
@@ -208,6 +969,10 @@ function $handleBackwardNavigation(
     return true;
   }
 
+  // Deliberately gated on the always-"collapsed" MODE, not just the note's own collapsed flag:
+  // under "expandInline" the caret must instead land inside the note's end (Lexical's default
+  // move), where the NoteNodePlugin expands it for inline editing — hopping over the note here
+  // would defeat that enter-and-expand behavior.
   if ($isSomeParaNode(prevNode) && viewOptions?.noteMode === "collapsed") {
     // caret at beginning of para after collapsed note → move to start in previous para
     const lastChild = prevNode.getLastChild();
@@ -243,21 +1008,23 @@ function $handleBackwardNavigation(
 /**
  * Returns whether custom ArrowUp/ArrowDown verse navigation should run.
  *
- * Intercepts when the anchor is an element point (cursor between block nodes, including
- * positions adjacent to `ImmutableVerseNode`) or when the anchor is inside an editable
- * `VerseNode` (a `TextNode` subclass). Regular `TextNode` positions are left to Lexical's
- * default visual-line navigation.
+ * The verse jump is a SUBSTITUTE for a position the browser cannot move a visual line from — an
+ * element point wedged between block nodes, or beside a verse number that is a childless decorator
+ * and so hosts no caret of its own. Wherever the caret sits in rendered text the browser's own line
+ * movement is the right answer and this declines. That includes inside an editable verse marker's
+ * glyph, which is rendered text the caret walks a character at a time exactly like the words beside
+ * it: intercepting there turned a line move into a jump to wherever the next verse happened to be —
+ * the next paragraph, or sideways along the same line when the next verse shared it.
  *
- * Lexical normalizes element points to text offset 0 when the next child is a `TextNode`;
- * the post-normalization position right after an `ImmutableVerseNode` marker is also
- * treated as a verse boundary.
+ * The remaining case is one screen location with two spellings. Lexical normalizes an element point
+ * to text offset 0 when the next child is a `TextNode`, so a caret at offset 0 of the text after a
+ * caret-less verse number IS that element point, and the jump still owns it. A verse marker
+ * rendered as glyph text hosts its own caret, so offset 0 after it is an ordinary text position and
+ * both spellings of that location decline alike.
  */
 function $shouldAttemptVerticalVerseNavigation(selection: RangeSelection): boolean {
   if (selection.anchor.type === "element") return true;
-  const anchorNode = selection.anchor.getNode();
-  if ($isSomeVerseNode(anchorNode)) return true;
-  if (selection.anchor.offset === 0 && $isSomeVerseNode(anchorNode.getPreviousSibling())) {
-    return true;
-  }
-  return false;
+  if (selection.anchor.offset !== 0) return false;
+  const previousNode = selection.anchor.getNode().getPreviousSibling();
+  return $isSomeVerseNode(previousNode) && $isDecoratorNode(previousNode);
 }

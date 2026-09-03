@@ -24,6 +24,18 @@ describe("ImmutableTableNode", () => {
     });
   });
 
+  // Tables are Tier-3 content: visible and byte-preserved, but not editable — the treatment they
+  // had as `UnknownNode`s and that `UnknownNode` still gives figures/sidebars/periph. The flag
+  // lives on the container so it covers every row and cell, and `updateDOM` returns false so an
+  // in-place update can never drop it. PT-4198 owns whether tables become editable.
+  it("is not editable: the container carries contentEditable=false", () => {
+    withEditor([ImmutableTableNode, ImmutableTableRowNode], () => {
+      const table = $createImmutableTableNode();
+      expect(table.createDOM().getAttribute("contenteditable")).toBe("false");
+      expect(table.updateDOM()).toBe(false);
+    });
+  });
+
   it("round-trips through JSON", () => {
     withEditor([ImmutableTableNode, ImmutableTableRowNode], () => {
       const json = $createImmutableTableNode().exportJSON();

@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Standard View
+
+Standard view shows USFM markers as editable text, and most of the machinery that makes that work
+lives in this repo: the marker-edit engine, the settle clocks, the display-run registry, and the
+USFM tokenizer.
+
+**Before changing any of it, read [the Standard View invariants](docs/standard-view-invariants.md)**
+— the contract those layers keep with each other, the rules settled by investigation rather than
+preference, and the ratified behaviors that must not be "fixed".
+
+The host repo (`paranext-core`) owns the USJ-to-USFM writer, the markers map, the marker palette's
+key semantics, and the C# serialization approval gate, and carries its own half at
+`.context/standards/Standard-View-Invariants.md`. The two are deliberately separate so each is
+readable with only one repo checked out; if you have both, read both.
+
+It is not inlined here — most work in this repo does not touch Standard view, and the invariants are
+long enough to be worth reading on demand rather than carrying in every session.
+
 ## Development Commands
 
 ### Prerequisites
@@ -50,6 +68,12 @@ npx prettier --write <files>       # Use prettier directly, NOT `nx format:write
 # API extraction (run after changing a package's public API)
 nx extract-api <package-name>      # Update API report for specific package
 nx run-many -t extract-api         # Update API reports for all packages
+# extract-api does DOUBLE DUTY: it updates the API report AND regenerates the package's
+# self-contained rolled-up dist/index.d.ts. A raw `nx build` leaves dist/index.d.ts with bare
+# workspace type imports (e.g. `from "shared-react"`) that consumers cannot resolve — the symptom
+# is "Cannot find module 'shared-react'" typecheck errors inside the CONSUMER's node_modules. When
+# hand-producing a consumable dist, always run extract-api AFTER build (the devpub script already
+# orders this correctly).
 
 # Development environments
 nx dev perf-react                  # React-based PERF editor
@@ -82,15 +106,15 @@ This is an Nx monorepo containing multiple scripture editor packages that share 
 - **`libs/shared`**: Core framework-agnostic editor functionality (nodes, plugins, converters)
 - **`libs/shared-react`**: React-specific components and plugins extending shared functionality
 - **`packages/platform`**: Scripture editor for Platform.Bible with commenting and collaboration features
-- **`packages/scribe`**: Lightweight scripture editor for Scribe application
+- **`packages/scribe`**: Lightweight scripture editor for Scribe application. **Not currently maintained** — do NOT use it as a reference for existing patterns or conventions when investigating the codebase (prefer `platform`, `shared`, `shared-react`). Touch it only when a change explicitly targets scribe.
 - **`demos/perf-react`**: React-based editor for PERF format with performance optimizations
 - **`demos/perf-vanilla`**: Vanilla JS editor for PERF format
 - **`packages/utilities`**: Data format conversion utilities (USJ/USX/USFM)
 
 ### Core Technologies
 
-- **Lexical**: Facebook's extensible text editor framework (v0.33.1)
-- **React**: UI framework for React-based packages (v19.1.0)
+- **Lexical**: Facebook's extensible text editor framework (v0.43.0)
+- **React**: UI framework for React-based packages (v18.3.1)
 - **TypeScript**: Primary development language
 - **Nx**: Monorepo build system and task runner
 - **Vite**: Build tool and development server
@@ -241,7 +265,14 @@ Note `.prettierignore` excludes some files that are otherwise staged, notably `p
 - Construct Lexical nodes via `$create<X>Node` / `$create<X>Nodes` helpers (singular for one node, plural for an array), matching Lexical's own naming convention. Test helpers follow the same pattern.
 - When a named type alias exists for a union (e.g., `SomeVerseNode` for `VerseNode | ImmutableVerseNode`), use the alias rather than re-spelling the union inline. Aliases live alongside their `$is*` guards.
 - Don't call `editor.update(...)` from inside a listener (event handler, update listener, etc.) — nested updates risk infinite cascade loops. Lexical's command system (`editor.registerCommand`) is the canonical entry point for mutating state in response to user interactions.
+- To read editor state from outside an update, use `editor.getEditorState().read(...)`, NOT `editor.read(...)` — `editor.read()` force-flushes any in-flight update when called mid-dispatch (e.g. from inside a command handler), a hazard class that has caused real frozen-state crashes here. Reserve `editor.read()` for contexts guaranteed to be outside dispatch.
+- Every exported `$`-prefixed function must document its calling context in its TSDoc: mutating helpers say "Mutating: call inside `editor.update()`" (plus where they're dispatched from, if fixed); read-only helpers say which read form is safe. The context requirement is load-bearing — an undocumented one gets called from the wrong context eventually.
+- When verifying that an edit reached the document (in QA probes, harness assertions, or live debugging), read `editor.getEditorState().toJSON()` and identify the target node by a before/after diff — never by inspecting collapsed DOM. A collapsed note's content lives outside its inline DOM, so DOM probes report healthy notes as empty and stale nodes as current.
 - Order `<*Plugin />` children in `packages/platform/src/editor/Editor.tsx` alphabetically by component name. The alphabetical block starts partway through — initial plugins in the setup section (`OnSelectionChangePlugin`, `DeltaOnChangePlugin`, `ActiveTextPlugin`, …) intentionally precede it.
+- To find text or marker nodes in a Lexical tree, use `$getRoot().getAllTextNodes()` (`MarkerNode` extends `TextNode`, so markers are included) — the pattern the marker tests already use. For a whole-tree walk that must include element nodes (e.g. `NoteNode`, which extends `ElementNode`), use `$dfs()` from `@lexical/utils`, or `$isElementNode(node)` to type-narrow before `node.getChildren()`. Never duck-type with `typeof node.getChildren === "function"` / `as unknown as { getChildren?: ... }`. To find "the node the caret is in", read the selection's `focus` point (the live cursor end — correct even for a backward range selection), not its `anchor`.
+- Type Lexical values by their real exported types (`LexicalEditor`, `TextNode`, …) instead of reinventing ad-hoc structural types (e.g. `{ getEditorState: () => { read: ... } }`) that capture only the shape you happen to touch.
+- In tests that render the black-box `platform` `<Editor>`, get its `LexicalEditor` by passing Lexical's `<EditorRefPlugin editorRef={ref} />` as a child (`<Editor>` renders `children` inside its composer) and reading `ref.current` after the render flushes — do NOT reach for `.__lexicalEditor` off the `.editor-input` DOM node. Where the child-plugin handle isn't available — tests that deliberately go end-to-end through the public `<Editorial>` wrapper (it strips `children`), or scribe's `<Editor>` (no children slot) — fall back to the shared `getEmbeddedLexicalEditor(container)` helper (in `libs/shared-react` `react-test.utils.tsx`), which centralizes the `.__lexicalEditor` DOM reach-in in one place; note at the call site why the child-plugin route wasn't used. Tests that own their composer should instead use `baseTestEnvironment`, which captures the editor via composer context.
+- Keep issue-tracker references out of code and comments: no Jira IDs (e.g. `PT-4187`), internal task/QA labels (`Task 8`), or spec section numbers (`§5.5`). Code must stand on its own — those belong in PR descriptions and commit messages. When a comment needs a term of art (e.g. "yank" for a programmatic caret move), define it inline at first use.
 
 # Context 7 Library Documentation
 

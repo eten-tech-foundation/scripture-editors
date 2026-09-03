@@ -1,0 +1,120 @@
+/**
+ * Project StyleInfo — the host-agnostic shape of a Paratext project's merged
+ * stylesheet (usfm.sty + custom.sty).
+ *
+ * Unit conventions (match usfm.sty as parsed, not PT9's internal ints):
+ * - fontSize, spaceBefore, spaceAfter: points
+ * - firstLineIndent, leftMargin, rightMargin: inches (PT9 ScrTag stores
+ *   thousandths of an inch; hosts divide by 1000 when serializing)
+ * - color: "#RRGGBB", omitted when black (PT9 CSSCreator skips black)
+ * - lineSpacing: PT9 quirk — 1 renders as line-height 1.5, 2 as 2, else nothing
+ */
+import getMarker from "./getMarker.js";
+import { CategoryType, Marker, MarkerType } from "./usfmTypes.js";
+
+/**
+ * The kind of USFM style a marker declares in the stylesheet.
+ *
+ * @public
+ */
+export type StyleType = "paragraph" | "character" | "note" | "milestone";
+
+/**
+ * A single marker's entry in a project stylesheet (usfm.sty/custom.sty), as
+ * serialized by the host.
+ *
+ * @public
+ */
+export interface MarkerStyleInfo {
+  marker: string;
+  styleType: StyleType;
+  endMarker?: string;
+  /** Allowed parent markers; absent/empty = valid anywhere (PT9 semantics). */
+  occursUnder?: string[];
+  rank?: number;
+  textType?: string;
+  textProperties?: string[];
+  notRepeatable?: boolean;
+  description?: string;
+  fontName?: string;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  smallCaps?: boolean;
+  subscript?: boolean;
+  superscript?: boolean;
+  color?: string;
+  justification?: "left" | "center" | "right" | "both";
+  firstLineIndent?: number;
+  leftMargin?: number;
+  rightMargin?: number;
+  spaceBefore?: number;
+  spaceAfter?: number;
+  lineSpacing?: number;
+}
+
+/**
+ * Project stylesheet data (merged usfm.sty + custom.sty) as serialized by the
+ * host.
+ *
+ * @public
+ */
+export interface StyleInfo {
+  /** Project default font/size (ScrText settings) — drives the base CSS rule like PT9. */
+  defaultFont?: string;
+  defaultFontSize?: number;
+  markers: { [marker: string]: MarkerStyleInfo };
+}
+
+/**
+ * The `getMarker` seam shape — matches the bundled `getMarker` signature so it can be swapped in
+ * directly.
+ *
+ * @public
+ */
+export type MarkerLookup = (marker: string) => Marker | undefined;
+
+const STYLE_TYPE_TO_MARKER_TYPE: { [K in StyleType]: MarkerType } = {
+  paragraph: MarkerType.Paragraph,
+  character: MarkerType.Character,
+  note: MarkerType.Note,
+  milestone: MarkerType.Milestone,
+};
+
+/**
+ * StyleInfo-backed replacement for the bundled `getMarker`. With `styleInfo`,
+ * the project sheet is authoritative for a marker's existence and
+ * classification: markers absent from it return `undefined` (PT9: unknown to
+ * the stylesheet), and `usfmMarkersOverwrites` never overrides those fields.
+ * `children` (submenu structure) is editor data keyed by marker name, not
+ * stylesheet data, so it still comes from the bundled path (table +
+ * overwrites) — children-dependent consumers keep working. Without
+ * `styleInfo`, the bundled `getMarker` is returned unchanged so non-project
+ * consumers keep today's behavior exactly.
+ */
+export function createMarkerLookup(styleInfo?: StyleInfo): MarkerLookup {
+  if (!styleInfo) return getMarker;
+  const cache = new Map<string, Marker | undefined>();
+  return (marker: string): Marker | undefined => {
+    if (cache.has(marker)) return cache.get(marker);
+    // Own-property guard: `markers` is a plain object off the wire, so a bare index resolves
+    // Object.prototype members (`constructor`, `toString`, …) as if they were stylesheet
+    // entries — handing back a Marker built from a Function.
+    const entry = Object.hasOwn(styleInfo.markers, marker) ? styleInfo.markers[marker] : undefined;
+    const result: Marker | undefined = entry
+      ? {
+          // Through `getMarker`, not the raw generated table: `usfmMarkersOverwrites` supplies
+          // markers the generated data lacks (`w`, `rb`, `jmp`), and reading the table directly
+          // demoted exactly those to Uncategorized whenever a project StyleInfo was active.
+          category: getMarker(marker)?.category ?? CategoryType.Uncategorized,
+          type: STYLE_TYPE_TO_MARKER_TYPE[entry.styleType] ?? MarkerType.Unknown,
+          description: entry.description ?? "",
+          hasEndMarker: Boolean(entry.endMarker),
+          children: getMarker(marker)?.children,
+        }
+      : undefined;
+    cache.set(marker, result);
+    return result;
+  };
+}

@@ -103,7 +103,12 @@ function setAttributes(element: Element, markerContent: MarkerObject) {
     else element.setAttribute("style", markerContent.marker);
   }
   for (const [key, value] of Object.entries(markerContent)) {
-    if (value && !["type", "marker", "content"].includes(key)) {
+    // Test for PRESENCE, not truthiness. An empty value is the author's own byte — `\qt-s |who=""\*`
+    // says the attribute is there and not yet filled in, which is not the same as its being absent —
+    // and a truthiness test cannot tell `""` from `undefined`, so it dropped the attribute on the
+    // way out to USX, before ParatextData ever saw it. Absent stays absent: `undefined` must not
+    // become `attr=""`, which would fabricate a value nobody wrote.
+    if (value !== undefined && value !== null && !["type", "marker", "content"].includes(key)) {
       element.setAttribute(key, value as string);
     }
   }

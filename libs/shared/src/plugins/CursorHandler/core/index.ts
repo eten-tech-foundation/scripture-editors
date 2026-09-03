@@ -4,6 +4,12 @@ import { registerCursorInsertion } from "./insertionHandlers/index.js";
 import { registerCursorRemoval } from "./removalHandlers/index.js";
 
 export { CURSOR_PLACEHOLDER_CHAR } from "./utils/constants.js";
+export {
+  $createCursorPlaceholderNode,
+  $removeCursorPlaceholder,
+  $isCursorPlaceholderOnlyText,
+  isCursorPlaceholderOnly,
+} from "./utils/index.js";
 
 export function registerCursorHandlers(
   editor: LexicalEditor,

@@ -1,6 +1,7 @@
 import { $createImmutableTypedTextNode } from "../features/ImmutableTypedTextNode.js";
 import { $createMarkerNode } from "../features/MarkerNode.js";
 import { $createTypedMarkNode, TypedMarkNode } from "../features/TypedMarkNode.js";
+import { $createCursorPlaceholderNode } from "../../plugins/CursorHandler/index.js";
 import { $createCharNode, CharNode } from "./CharNode.js";
 import { $createImmutableChapterNode } from "./ImmutableChapterNode.js";
 import { usjBaseNodes } from "./index.js";
@@ -218,6 +219,89 @@ describe("Editor Node Utilities", () => {
       const number = parseNumberFromMarkerText(marker, text, defaultNumber);
 
       expect(number).toEqual("1");
+    });
+
+    it("preserves verse bridges", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1-2 `, "9")).toBe("1-2");
+    });
+
+    it("preserves verse segments", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5a `, "9")).toBe("5a");
+    });
+
+    it("preserves segmented bridges", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1a-2b `, "9")).toBe("1a-2b");
+    });
+
+    it("preserves comma-separated verse lists", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1,3 `, "9")).toBe("1,3");
+    });
+
+    it("still parses plain integers with a regular space separator", () => {
+      expect(parseNumberFromMarkerText("v", "\\v 12 ", "9")).toBe("12");
+    });
+
+    it("falls back to the default when no number is present", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}`, "9")).toBe("9");
+    });
+
+    it("preserves multi-letter segments instead of truncating", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5abc `, "9")).toBe("5abc");
+    });
+
+    it("keeps the trailing separator of a half-typed bridge", () => {
+      // `\v 5-` is a byte the user typed and the node already stores. Dropping it here would
+      // save a file the screen never showed.
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5- `, "9")).toBe("5-");
+    });
+
+    it("keeps the trailing separator of a half-typed verse list", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}5, `, "9")).toBe("5,");
+    });
+
+    it("keeps the trailing separator of a half-typed segmented bridge", () => {
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}1a- `, "9")).toBe("1a-");
+    });
+
+    it("keeps the trailing separator on a chapter number too", () => {
+      expect(parseNumberFromMarkerText("c", "\\c 3- ", "9")).toBe("3-");
+    });
+
+    it.each([
+      ["a doubled separator", "5--"],
+      ["a separator followed by letters", "5-Da"],
+      ["mixed separators", "5-,6"],
+      ["a stray asterisk", "5*"],
+      ["a bare separator", "-"],
+    ])("keeps what the user typed: %s", (_label, typed) => {
+      // The number is the whole word, valid or not. These are malformed, and every one of them is
+      // on screen and stored on the node — so a grammar that recognized only well-formed numbers
+      // would save a document the editor is not showing. Preserving them is what lets the user
+      // see and correct their own typo instead of watching a byte disappear at save time.
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}${typed} `, "9")).toBe(typed);
+    });
+
+    it("still ends the number at the first character that is not part of it", () => {
+      // The word scan ends at the tokenizer's own name-scan terminators, which is what keeps it
+      // from swallowing content: whitespace demotes what follows to body text, and so does a
+      // backslash. The separator run between them never joins the two.
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}7 5 `, "9")).toBe("7");
+      expect(parseNumberFromMarkerText("v", `\\v${NBSP}2\\ Da`, "9")).toBe("2");
+    });
+  });
+
+  describe("openingMarkerText() / closingMarkerText()", () => {
+    it("should render bare markers when not nested", () => {
+      expect(openingMarkerText("w")).toBe("\\w");
+      expect(closingMarkerText("w")).toBe("\\w*");
+    });
+
+    it("should carry the '+' prefix when nested", () => {
+      // A nested char span's marker carries the `+` (`\+w …\+w*`): in USFM the `+` is what makes
+      // a char marker nest inside the enclosing span instead of closing it, so the glyph text
+      // must show it for a re-tokenization of the visible text to reproduce the same nesting.
+      expect(openingMarkerText("w", true)).toBe("\\+w");
+      expect(closingMarkerText("w", true)).toBe("\\+w*");
     });
   });
 
@@ -462,6 +546,39 @@ describe("Editor Node Utilities", () => {
         expect(text).toContain(closingMarkerText("bd"));
         expect(text).not.toContain(openingMarkerText("nd"));
         expect(text).not.toContain(closingMarkerText("nd"));
+      });
+    });
+
+    it("retargets a NESTED span's glyphs, keeping the + on both", () => {
+      // A nested span's glyphs read `\+nd` / `\+nd*`. Matching them against the non-nested
+      // spelling found nothing, so both survived stale: the node's marker became `bd` while the
+      // glyphs on screen — and the bytes saved to file — still said `nd`.
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        charNode = $createCharNode("nd");
+        $getRoot().append(
+          $createParaNode("p").append(
+            charNode.append(
+              $createImmutableTypedTextNode("marker", openingMarkerText("nd", true)),
+              $createTextNode("Lord"),
+              $createImmutableTypedTextNode("marker", closingMarkerText("nd", true)),
+            ),
+          ),
+        );
+      });
+
+      editor.update(
+        () => {
+          $setCharNodeMarker(charNode, "bd");
+        },
+        { discrete: true },
+      );
+
+      editor.getEditorState().read(() => {
+        const text = charNode.getTextContent();
+        expect(text).toContain(openingMarkerText("bd", true));
+        expect(text).toContain(closingMarkerText("bd", true));
+        expect(text).not.toContain(openingMarkerText("nd", true));
+        expect(text).not.toContain(closingMarkerText("nd", true));
       });
     });
 
@@ -723,6 +840,31 @@ describe("Editor Node Utilities", () => {
       });
     });
 
+    it("skips a folded ImmutableTypedTextNode attribute display run without breaking the run", () => {
+      // An opaque block's folded attribute byte display (e.g. an UnknownNode's `\cat ...\cat*`
+      // run) is an ImmutableTypedTextNode with textType "attribute" — a DecoratorNode, not a
+      // TextNode, so it needs its own presentation-only check distinct from the plain-TextNode
+      // "attribute" runs used elsewhere (regression: previously only the "marker" flavor of
+      // ImmutableTypedTextNode was skipped, so this run wrongly surfaced as its own content item
+      // and shifted every logical index after it).
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode("p").append(
+            $createImmutableTypedTextNode("marker", "\\esb"),
+            $createImmutableTypedTextNode("attribute", " \\cat Test Category\\cat*"),
+            $createTextNode("verse text"),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(1);
+        $expectTextItem(items[0], [{ text: "verse text", start: 0 }]);
+      });
+    });
+
     it("skips standalone NBSP spacer text nodes between content items", () => {
       // Visible/hidden modes insert NBSP spacer text nodes between element items (e.g. between
       // char nodes in a note). The editor→USJ conversion drops them, so they are not USJ
@@ -733,6 +875,28 @@ describe("Editor Node Utilities", () => {
           $createParaNode().append(
             $createCharNode("nd").append($createTextNode("aaa")),
             $createTextNode(NBSP),
+            $createCharNode("nd").append($createTextNode("bbb")),
+          ),
+        );
+      });
+
+      editor.getEditorState().read(() => {
+        const items = $getFirstParaItems();
+
+        expect(items).toHaveLength(2);
+        expect(items[0].type).toBe("element");
+        expect(items[1].type).toBe("element");
+      });
+    });
+
+    it("skips a bare cursor host so it does not shift annotation content indexes", () => {
+      // A transient caret host (EmptyVerseCaretGuardPlugin) carries no content, so it must not
+      // appear as a content item — otherwise annotations after it would be mis-anchored (PT-4308).
+      const { editor } = createBasicTestEnvironment(nodes, () => {
+        $getRoot().append(
+          $createParaNode().append(
+            $createCharNode("nd").append($createTextNode("aaa")),
+            $createCursorPlaceholderNode(),
             $createCharNode("nd").append($createTextNode("bbb")),
           ),
         );

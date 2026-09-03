@@ -227,6 +227,23 @@ export class ImmutableChapterNode extends DecoratorNode<string> {
     return { element };
   }
 
+  /**
+   * VISIBLE bytes with STABLE IDENTITY, which is only safe because of where this node lives.
+   *
+   * `@lexical/react` paints a decorator payload into the node's element through a portal, and
+   * Lexical only rebuilds that portal when the payload CHANGES (`reconcileDecorator` bails on
+   * `currentDecorators[key] === decorator`, and equal strings always compare equal). So any node
+   * whose element is destroyed and re-created while the node itself survives — which is precisely
+   * what re-parenting does, since Lexical builds fresh elements for every child of a newly created
+   * parent — keeps a portal bound to the OLD, detached element and renders permanently EMPTY.
+   *
+   * A chapter escapes that only by POSITION: it is a root-level block, and the marker engine's
+   * Tier-2 rebuild re-parents preserved nodes only within paragraph-kind blocks, so nothing ever
+   * moves a chapter. That invariant is not enforced anywhere. Moving chapter nodes into any
+   * rebuilt/re-created container would blank this glyph on screen while the node, the USJ, and the
+   * file all stayed correct — a silent rendering loss with no error. If that day comes, render
+   * these bytes from `createDOM` instead, the way `ImmutableTypedTextNode` does.
+   */
   override decorate(): string {
     return this.getShowMarker()
       ? getVisibleOpenMarkerText(this.getMarker(), this.getNumber())

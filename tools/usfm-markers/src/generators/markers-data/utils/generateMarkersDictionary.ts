@@ -17,12 +17,18 @@ export enum StyleType {
   Paragraph = "Paragraph",
   Character = "Character",
   Note = "Note",
+  Milestone = "Milestone",
 }
 
 export enum Justification {
   Left = "Left",
   Center = "Center",
   Right = "Right",
+  // Full/justified alignment (`\Justification Both` in a Paratext .sty). Lowercased downstream to
+  // "both" to match the consumer `MarkerStyleInfo.justification` union. Defensive: the vendored
+  // usfm.sty (3.0.11) declares no `\Justification Both`, so nothing in the generated output
+  // exercises it — a custom.sty may, so keep it rather than deleting it as unreachable.
+  Both = "Both",
 }
 
 export enum TextProperty {
@@ -55,12 +61,15 @@ export interface MarkersDictionary {
     textProperties: TextProperty[];
     styleType: StyleType;
     endMarker?: string;
+    notRepeatable?: boolean;
     styles: {
+      fontName?: string;
       fontSize?: number;
       bold?: boolean;
       italic?: boolean;
       underline?: boolean;
       smallcaps?: boolean;
+      subscript?: boolean;
       justification?: Justification;
       spaceBefore?: number;
       spaceAfter?: number;
@@ -69,6 +78,7 @@ export interface MarkersDictionary {
       firstLineIndent?: number;
       color?: number;
       superscript?: boolean;
+      lineSpacing?: number;
     };
     category: CategoryType;
   };
@@ -99,7 +109,13 @@ export const createMarkersDictionaryFromUsfmSty = (markersString: string): Marke
   };
 
   for (const _line of lines) {
-    const line = _line.trim();
+    let line = _line.trim();
+    // Milestone marker entries are wholly prefixed with "#!" in usfm.sty ("these are not
+    // compatible with USFM2, so whole entries are preceded with #!") — strip that prefix so
+    // milestones (StyleType.Milestone) parse like any other marker. Directives that are
+    // genuinely commented out use a bare "#" and are left alone; other "#!"-prefixed lines
+    // (Attributes, ColorName) have no switch case below, so un-hiding them is a no-op.
+    if (line.startsWith("#!")) line = line.slice(2).trim();
     if (line.startsWith("\\Marker ")) {
       if (currentMarker) {
         markers[currentMarker] = currentMarkerData as MarkersDictionary[string];
@@ -183,6 +199,18 @@ export const createMarkersDictionaryFromUsfmSty = (markersString: string): Marke
           break;
         case "Color":
           currentMarkerData.styles.color = parseInt(value);
+          break;
+        case "Fontname":
+          currentMarkerData.styles.fontName = value;
+          break;
+        case "LineSpacing":
+          currentMarkerData.styles.lineSpacing = parseInt(value);
+          break;
+        case "Subscript":
+          currentMarkerData.styles.subscript = true;
+          break;
+        case "NotRepeatable":
+          currentMarkerData.notRepeatable = true;
           break;
       }
     }

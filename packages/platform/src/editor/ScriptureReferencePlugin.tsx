@@ -94,20 +94,30 @@ import { SerializedVerseRef } from "@sillsdev/scripture";
 import {
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
+  EditorState,
+  ElementNode,
   LexicalEditor,
   SELECTION_CHANGE_COMMAND,
+  TextNode,
 } from "lexical";
 import { useEffect, useRef } from "react";
 import {
+  $caretHostAtBoundary,
   $findChapter,
   $findNextChapter,
   $findThisChapter,
   $isBookNode,
+  $isNoteNode,
   $isParaNode,
+  $isSomeChapterNode,
+  $placeCaretAtBoundary,
   BookNode,
+  ChapterNode,
   CURSOR_CHANGE_TAG,
+  ImmutableChapterNode,
   getSelectionStartNode,
   isVerseInRange,
   isVerseRange,
@@ -120,8 +130,10 @@ import {
   $findThisVerse,
   $findVerseOrPara,
   $getEffectiveVerseForBcv,
+  $isSomeVerseNode,
   $resolveVerseNode,
   ImmutableVerseNode,
+  SomeVerseNode,
 } from "shared-react";
 
 /** "idle": selection changes are the user's. "navigating": an external scrRef change (or a book
@@ -198,19 +210,90 @@ export function ScriptureReferencePlugin({
     () =>
       editor.registerMutationListener(
         BookNode,
-        (nodeMutations) => {
+        (nodeMutations, { prevEditorState }) => {
           const kinds = [...nodeMutations.values()];
           if (kinds.every((kind) => kind === "destroyed")) return;
           const bookCode = getCommittedBookCode(editor);
           onDocumentChanged(machineRef.current, editor, bookCode, {
             hasCreated: kinds.includes("created"),
             hasDestroyed: kinds.includes("destroyed"),
+            isSameDocumentReload:
+              getBookChapterIdentity(prevEditorState) ===
+              getBookChapterIdentity(editor.getEditorState()),
           });
         },
         { skipInitialization: false },
       ),
     [editor],
   );
+
+  // documentChanged, second signal: chapter-only documents. Platform.Bible serves ONE CHAPTER at a
+  // time and only the first chapter's USJ carries the book's opening `\id` line, so every other
+  // chapter arrives as a document with NO BookNode - invisible to the listener above, which sees a
+  // chapter 1 -> N swap as "destroyed" alone (early-returned) and an N -> M swap as nothing at all.
+  // Left unseen, the swap's null selection is never repaired and the caret vanishes on every
+  // chapter change and on mounting anywhere but the first chapter.
+  //
+  // The two signals are disjoint by construction: this one stands down whenever the committed
+  // document HAS a book code, which is exactly the case the BookNode listener can see for itself.
+  // Both chapter flavors are watched because the view mode picks between them (editable markers
+  // render ChapterNode, hidden markers ImmutableChapterNode) and either may be the one a document
+  // is built from.
+  //
+  // The batch is derived from the commit's STATE PAIR, never from a per-class kinds map: a
+  // view-option toggle swaps one chapter flavor for the other in a single commit, which per-class
+  // views split into a destroyed-only batch (one flavor) and a created-only batch (the other) —
+  // the swap misread as a pure create, branch (c) of onDocumentChanged, so no navigation window
+  // opened and the swap's transient chapter-top settle reported (the R2 clobber, for every
+  // chapter-only document). Both flavors' listeners fire in that commit; whichever runs first
+  // handles the whole cross-flavor batch and the other stands down on the state-identity dedupe.
+  useEffect(() => {
+    /** Keys of the state's root-level chapter nodes, both flavors. */
+    const getChapterKeys = (state: EditorState): Set<string> =>
+      state.read(
+        () =>
+          new Set(
+            $getRoot()
+              .getChildren()
+              .filter($isSomeChapterNode)
+              .map((n) => n.getKey()),
+          ),
+      );
+    let lastHandledState: EditorState | undefined;
+    const handleChapterBatch = (prevEditorState: EditorState) => {
+      const currentState = editor.getEditorState();
+      if (lastHandledState === currentState) return;
+      lastHandledState = currentState;
+      // The skipInitialization:false registration replay passes the CURRENT state as
+      // prevEditorState (there is nothing older to diff against) — the mount case, every
+      // existing chapter "created".
+      const isReplay = prevEditorState === currentState;
+      const prevKeys = isReplay ? new Set<string>() : getChapterKeys(prevEditorState);
+      const currentKeys = getChapterKeys(currentState);
+      const hasCreated = [...currentKeys].some((key) => !prevKeys.has(key));
+      // A batch with no created chapter can never place, correct, or open a window — see
+      // onDocumentChanged.
+      if (!hasCreated) return;
+      // A document that can name its own book is the BookNode listener's to handle; acting
+      // on it here too would run onDocumentChanged twice for one commit.
+      if (getCommittedBookCode(editor)) return;
+      onDocumentChanged(machineRef.current, editor, undefined, {
+        hasCreated,
+        hasDestroyed: [...prevKeys].some((key) => !currentKeys.has(key)),
+        isSameDocumentReload:
+          getBookChapterIdentity(prevEditorState) === getBookChapterIdentity(currentState),
+      });
+    };
+    return mergeRegister(
+      ...[ChapterNode, ImmutableChapterNode].map((chapterClass) =>
+        editor.registerMutationListener(
+          chapterClass,
+          (_nodeMutations, { prevEditorState }) => handleChapterBatch(prevEditorState),
+          { skipInitialization: false },
+        ),
+      ),
+    );
+  }, [editor]);
 
   // selectionSettled
   useEffect(
@@ -241,7 +324,7 @@ export function ScriptureReferencePlugin({
       );
       // Defer one microtask: dispatching synchronously inside a mutation listener runs a reentrant
       // update while the triggering edit's history entry is still being recorded, corrupting the
-      // undo stack (PT-4102: undo did nothing after a verse-spanning delete). Same deferral rule as
+      // undo stack (undo then did nothing after a verse-spanning delete). Same deferral rule as
       // schedulePlacingCaretAtVerseStart below.
       // INVARIANT this now relies on: no SELECTION_CHANGE_COMMAND listener may create or destroy a
       // verse node. If one did, this would loop (verse mutation -> microtask -> dispatch -> verse
@@ -344,15 +427,19 @@ function onDocumentChanged(
   machine: Machine,
   editor: LexicalEditor,
   bookCode: string | undefined,
-  batch: { hasCreated: boolean; hasDestroyed: boolean },
+  batch: { hasCreated: boolean; hasDestroyed: boolean; isSameDocumentReload: boolean },
 ) {
   // Captured before the write below so the MOUNT branch (b) sees the pre-batch value.
   const isFirstDocument = batch.hasCreated && !machine.sawDocument;
   if (batch.hasCreated) machine.sawDocument = true;
 
   if (machine.phase === "navigating") {
-    // Silence - except the arrival of the document the navigation is waiting for.
-    if (batch.hasCreated && bookCode && bookCode === machine.scrRef.book) {
+    // Silence - except the arrival of the document the navigation is waiting for. A document with
+    // no book code cannot contradict the prop (I1's no-book fallback: it cannot name its own book,
+    // so the prop is the sole authority), so it is always the arrival being waited for; only a
+    // document that names a DIFFERENT book is the stale one this gate exists to skip. Same rule as
+    // onPropChanged's placement gate.
+    if (batch.hasCreated && (!bookCode || bookCode === machine.scrRef.book)) {
       schedulePlacingCaretAtVerseStart(machine, editor);
     }
     return;
@@ -363,7 +450,11 @@ function onDocumentChanged(
     // synthetic selection settle fires before the deferred placement and must be silenced -
     // regardless of book match, since a same-book reload's transient chapter-top settle is the
     // R2 clobber this branch exists to prevent. The correction below (d), if any, runs after.
-    schedulePlacingCaretAtVerseStart(machine, editor);
+    // A same-book+chapter replacement is a RELOAD (e.g. LoadStatePlugin applying the PDP echo of
+    // this editor's own edit ~150-250ms after a keystroke), never a positioning event: keep the
+    // window, skip the placement - the deferred caret move would yank a mid-verse caret to the
+    // verse start mid-typing and re-add a selection after a null-selection swap.
+    if (!batch.isSameDocumentReload) schedulePlacingCaretAtVerseStart(machine, editor);
     machine.phase = "navigating";
   } else if (isFirstDocument) {
     // (b) MOUNT: fresh editor, no navigation window needed - a null selection or one already at
@@ -402,7 +493,31 @@ function schedulePlacingCaretAtVerseStart(machine: Machine, editor: LexicalEdito
 function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   const startNode = getSelectionStartNode($getSelection());
   const selectedVerse = $findThisVerse(startNode)?.getNumber();
-  if (selectedVerse && isVerseRange(selectedVerse) && verseInRangeSafe(verseNum, selectedVerse)) {
+  // Resolve the caret's CHAPTER too, mirroring $resolvePosition's counting (content before the
+  // first chapter of a loaded document addresses as chapter 1). The verse-number match alone is
+  // chapter-blind: in a multi-chapter document, navigating chapter N verse K -> chapter M verse K
+  // keeps the verse number but is a genuine cross-chapter move, and a number-only "already here"
+  // guard would wrongly no-op and strand the caret in the wrong chapter.
+  const selectedChapterNode = $findThisChapter(startNode);
+  const selectedChapterNum = selectedChapterNode
+    ? parseInt(selectedChapterNode.getNumber() ?? "1", 10)
+    : 1;
+  // Already parked in the verse being navigated to: moving to its start would eject a caret the
+  // user is actively typing in. The scrRef echo of this editor's own save fires ~90-190ms after a
+  // keystroke; without this guard it yanks the caret out of a freshly typed marker span, so the
+  // trailing bytes land outside the span and the literal never re-tokenizes (`\nd text|x="y"\nd*`
+  // stays literal forever). A range that contains the target, or a single verse whose number is
+  // the target — IN THE SAME CHAPTER — both mean "already here", so leave the caret untouched. This
+  // is also the deliberate UX no-op for clicking the verse the caret is already in: it is left
+  // where the user placed it, not snapped to the verse start. Genuine cross-verse OR cross-chapter
+  // navigation still moves, since the caret is not in the target chapter's target verse.
+  if (
+    selectedChapterNum === chapterNum &&
+    selectedVerse &&
+    (isVerseRange(selectedVerse)
+      ? verseInRangeSafe(verseNum, selectedVerse)
+      : parseInt(selectedVerse, 10) === verseNum)
+  ) {
     return;
   }
 
@@ -424,10 +539,94 @@ function $moveCaretToVerseStart(chapterNum: number, verseNum: number) {
   if (!verseOrParaNode) return;
 
   if ($isParaNode(verseOrParaNode)) {
-    const firstChild = verseOrParaNode.getFirstChild();
-    if ($isTextNode(firstChild)) firstChild.select(0, 0);
-    else if (!$advancePastParaPrefixes(verseOrParaNode)) verseOrParaNode.select(0, 0);
-  } else verseOrParaNode.selectNext(0, 0);
+    // A text first child is content already, so there is nothing structural to skip; anything else
+    // may be a marker/verse prefix. Either way the caret ends at a content boundary of the
+    // paragraph — the one past the prefix when there was one, its own first otherwise.
+    const skippedPrefix =
+      !$isTextNode(verseOrParaNode.getFirstChild()) && $advancePastParaPrefixes(verseOrParaNode);
+    if (!skippedPrefix) $placeCaretAtBoundary(verseOrParaNode, 0);
+  } else $placeCaretAtVerseContentStart(verseOrParaNode);
+}
+
+/**
+ * Parks the caret at the very start of `verse`'s content — immediately after the space that follows
+ * the verse number, and BEFORE anything that content opens with: a note caller, a char span, a
+ * milestone. Verse navigation names a location in the text; it must never step over content to
+ * reach it, so the caret lands on the same side of the verse's first thing every time.
+ *
+ * That position is the boundary just past the verse marker. Naming it is easy; expressing it as a
+ * point the browser will actually DRAW a caret at is the work, because the obvious spellings fail:
+ *
+ * - `verse.selectNext(0, 0)` selects INTO the following node. When that is a collapsed note, Lexical
+ *   resolves it to the note's own `\f`/`\x` glyph — hidden while collapsed — and the caret vanishes.
+ * - the boundary's element point (`para.select(i, i)`) draws nothing at all when no text node
+ *   follows it. Measured in the app: `Range.getClientRects()` returns 0 there.
+ * - walking FORWARD to the next node that can host a caret does draw one, but on the wrong side of
+ *   the caller — the reported bug this replaces.
+ *
+ * So the position is expressed, in order of preference, as:
+ *
+ * 1. offset 0 of the text node that follows the boundary — plain content, the common case;
+ * 2. the END of the verse marker itself, when the marker is editable text (Standard/Unformatted
+ *    views, where a verse is a `VerseNode` whose text is literally `\v 9 `). That is the same screen
+ *    location — after the marker's own trailing space, left of the caller — and it is already where
+ *    arrow navigation rests when walking leftward out of the verse's content;
+ * 3. the first text at the START of a char span that opens the verse, when the marker is an
+ *    immutable decorator and so cannot host anything. Descending is still the boundary, not past it:
+ *    only the first-child chain is followed, never a later sibling. A note is never descended into —
+ *    a caller is an annotation hanging off the verse, not the start of its text;
+ * 4. the boundary's element point. An empty verse (nothing follows, or the next verse marker does)
+ *    always takes this branch, deliberately: it is the state `EmptyVerseCaretGuardPlugin` detects
+ *    and repairs with a caret host of its own, and the caret must not borrow the next verse's text.
+ */
+function $placeCaretAtVerseContentStart(verse: SomeVerseNode) {
+  const para = verse.getParent();
+  if (!para) return;
+  const contentStart = verse.getIndexWithinParent() + 1;
+
+  // The verse has no content of its own when nothing follows the marker or the next verse marker
+  // does — and an editable verse marker is itself a TextNode, so this has to be asked before the
+  // caret-host question, which would otherwise answer with the NEXT verse's marker.
+  const opening = para.getChildAtIndex(contentStart);
+  if (!opening || $isSomeVerseNode(opening)) {
+    $placeCaretAtBoundary(para, contentStart);
+    return;
+  }
+
+  const host = $caretHostAtBoundary(para, contentStart);
+  if (host) {
+    host.select(0, 0);
+    return;
+  }
+
+  // Content the caret must stay in front of, with nothing at the boundary able to carry a point.
+  if ($isTextNode(verse)) {
+    const markerEnd = verse.getTextContentSize();
+    verse.select(markerEnd, markerEnd);
+    return;
+  }
+
+  const nested =
+    $isElementNode(opening) && !$isNoteNode(opening) ? $firstCaretHost(opening) : undefined;
+  if (nested) nested.select(0, 0);
+  else $placeCaretAtBoundary(para, contentStart);
+}
+
+/** The caret host at the very START of `element`'s content: its first-child chain only, so the
+ * caret can never skip over content on its way to somewhere drawable. Notes are not entered. */
+function $firstCaretHost(element: ElementNode): TextNode | undefined {
+  const first = element.getFirstChild();
+  if ($isTextNode(first)) return first;
+  if ($isElementNode(first) && !$isNoteNode(first)) return $firstCaretHost(first);
+  return undefined;
+}
+
+/** `book|chapter` identity of a state's document, for detecting same-document reloads. */
+function getBookChapterIdentity(editorState: EditorState): string {
+  return editorState.read(() => {
+    const chapter = $getRoot().getChildren().find($isSomeChapterNode);
+    return `${$getFirstBookNode()?.getCode() ?? ""}|${chapter?.getNumber() ?? ""}`;
+  });
 }
 
 /** `selectionSettled`: the caret is somewhere; the phase decides whose action that was.

@@ -1,0 +1,1849 @@
+import {
+  usfmFragmentToUsjContent,
+  defaultMarkerAttribute,
+  milestoneDefaultAttribute,
+  regularizeSpaces,
+} from "./usfmFragmentToUsj.js";
+import { NBSP } from "../../nodes/usj/node-constants.js";
+import { createMarkerLookup, StyleInfo } from "../../utils/usfm/styleInfo.js";
+
+describe("usfmFragmentToUsjContent — core", () => {
+  it("tokenizes a plain paragraph", () => {
+    expect(usfmFragmentToUsjContent("\\p In the days of the judges")).toEqual([
+      { type: "para", marker: "p", content: ["In the days of the judges"] },
+    ]);
+  });
+
+  it("splits multiple paragraph markers into paragraphs", () => {
+    expect(usfmFragmentToUsjContent("\\p one \\q1 two")).toEqual([
+      { type: "para", marker: "p", content: ["one "] },
+      { type: "para", marker: "q1", content: ["two"] },
+    ]);
+  });
+
+  it("wraps leading bare content in a default paragraph", () => {
+    expect(usfmFragmentToUsjContent("bare text \\p more")).toEqual([
+      { type: "para", marker: "p", content: ["bare text "] },
+      { type: "para", marker: "p", content: ["more"] },
+    ]);
+  });
+
+  it("builds an explicitly closed char span", () => {
+    expect(usfmFragmentToUsjContent("\\p before \\nd Lord\\nd* after")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["before ", { type: "char", marker: "nd", content: ["Lord"] }, " after"],
+      },
+    ]);
+  });
+
+  it("auto-closes an unclosed char span at the end of the paragraph", () => {
+    expect(usfmFragmentToUsjContent("\\p before \\nd Lord")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["before ", { type: "char", marker: "nd", content: ["Lord"], closed: "false" }],
+      },
+    ]);
+  });
+
+  it("auto-closes an open char span when a new non-nested char marker starts", () => {
+    expect(usfmFragmentToUsjContent("\\p \\nd Lord \\wj said")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "nd", content: ["Lord "], closed: "false" },
+          { type: "char", marker: "wj", content: ["said"], closed: "false" },
+        ],
+      },
+    ]);
+  });
+
+  it("nests a \\+ prefixed char marker", () => {
+    expect(usfmFragmentToUsjContent("\\p \\add added \\+nd Lord\\+nd* text\\add*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "add",
+            content: ["added ", { type: "char", marker: "nd", content: ["Lord"] }, " text"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("auto-closes char spans at a paragraph marker", () => {
+    expect(usfmFragmentToUsjContent("\\p \\nd Lord \\q1 line")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "nd", content: ["Lord "], closed: "false" }],
+      },
+      { type: "para", marker: "q1", content: ["line"] },
+    ]);
+  });
+
+  it("splits an unknown marker into a paragraph (PT9 DetermineUnknownTokenType)", () => {
+    expect(usfmFragmentToUsjContent("\\p a \\zzz b")).toEqual([
+      { type: "para", marker: "p", content: ["a "] },
+      { type: "para", marker: "zzz", content: ["b"] },
+    ]);
+  });
+
+  it("turns an unmatched closer into an unmatched element (PT9 sink.Unmatched)", () => {
+    expect(usfmFragmentToUsjContent("\\p a \\nd* b")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["a ", { type: "unmatched", marker: "nd*" }, " b"],
+      },
+    ]);
+  });
+
+  it("matches the FIRST closer of an open span; later same-marker closers stay unmatched", () => {
+    // The re-matching rule the editor relies on: an unmatched closer's bytes flowing through a
+    // rebuild are consumed by the first open frame of the same marker, and only the first — a
+    // second `\nd*` has no frame left and flags as unmatched.
+    expect(usfmFragmentToUsjContent("\\p \\nd asdf \\nd* fdsa \\nd*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "nd", content: ["asdf "] },
+          " fdsa ",
+          { type: "unmatched", marker: "nd*" },
+        ],
+      },
+    ]);
+  });
+
+  it("closes the open char span before flagging an unmatched closer (PT9 pop-until-match)", () => {
+    // PT9 (UsfmParser End token) pops open char styles until it matches or hits a non-char
+    // boundary; a mismatched `\qt*` still closes the open `\nd` (closed="false"), then flags the
+    // stray closer. Text after it lands in the paragraph, not swallowed into a zombie `\nd`.
+    expect(usfmFragmentToUsjContent("\\p \\nd a \\qt* b")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "nd", content: ["a "], closed: "false" },
+          { type: "unmatched", marker: "qt*" },
+          " b",
+        ],
+      },
+    ]);
+  });
+
+  it("maps ~ to NBSP in text content", () => {
+    expect(usfmFragmentToUsjContent("\\p 3~000 men")).toEqual([
+      { type: "para", marker: "p", content: [`3${NBSP}000 men`] },
+    ]);
+  });
+
+  it("regularizes whitespace runs in text", () => {
+    expect(usfmFragmentToUsjContent("\\p a  b\tc\nd")).toEqual([
+      { type: "para", marker: "p", content: ["a b c d"] },
+    ]);
+  });
+
+  it("passes the U+FFFC sentinel through as text", () => {
+    expect(usfmFragmentToUsjContent("\\p before ￼ after")).toEqual([
+      { type: "para", marker: "p", content: ["before ￼ after"] },
+    ]);
+  });
+
+  it("accepts an empty paragraph", () => {
+    expect(usfmFragmentToUsjContent("\\b")).toEqual([{ type: "para", marker: "b" }]);
+  });
+});
+
+describe("usfmFragmentToUsjContent — verse, chapter, note, milestone, attributes", () => {
+  it("tokenizes verses with numbers, segments, and bridges", () => {
+    expect(usfmFragmentToUsjContent("\\p \\v 1 one \\v 2a two \\v 3-4 three")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          "one ",
+          { type: "verse", marker: "v", number: "2a" },
+          "two ",
+          { type: "verse", marker: "v", number: "3-4" },
+          "three",
+        ],
+      },
+    ]);
+  });
+
+  it("keeps an open char span open across a verse marker (≤3.0: the verse nests inside)", () => {
+    // PT9 UsfmParser Verse case: `if (!RequiresPlusOnNestedStyles()) CloseCharStyles()`, and
+    // RequiresPlusOnNestedStyles() is true for USFM ≤3.0 — so ≤3.0 does NOT close char styles at a
+    // verse. The unclosed `\nd` continues across `\v 2`, with the verse and following text nested
+    // inside it. (USFM 3.1 inverts this; guarded by the ParatextData-upgrade tripwire.)
+    expect(usfmFragmentToUsjContent("\\p \\nd Lord \\v 2 next")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "nd",
+            content: ["Lord ", { type: "verse", marker: "v", number: "2" }, "next"],
+            closed: "false",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("tokenizes a chapter marker", () => {
+    expect(usfmFragmentToUsjContent("\\c 2 \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "2" },
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+  });
+
+  it("builds a closed footnote with caller and char content", () => {
+    expect(usfmFragmentToUsjContent("\\p text\\f + \\fr 1.1 \\ft A note.\\f* after")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text",
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "ft", content: ["A note."], closed: "false" },
+            ],
+          },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("marks an unterminated note closed=false", () => {
+    expect(usfmFragmentToUsjContent("\\p text\\f + \\ft open note")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text",
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [{ type: "char", marker: "ft", content: ["open note"], closed: "false" }],
+            closed: "false",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("tokenizes a terminated milestone with attributes", () => {
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |sid="ts.GEN.1"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "ts.GEN.1" }, " two"],
+      },
+    ]);
+  });
+
+  it("keeps an unterminated milestone as literal text", () => {
+    expect(usfmFragmentToUsjContent("\\p one \\ts-s two")).toEqual([
+      { type: "para", marker: "p", content: ["one \\ts-s two"] },
+    ]);
+  });
+
+  it("extracts named attributes from a closed char span", () => {
+    expect(usfmFragmentToUsjContent('\\p \\w gracious|lemma="grace" strong="G5485"\\w*')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "w",
+            lemma: "grace",
+            strong: "G5485",
+            content: ["gracious"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("maps a bare default attribute through the default-attribute table", () => {
+    expect(usfmFragmentToUsjContent("\\p \\w gracious|grace\\w*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "grace", content: ["gracious"] }],
+      },
+    ]);
+  });
+
+  it("uses the USFM 3.0 default-attribute name link-href for xt and jmp (3.1 renamed it href)", () => {
+    expect(
+      usfmFragmentToUsjContent("\\p \\jmp here|2SA 1:1\\jmp* and \\xt 1 Kgs 2:35|ref\\xt*"),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "jmp", "link-href": "2SA 1:1", content: ["here"] },
+          " and ",
+          { type: "char", marker: "xt", "link-href": "ref", content: ["1 Kgs 2:35"] },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a bare default-attribute value byte-exact, trailing space included (ParatextData)", () => {
+    // `\w marker|stuff \w*` → lemma "stuff " — the space before the closer is part of the value.
+    expect(usfmFragmentToUsjContent("\\p \\w marker|stuff \\w*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "stuff ", content: ["marker"] }],
+      },
+    ]);
+    // Same rule for milestone default attributes: `\qt-s |TJ \*` → who "TJ ".
+    expect(usfmFragmentToUsjContent("\\p a \\qt-s |TJ \\*b")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["a ", { type: "ms", marker: "qt-s", who: "TJ " }, "b"],
+      },
+    ]);
+  });
+
+  it("parses attribute values wrapped across a line break as if the break were a space", () => {
+    // ParatextData never lets a line break reach attribute parsing: UsfmToken.Tokenize
+    // regularizes the text FIRST (RegularizeSpaces turns control whitespace into plain
+    // deduplicated spaces) and only then hands it to HandleAttributes, so a wrapped
+    // attribute value parses with a space where the line break was.
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |sid="a\nb"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "a b" }, " two"],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p x\\fig cap|src="f.png" ref="1\n2"\\fig* y')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "x",
+          { type: "figure", marker: "fig", file: "f.png", ref: "1 2", content: ["cap"] },
+          " y",
+        ],
+      },
+    ]);
+  });
+
+  it("tokenizes // as an optbreak wherever it appears in text (PT9 spec-blind scan)", () => {
+    expect(usfmFragmentToUsjContent("\\p before // after //")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["before ", { type: "optbreak" }, " after ", { type: "optbreak" }],
+      },
+    ]);
+  });
+
+  it("never turns // inside an attribute value into an optbreak (named attribute)", () => {
+    // ParatextData strips the `|…` attribute segment out of the text run at tokenize-time
+    // (UsfmToken.HandleAttributes) BEFORE the `//`→optbreak split ever runs (UsfmParser's Text
+    // case), so `//` after the `|` is attribute-value bytes, never a discretionary break.
+    expect(usfmFragmentToUsjContent('\\p \\jmp go|link-href="http://x.y"\\jmp*')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "jmp", "link-href": "http://x.y", content: ["go"] }],
+      },
+    ]);
+  });
+
+  it("never turns // inside a bare default-attribute value into an optbreak", () => {
+    // The collapsed default-attribute spelling the editor's own attribute display produces.
+    expect(usfmFragmentToUsjContent("\\p \\jmp go|http://x.y\\jmp*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "jmp", "link-href": "http://x.y", content: ["go"] }],
+      },
+    ]);
+  });
+
+  it("still converts // in span content BEFORE the | while keeping the attribute value intact", () => {
+    // Pre-pipe `//` is ordinary content text — ParatextData's optbreak split applies to it.
+    expect(usfmFragmentToUsjContent('\\p \\w a//b|lemma="c"\\w*')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "w",
+            lemma: "c",
+            content: ["a", { type: "optbreak" }, "b"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("splits the attribute segment at the run's FIRST pipe even when // follows it", () => {
+    // PT9 finds the attribute boundary with `text.IndexOf('|')` on the whole run, so everything
+    // after the first `|` — later pipes and `//` included — is one attribute segment.
+    expect(usfmFragmentToUsjContent("\\p \\w a|x//y\\w*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "x//y", content: ["a"] }],
+      },
+    ]);
+  });
+
+  it("keeps an unparseable attribute segment literal, split optbreaks included (PT9 bail)", () => {
+    // `\nd` has no default attribute, so the bare segment fails to parse — PT9's SetAttributes
+    // returns false, the run stays TEXT with the pipe, and its post-pipe `//` then genuinely
+    // becomes an optbreak in the parser's text pass. The literal + split shape is correct here.
+    expect(usfmFragmentToUsjContent("\\p \\nd a|//\\nd*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "nd", content: ["a|", { type: "optbreak" }] }],
+      },
+    ]);
+  });
+
+  it("turns a stray \\* into an unmatched element (PT9 sink.Unmatched), not literal text", () => {
+    expect(usfmFragmentToUsjContent("\\p body \\* tail")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["body ", { type: "unmatched", marker: "*" }, " tail"],
+      },
+    ]);
+  });
+
+  it("nests a note inside an open char span and continues the span after it (USX nesting)", () => {
+    expect(usfmFragmentToUsjContent("\\p \\wj a \\f + \\fr 1:1 \\ft txt\\f* b\\wj* c")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "wj",
+            content: [
+              "a ",
+              {
+                type: "note",
+                marker: "f",
+                caller: "+",
+                content: [
+                  { type: "char", marker: "fr", content: ["1:1 "], closed: "false" },
+                  { type: "char", marker: "ft", content: ["txt"], closed: "false" },
+                ],
+              },
+              " b",
+            ],
+          },
+          " c",
+        ],
+      },
+    ]);
+  });
+
+  it("does not let a closer inside a note close a span enclosing the note", () => {
+    const content = usfmFragmentToUsjContent("\\p \\wj a \\f + \\ft x\\wj* y\\f* b\\wj*");
+    // PT9 (UsfmParser End token) pops char styles down to the note boundary: the in-note `\wj*`
+    // closes the open `\ft` (closed="false"), then — hitting the Note element without a match —
+    // flags an unmatched element at the note level, and " y" follows it there. The closer never
+    // reaches the enclosing `\wj` below the note boundary; that span survives and is closed by
+    // the final `\wj*`.
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "char",
+            marker: "wj",
+            content: [
+              "a ",
+              {
+                type: "note",
+                marker: "f",
+                caller: "+",
+                content: [
+                  {
+                    type: "char",
+                    marker: "ft",
+                    content: ["x"],
+                    closed: "false",
+                  },
+                  { type: "unmatched", marker: "wj*" },
+                  " y",
+                ],
+              },
+              " b",
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("treats bare ts/t-s/t-e as unknown markers (no stylesheet declares them), not milestones", () => {
+    // ParatextData parses these as unknown → paragraph in body text; the orphan `\*` becomes
+    // an unmatched element. Only `\qt#-s/-e` and `\ts-s/-e` are stylesheet-family milestones.
+    expect(usfmFragmentToUsjContent("\\p has ts \\ts \\* here")).toEqual([
+      { type: "para", marker: "p", content: ["has ts "] },
+      { type: "para", marker: "ts", content: [{ type: "unmatched", marker: "*" }, " here"] },
+    ]);
+    expect(usfmFragmentToUsjContent("\\p x \\ts-s |sec\\* y")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["x ", { type: "ms", marker: "ts-s", sid: "sec" }, " y"],
+      },
+    ]);
+  });
+
+  describe("attribute-marker folding (ca/cp/va/vp/cat become attributes on their target)", () => {
+    it("folds adjacent \\ca and \\cp onto the chapter, across structural line whitespace", () => {
+      expect(usfmFragmentToUsjContent("\\c 1\n \\ca 1 ca\\ca*\n\\cp 1 cp\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "1 ca", pubnumber: "1 cp" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps a non-adjacent \\ca standalone (its own char marker)", () => {
+      expect(usfmFragmentToUsjContent("\\p a \\ca 2\\ca* b")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["a ", { type: "char", marker: "ca", content: ["2"] }, " b"],
+        },
+      ]);
+    });
+
+    it("keeps \\cp with markers in its content standalone (spec rule; Paratext 9.5 gets this wrong)", () => {
+      expect(
+        usfmFragmentToUsjContent("\\c 3\n\\ca 3 ca\\ca*\n\\cp 3 cp \\wj wj marker \\wj*\n\\p b"),
+      ).toEqual([
+        { type: "chapter", marker: "c", number: "3", altnumber: "3 ca" },
+        {
+          type: "para",
+          marker: "cp",
+          // The trailing " " is the newline before \p regularized to a space — pre-existing
+          // paragraph-boundary behavior (engine fragments carry no line breaks).
+          content: ["3 cp ", { type: "char", marker: "wj", content: ["wj marker "] }],
+        },
+        { type: "para", marker: "p", content: ["b"] },
+      ]);
+    });
+
+    it("folds \\cat right after the note caller into the note's category attribute", () => {
+      expect(
+        usfmFragmentToUsjContent("\\p x\\f + \\cat things\\cat*\\fr 1:12 \\ft Some\\f* y"),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              category: "things",
+              content: [
+                { type: "char", marker: "fr", content: ["1:12 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["Some"], closed: "false" },
+              ],
+            },
+            " y",
+          ],
+        },
+      ]);
+    });
+
+    it("keeps \\cat with markup in its content standalone inside the note", () => {
+      const content = usfmFragmentToUsjContent(
+        "\\p \\f + \\cat \\+wj stuff \\+wj*\\cat* \\fr 1:2 \\ft t\\f*",
+      );
+      expect(content).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                {
+                  type: "char",
+                  marker: "cat",
+                  content: [{ type: "char", marker: "wj", content: ["stuff "] }],
+                },
+                " ",
+                { type: "char", marker: "fr", content: ["1:2 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["t"], closed: "false" },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("folds \\va onto the preceding verse; the space after the closer is content", () => {
+      // Paratext treats spaces after attribute markers as text content (fixture v11 rule),
+      // so the following text keeps its leading space.
+      expect(usfmFragmentToUsjContent("\\p \\v 4 \\va 5\\va* text")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "4", altnumber: "5" }, " text"],
+        },
+      ]);
+    });
+
+    it("a same-line space before \\vp blocks its fold (fixture v12 rule)", () => {
+      // `\va*` folds; the space between it and `\vp` is content per Paratext, so vp is no
+      // longer adjacent and stays a standalone marker.
+      expect(usfmFragmentToUsjContent("\\p \\v 12 \\va 12 va\\va* \\vp 12 vp\\vp*Text")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "12", altnumber: "12 va" },
+            " ",
+            { type: "char", marker: "vp", content: ["12 vp"] },
+            "Text",
+          ],
+        },
+      ]);
+    });
+
+    it("trims a folded \\ca value: the space before the closer never reaches the attribute", () => {
+      // ParatextData trims every folded chapter/verse-alternate value
+      // (UsfmParser.FindOtherVerseOrChapterNumber: `tokens[index + skip + 2].Text.Trim()`),
+      // so `\ca 2 \ca*` yields altnumber exactly "2", not "2 ".
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca 2 \\ca*\n\\p x")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "para", marker: "p", content: ["x"] },
+      ]);
+    });
+
+    it("trims a folded \\cat category the same way", () => {
+      // The note-category lookup trims too (UsfmParser: `noteCategory =
+      // tokens[index + 2].Text.Trim()`), so `\cat things \cat*` folds to exactly "things".
+      expect(
+        usfmFragmentToUsjContent("\\p x\\f + \\cat things \\cat*\\fr 1:12 \\ft Some\\f* y"),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              category: "things",
+              content: [
+                { type: "char", marker: "fr", content: ["1:12 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["Some"], closed: "false" },
+              ],
+            },
+            " y",
+          ],
+        },
+      ]);
+    });
+
+    it("folds \\cp at fragment end (the cp paragraph ended with plain text)", () => {
+      expect(usfmFragmentToUsjContent("\\c 2\n\\cp 2 cp")).toEqual([
+        { type: "chapter", marker: "c", number: "2", pubnumber: "2 cp" },
+      ]);
+    });
+
+    it("drops the line break after a folded \\ca at a paragraph boundary (no stray root text)", () => {
+      // ParatextData strips the space a line break leaves behind when the next token is a
+      // paragraph/book/chapter (UsfmParser Text case, "strip final space"), so nothing lands
+      // between the chapter and the paragraph — see 2SA-1 in paranext-core's
+      // usj-reader-writer test data for the real ParatextData shape.
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca 2\\ca*\n\\p In the beginning")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "para", marker: "p", content: ["In the beginning"] },
+      ]);
+    });
+
+    it("drops the line break after a folded \\ca at a chapter boundary", () => {
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca 2\\ca*\n\\c 2\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("drops the line break after a folded \\va at a paragraph boundary", () => {
+      expect(usfmFragmentToUsjContent("\\p \\v 1 \\va 2\\va*\n\\p next")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", altnumber: "2" }],
+        },
+        { type: "para", marker: "p", content: ["next"] },
+      ]);
+    });
+
+    it("folds \\va directly onto a bare verse fragment (Tier-2 re-tokenization pin)", () => {
+      // Pins the exact fragment Tier-2's verse-attribute run rebuilds re-tokenize: no leading
+      // \p, no trailing content — just the verse and its \va triplet.
+      expect(usfmFragmentToUsjContent("\\v 1 \\va 2\\va*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "verse", marker: "v", number: "1", altnumber: "2" }],
+        },
+      ]);
+    });
+
+    it("keeps the line-wrap space after a folded \\cat before the note's first char marker", () => {
+      // INTENTIONAL space: ParatextData's strip-final-space rule applies only before
+      // paragraph/book/chapter tokens. `\ft` is a character token, so the line break between
+      // `\cat*` and `\ft` stays a content space inside the note (sink.Text receives " ").
+      expect(usfmFragmentToUsjContent("\\p \\f + \\cat x\\cat*\n\\ft t\\f*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              category: "x",
+              content: [" ", { type: "char", marker: "ft", content: ["t"], closed: "false" }],
+            },
+          ],
+        },
+      ]);
+    });
+  });
+
+  describe("empty leading-attribute markers become first-class elements, never empty attributes", () => {
+    // PT9 (UsfmParser.FindOtherVerseOrChapterNumber): the fold to altnumber/pubnumber/category
+    // requires NON-EMPTY content between the marker and its closer. An empty span (any spelling —
+    // `\va \va*`, `\va\va*`, `\va  \va*`) never yields an empty attribute; it stays a first-class
+    // char element (va/vp/ca/cat) or para element (cp) sitting after its target.
+    it("keeps an empty \\va a standalone (explicitly closed) char, not an empty altnumber", () => {
+      expect(usfmFragmentToUsjContent("\\v 1 \\va \\va*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "va" },
+          ],
+        },
+      ]);
+    });
+
+    it("treats every empty \\va spelling identically (no space, one space, two spaces)", () => {
+      const expected = [
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "va" },
+          ],
+        },
+      ];
+      expect(usfmFragmentToUsjContent("\\v 1 \\va\\va*")).toEqual(expected);
+      expect(usfmFragmentToUsjContent("\\v 1 \\va  \\va*")).toEqual(expected);
+    });
+
+    it("keeps an empty \\vp a standalone char, not an empty pubnumber", () => {
+      expect(usfmFragmentToUsjContent("\\v 1 \\vp \\vp*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "vp" },
+          ],
+        },
+      ]);
+    });
+
+    it("keeps back-to-back empty \\va and \\vp both standalone chars (no attributes at all)", () => {
+      expect(usfmFragmentToUsjContent("\\v 1 \\va\\va*\\vp\\vp*")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "1" },
+            { type: "char", marker: "va" },
+            { type: "char", marker: "vp" },
+          ],
+        },
+      ]);
+    });
+
+    it("an empty \\va blocks a following NON-empty \\vp from folding (both stay standalone chars)", () => {
+      // Ground truth, captured from ParatextData itself (GetChapterUsx on a project whose
+      // stylesheet knows va/vp): `\v 11 \va\va*\vp 11 vp\vp* This verse.` comes back as
+      // `<verse number="11"/><char style="va"/><char style="vp">11 vp</char> This verse.` — NEITHER
+      // marker folds, and both keep their document position. The empty `\va` materializes as real
+      // content, and real content between a verse and an attribute marker blocks the fold exactly
+      // the way a same-line space does (the fixture-v12 rule pinned above).
+      //
+      // Letting `\vp` fold across it silently REORDERED the document on the way back to USFM: the
+      // verse carried `pubnumber` (serialized immediately after `\v 11`) while the `\va` char
+      // trailed behind it, turning `\v 11 \va\va*\vp 11 vp\vp*` into
+      // `\v 11 \vp 11 vp\vp*\va \va*`. This is the shape a Standard-view edit produces whenever a
+      // user deletes an alternate verse number's text while a published number rides beside it.
+      expect(usfmFragmentToUsjContent("\\p \\v 11 \\va\\va*\\vp 11 vp\\vp* This verse.")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "11" },
+            { type: "char", marker: "va" },
+            { type: "char", marker: "vp", content: ["11 vp"] },
+            " This verse.",
+          ],
+        },
+      ]);
+    });
+
+    it("blocks the following fold for the spaced empty spelling too (\\va \\va*)", () => {
+      // The same ParatextData capture, for the spelling a settled empty run actually displays
+      // (`\va \va*` — the char span's own separator space).
+      expect(usfmFragmentToUsjContent("\\p \\v 11 \\va \\va*\\vp 11 vp\\vp* This verse.")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "verse", marker: "v", number: "11" },
+            { type: "char", marker: "va" },
+            { type: "char", marker: "vp", content: ["11 vp"] },
+            " This verse.",
+          ],
+        },
+      ]);
+    });
+
+    it("keeps an empty \\ca a standalone char after the chapter, not an empty altnumber", () => {
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca \\ca*\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps an empty \\cp a standalone (empty) PARA, not an empty pubnumber", () => {
+      // cp is paragraph-shaped (no end marker), so its empty case is a para element, not a char.
+      expect(usfmFragmentToUsjContent("\\c 2\n\\cp \n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "para", marker: "cp" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("keeps a \\ca after an empty \\cp a standalone char — it never folds onto the chapter", () => {
+      // The reverse pairing of the case below, and the one shape that could still reach the
+      // receptive window an empty `\cp` deliberately leaves open (see the empty-cp branch's
+      // comment in usfmFragmentToUsj.ts). It does not: `\ca` is char-shaped, so it arrives while
+      // the `\cp` capture is still open and takes the unfoldable-markup arm, which closes the
+      // window before materializing the `\cp` paragraph. The `\ca` is then reprocessed as an
+      // ordinary char span inside that paragraph, and the chapter gets NO altnumber — so the
+      // document-order rewrite the char-shaped empty branch had to close (a folded attribute
+      // serializing ahead of an element that precedes it) cannot arise here.
+      expect(usfmFragmentToUsjContent("\\c 1\n\\cp \n\\ca 2\\ca*\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        {
+          type: "para",
+          marker: "cp",
+          content: [{ type: "char", marker: "ca", content: ["2"] }],
+        },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("an empty \\ca blocks a following \\cp the same way (chapter's own marker pair)", () => {
+      // A chapter takes BOTH \ca and \cp, so it can exhibit the same cross-fold as a verse's
+      // \va/\vp. Both halves of this expectation are captured from ParatextData — see
+      // `VerseAttributeFoldRoundTripCaptureTests.EmptyCaThenCp_NeitherFolds` in paranext-core, which
+      // registers `ca` with its real usfm.sty shape (`cp` is already in the fixture's stylesheet in
+      // that shape; without the `ca` tag the marker is unknown to that stylesheet, and ParatextData's
+      // DEGRADATION rather than its fold rule is what gets captured) and pins
+      // `<char style="ca" /><para style="cp">A</para>`: `\ca` stays a
+      // first-class CHAR element, and `\cp A` does NOT become the chapter's pubnumber — it stays its
+      // own paragraph-shaped element.
+      expect(usfmFragmentToUsjContent("\\c 1\n\\ca\\ca*\n\\cp A\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        { type: "char", marker: "ca" },
+        { type: "para", marker: "cp", content: ["A"] },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it("folds \\cp across a same-line space after a folded \\ca (chapter-only skip)", () => {
+      // The chapter path is ASYMMETRIC to the verse path here: after a successful \ca fold,
+      // ParatextData consumes ONE whitespace-only token unconditionally, so a same-line space
+      // between `\ca*` and `\cp` is structural and \cp still folds — while the identical space
+      // between `\va*` and `\vp` blocks the \vp fold (the v12 rule above). Captured in
+      // paranext-core's `VerseAttributeFoldRoundTripCaptureTests.FilledCaThenCp_BothFold`
+      // (`\c 1 \ca 2\ca* \cp A \p` yields altnumber AND pubnumber on the chapter).
+      expect(usfmFragmentToUsjContent("\\c 1 \\ca 2\\ca* \\cp A\n\\p x")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2", pubnumber: "A" },
+        { type: "para", marker: "p", content: ["x"] },
+      ]);
+    });
+
+    it("consumes the space after a folded \\ca even when no \\cp follows", () => {
+      // The skip is not gated on what comes next: the whitespace-only token after the fold is
+      // consumed outright, so the space never becomes chapter-level text content before an
+      // ordinary char span. Captured in paranext-core's
+      // `VerseAttributeFoldRoundTripCaptureTests.SpaceAfterFoldedCa_IsConsumedEvenWithoutCp`
+      // (`<chapter altnumber="2" /><char style="nd">x</char>`, no text node between).
+      expect(usfmFragmentToUsjContent("\\c 1 \\ca 2\\ca* \\nd x\\nd*\n\\p y")).toEqual([
+        { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+        { type: "char", marker: "nd", content: ["x"] },
+        { type: "para", marker: "p", content: ["y"] },
+      ]);
+    });
+
+    it("keeps the line break between an empty \\va and a following \\vp as a content space", () => {
+      // Whitespace disposition, second-order to the blocked fold above. While a target is
+      // "receptive", whitespace before the attribute marker is HELD and then dropped as structural
+      // if the fold happens. Once the empty `\va` closes the window, the line break after it is
+      // ordinary text again — and the text rule (see the `case "text"` comment in
+      // usfmFragmentToUsj.ts) keeps a line break that precedes an INLINE token as a content space,
+      // dropping it only before a block boundary (a para/chapter token or fragment end). `\vp` is
+      // inline, so the break survives as `" "` between the two char elements.
+      //
+      // Pre-fix this space did not exist: `\vp` folded onto the verse, which consumed the held
+      // whitespace as structural. Only whole-file (or direct-converter) input reaches this path —
+      // engine fragments carry no line breaks.
+      expect(usfmFragmentToUsjContent("\\p \\v 11 \\va\\va*\n\\vp 11 vp\\vp* This verse.")).toEqual(
+        [
+          {
+            type: "para",
+            marker: "p",
+            content: [
+              { type: "verse", marker: "v", number: "11" },
+              { type: "char", marker: "va" },
+              " ",
+              { type: "char", marker: "vp", content: ["11 vp"] },
+              " This verse.",
+            ],
+          },
+        ],
+      );
+    });
+
+    it("keeps the line break after an empty \\cat in a sidebar as a content space", () => {
+      // The sidebar arm of the same disposition rule. `clearAttrTarget` drops held whitespace
+      // outright when the receptive target is a SIDEBAR (its content is block-level, so the break
+      // between `\esb`/`\cat` and the first block is never text). Closing the window at the empty
+      // `\cat` means the following line break never becomes held whitespace at all — it is ordinary
+      // text before an inline `\bd`, so it survives as `" "`, matching what the same break does
+      // anywhere else inside the sidebar's paragraph.
+      expect(usfmFragmentToUsjContent("\\esb\n\\cat \\cat*\n\\bd x\\bd*\n\\esbe")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          content: [
+            {
+              type: "para",
+              marker: "p",
+              content: [
+                { type: "char", marker: "cat" },
+                " ",
+                { type: "char", marker: "bd", content: ["x"] },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("keeps an empty \\cp at fragment end a standalone empty para", () => {
+      expect(usfmFragmentToUsjContent("\\c 2\n\\cp ")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "para", marker: "cp" },
+      ]);
+    });
+
+    it("keeps an empty \\cat a standalone char inside the note, not an empty category", () => {
+      expect(usfmFragmentToUsjContent("\\p x\\f + \\cat \\cat*\\fr 1:12 \\ft Some\\f* y")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                { type: "char", marker: "cat" },
+                { type: "char", marker: "fr", content: ["1:12 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["Some"], closed: "false" },
+              ],
+            },
+            " y",
+          ],
+        },
+      ]);
+    });
+
+    it("keeps an empty \\cat inside a sidebar a standalone char (no empty category)", () => {
+      // An empty `\cat` directly after `\esb` has no category to fold; being char-shaped, it
+      // lands as ordinary sidebar content, which is block-level — so it takes an implied `\p`
+      // wrapper (the converter-level contract for this degenerate shape). The sidebar carries no
+      // `category` attribute.
+      expect(usfmFragmentToUsjContent("\\esb \\cat \\cat*\n\\p one\n\\esbe")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          content: [
+            { type: "para", marker: "p", content: [{ type: "char", marker: "cat" }] },
+            { type: "para", marker: "p", content: ["one"] },
+          ],
+        },
+      ]);
+    });
+  });
+
+  describe("opaque-structure emission (figures, tables, sidebars → faithful USJ shapes)", () => {
+    it("emits an inline figure with src renamed to file and no content when empty", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          '\\p a figure \\fig |src="f.png" size="col" ref="1.13"\\fig* here',
+        ),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "a figure ",
+            { type: "figure", marker: "fig", file: "f.png", size: "col", ref: "1.13" },
+            " here",
+          ],
+        },
+      ]);
+    });
+
+    it("emits a figure with caption content and all six named attributes", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          '\\p x\\fig Caption Here|alt="D" src="f.png" size="span" loc="L" copy="C" ref="1.13"\\fig*. y',
+        ),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            "x",
+            {
+              type: "figure",
+              marker: "fig",
+              alt: "D",
+              file: "f.png",
+              size: "span",
+              loc: "L",
+              copy: "C",
+              ref: "1.13",
+              content: ["Caption Here"],
+            },
+            ". y",
+          ],
+        },
+      ]);
+    });
+
+    it("never turns // inside a figure's attribute value into an optbreak", () => {
+      // Same tokenizer behavior as extractAttributes' char-span fix: `//` is split into
+      // optbreak tokens spec-blind, including inside the `|attributes` segment where
+      // ParatextData treats it as plain value bytes (the segment is stripped from the text
+      // run and parsed as attributes, never reaching the `//`→optbreak pass). A clean figure
+      // span must still fold faithfully, URL intact, instead of degrading to a char span.
+      expect(
+        usfmFragmentToUsjContent('\\p \\fig caption|src="http://x.y/z.png" size="span"\\fig*'),
+      ).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "figure",
+              marker: "fig",
+              file: "http://x.y/z.png",
+              size: "span",
+              content: ["caption"],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("assembles rows and cells into a table with name-derived align and span colspan", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          "\\tr \\th1 Header 1\\thc3-4 H34 centered\\thr5 H5 right\n\\p after",
+        ),
+      ).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "th1", align: "start", content: ["Header 1"] },
+                // Span syntax keeps the first column in the marker; colspan is a STRING
+                // (columns spanned): thc3-4 → thc3, colspan "2".
+                {
+                  type: "table:cell",
+                  marker: "thc3",
+                  align: "center",
+                  colspan: "2",
+                  content: ["H34 centered"],
+                },
+                { type: "table:cell", marker: "thr5", align: "end", content: ["H5 right"] },
+              ],
+            },
+          ],
+        },
+        { type: "para", marker: "p", content: ["after"] },
+      ]);
+    });
+
+    it("keeps char spans inside cells and multiple rows in one table", () => {
+      expect(
+        usfmFragmentToUsjContent("\\tr \\tc1 a\\tc2 b \\wj w\\wj* c\\tr \\tcr1-4 d\\tc5 e"),
+      ).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tc1", align: "start", content: ["a"] },
+                {
+                  type: "table:cell",
+                  marker: "tc2",
+                  align: "start",
+                  content: ["b ", { type: "char", marker: "wj", content: ["w"] }, " c"],
+                },
+              ],
+            },
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tcr1", align: "end", colspan: "4", content: ["d"] },
+                { type: "table:cell", marker: "tc5", align: "start", content: ["e"] },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("wraps sidebar content in a sidebar with \\cat folded to its category", () => {
+      expect(
+        usfmFragmentToUsjContent(
+          "\\esb \\cat Test Category\\cat*\n\\p one\n\\p two\n\\esbe\n\\p after",
+        ),
+      ).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          category: "Test Category",
+          content: [
+            { type: "para", marker: "p", content: ["one"] },
+            { type: "para", marker: "p", content: ["two"] },
+          ],
+        },
+        { type: "para", marker: "p", content: ["after"] },
+      ]);
+    });
+
+    it("a column beyond 12 is not a cell: it ends the table and the next \\tr starts fresh", () => {
+      // usfm.sty declares exactly th1–th12/tc1–tc12; ParatextData follows its stylesheet,
+      // so \tc13 is an unknown marker (paragraph) that breaks the table in two.
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc13 x\\tr \\tc2 b")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc13", content: ["x"] },
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc2", align: "start", content: ["b"] }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("rejects a leading-zero cell column: \\tc01 is an unknown marker that ends the table", () => {
+      // ParatextData's tag lookup is by LITERAL name (usfm.sty declares exactly
+      // th1–th12/tc1–tc12; ScrStylesheet.GetTagIndex is a string-keyed dictionary, no
+      // numeric parse), so `\tc01` and `\thc007` are unknown markers — paragraphs that
+      // end the table, exactly like `\tc13`.
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc01 x\\tr \\tc2 b")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc01", content: ["x"] },
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc2", align: "start", content: ["b"] }],
+            },
+          ],
+        },
+      ]);
+      expect(usfmFragmentToUsjContent("\\tr \\th1 a\\thc007 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "th1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "thc007", content: ["x"] },
+      ]);
+    });
+
+    it("rejects a reversed or non-growing cell span (ParatextData: unknown marker ends the table)", () => {
+      // ScrStylesheet.IsCellRange (cellRangeRegex `^(t[ch][cr]?[1-5])-([2-5])$`, colSpan >= 2):
+      // a reversed span (`thc4-2`, colSpan -1) or a span that doesn't grow (`tc2-2`, colSpan 1)
+      // is NOT a cell range, so ParatextData sees an unknown marker — a paragraph that ends
+      // the table, exactly like `\tc13`.
+      expect(usfmFragmentToUsjContent("\\tr \\th1 a\\thc4-2 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "th1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "thc4-2", content: ["x"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc2-2 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc2-2", content: ["x"] },
+      ]);
+    });
+
+    it("rejects a cell span outside ParatextData's single-digit 1–5 → 2–5 range", () => {
+      // cellRangeRegex takes only single-digit columns: start 1–5, end 2–5. `\thc11-13` and
+      // `\tc6-7` don't match, so both are unknown markers (paragraphs) even though their
+      // rangeless bases (`thc11`, `tc6`) would be valid cells.
+      expect(usfmFragmentToUsjContent("\\tr \\th1 a\\thc11-13 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "th1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "thc11-13", content: ["x"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\tr \\tc1 a\\tc6-7 x")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [{ type: "table:cell", marker: "tc1", align: "start", content: ["a"] }],
+            },
+          ],
+        },
+        { type: "para", marker: "tc6-7", content: ["x"] },
+      ]);
+    });
+
+    it("accepts the widest ParatextData cell span, columns 1–5", () => {
+      expect(usfmFragmentToUsjContent("\\tr \\tc1-5 a")).toEqual([
+        {
+          type: "table",
+          content: [
+            {
+              type: "table:row",
+              marker: "tr",
+              content: [
+                { type: "table:cell", marker: "tc1", align: "start", colspan: "5", content: ["a"] },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("loose content after a chapter lands at DOCUMENT ROOT, not in an implied paragraph", () => {
+      // ParatextData root scope: text typed after `\c 1` saves as its own ` text` line with no
+      // `\p`; an unclosed `\ca` there strands a root-level char (2SA-2's oracle shape).
+      expect(usfmFragmentToUsjContent("\\c 1\ntext after chapter\n\\s1 Heading")).toEqual([
+        { type: "chapter", marker: "c", number: "1" },
+        "text after chapter",
+        { type: "para", marker: "s1", content: ["Heading"] },
+      ]);
+      expect(usfmFragmentToUsjContent("\\c 2\n \\ca 2 ca\n\\p body")).toEqual([
+        { type: "chapter", marker: "c", number: "2" },
+        { type: "char", marker: "ca", content: ["2 ca"], closed: "false" },
+        { type: "para", marker: "p", content: ["body"] },
+      ]);
+    });
+
+    it('marks a sidebar unclosed at fragment end with closed="false"', () => {
+      expect(usfmFragmentToUsjContent("\\esb\n\\p in sidebar")).toEqual([
+        {
+          type: "sidebar",
+          marker: "esb",
+          closed: "false",
+          content: [{ type: "para", marker: "p", content: ["in sidebar"] }],
+        },
+      ]);
+    });
+  });
+
+  describe('closed="false" parity (ParatextData marks every implicitly-closed char span)', () => {
+    it("marks a char span auto-closed at the paragraph end", () => {
+      expect(usfmFragmentToUsjContent("\\p before \\nd Lord")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: ["before ", { type: "char", marker: "nd", content: ["Lord"], closed: "false" }],
+        },
+      ]);
+    });
+
+    it("marks a char span auto-closed by the next non-nested char opener", () => {
+      expect(usfmFragmentToUsjContent("\\p \\it aa \\bd bb")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            { type: "char", marker: "it", content: ["aa "], closed: "false" },
+            { type: "char", marker: "bd", content: ["bb"], closed: "false" },
+          ],
+        },
+      ]);
+    });
+
+    it("marks nested spans implicitly closed when the outer span closes explicitly", () => {
+      expect(usfmFragmentToUsjContent("\\p \\add aa \\+nd bb\\add* cc")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "char",
+              marker: "add",
+              content: ["aa ", { type: "char", marker: "nd", content: ["bb"], closed: "false" }],
+            },
+            " cc",
+          ],
+        },
+      ]);
+    });
+
+    it("marks note-content chars implicitly closed by the note's explicit end", () => {
+      // The classic footnote shape from real ParatextData USJ: \fr and \ft never carry their own
+      // closers, so both get closed="false"; the explicitly-terminated note itself does not.
+      expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\ft txt\\f* after")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [
+            {
+              type: "note",
+              marker: "f",
+              caller: "+",
+              content: [
+                { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+                { type: "char", marker: "ft", content: ["txt"], closed: "false" },
+              ],
+            },
+            " after",
+          ],
+        },
+      ]);
+    });
+
+    it("leaves an explicitly closed char span unmarked", () => {
+      expect(usfmFragmentToUsjContent("\\p \\nd Lord\\nd* after")).toEqual([
+        {
+          type: "para",
+          marker: "p",
+          content: [{ type: "char", marker: "nd", content: ["Lord"] }, " after"],
+        },
+      ]);
+    });
+  });
+
+  it("never lets an attribute named type/marker/content clobber the node's own keys", () => {
+    // A malformed/hostile attribute list must not overwrite the USJ node's structural keys —
+    // `type="x"` on a char span would otherwise break downstream node-type dispatch, and
+    // `content="y"` would replace the content array with a string.
+    expect(
+      usfmFragmentToUsjContent('\\p \\w foo|type="x" marker="y" content="z" lemma="ok"\\w*'),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", lemma: "ok", content: ["foo"] }],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p one \\ts-s |type="x" sid="ts.GEN.1"\\* two')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["one ", { type: "ms", marker: "ts-s", sid: "ts.GEN.1" }, " two"],
+      },
+    ]);
+  });
+});
+
+const projectSheet: StyleInfo = {
+  markers: {
+    p: { marker: "p", styleType: "paragraph" },
+    zln: { marker: "zln", styleType: "character", endMarker: "zln*" },
+    zpb: { marker: "zpb", styleType: "paragraph" },
+  },
+};
+
+describe("stylesheet-first classification", () => {
+  it("classifies a custom.sty character marker that matches the z-milestone wildcard", () => {
+    const content = usfmFragmentToUsjContent("\\p text \\zln word\\zln* after", {
+      getMarker: createMarkerLookup(projectSheet),
+    });
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["text ", { type: "char", marker: "zln", content: ["word"] }, " after"],
+      },
+    ]);
+  });
+
+  it("classifies a custom.sty paragraph marker", () => {
+    const content = usfmFragmentToUsjContent("\\p one \\zpb two", {
+      getMarker: createMarkerLookup(projectSheet),
+    });
+    expect(content).toEqual([
+      { type: "para", marker: "p", content: ["one "] },
+      { type: "para", marker: "zpb", content: ["two"] },
+    ]);
+  });
+});
+
+describe("PT9 unknown-marker handling", () => {
+  it("unknown marker in body context becomes a paragraph (UsfmParser.DetermineUnknownTokenType)", () => {
+    const content = usfmFragmentToUsjContent("\\p before \\zfoo after");
+    expect(content).toEqual([
+      { type: "para", marker: "p", content: ["before "] },
+      { type: "para", marker: "zfoo", content: ["after"] },
+    ]);
+  });
+
+  it("unknown marker in note context becomes a char run and consumes its closer", () => {
+    const content = usfmFragmentToUsjContent("\\ft text \\zfoo word\\zfoo* after", {
+      isNoteContext: true,
+    });
+    // Flat siblings, not nesting: PT9 closes open char styles unconditionally for any
+    // non-`+` Character token (ParatextData UsfmParser, CharacterStyleShouldAutomaticallyClose).
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "char", marker: "ft", content: ["text "], closed: "false" },
+          { type: "char", marker: "zfoo", content: ["word"] },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("keeps an unterminated suffix-convention z-milestone literal; other z-markers resolve as unknown", () => {
+    // zmsc-s is on MilestoneNode's explicit list (-s/-e suffix convention): malformed milestone.
+    expect(usfmFragmentToUsjContent("\\p one \\zmsc-s two")).toEqual([
+      { type: "para", marker: "p", content: ["one \\zmsc-s two"] },
+    ]);
+    // zfoo matches only the generic z-prefix wildcard: unknown resolution, not milestone.
+    expect(usfmFragmentToUsjContent("\\p one \\zfoo two")).toEqual([
+      { type: "para", marker: "p", content: ["one "] },
+      { type: "para", marker: "zfoo", content: ["two"] },
+    ]);
+  });
+
+  it("bare unknown closer becomes an unmatched element (sink.Unmatched)", () => {
+    const content = usfmFragmentToUsjContent("\\p text \\zfoo* after");
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["text ", { type: "unmatched", marker: "zfoo*" }, " after"],
+      },
+    ]);
+  });
+
+  it("known closer without an opener becomes an unmatched element", () => {
+    const content = usfmFragmentToUsjContent("\\p text \\nd* after");
+    expect(content).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: ["text ", { type: "unmatched", marker: "nd*" }, " after"],
+      },
+    ]);
+  });
+
+  it("a marker named after an Object.prototype member is unknown, not an attribute marker", () => {
+    // The attribute-marker table (ca/cp/va/vp/cat) is a plain object, so indexing it with
+    // `toString` returns the INHERITED function — truthy, and enough to classify the marker as a
+    // parser-level attribute marker whose `shape` is undefined. It must resolve by context like
+    // any other marker the stylesheet does not declare: a paragraph in body text.
+    expect(usfmFragmentToUsjContent("\\p before \\toString after")).toEqual([
+      { type: "para", marker: "p", content: ["before "] },
+      { type: "para", marker: "toString", content: ["after"] },
+    ]);
+  });
+
+  it("esb stays a paragraph even in note context (UsfmToken.cs special case)", () => {
+    const content = usfmFragmentToUsjContent("\\ft text \\esb more", { isNoteContext: true });
+    expect(content[content.length - 1]).toMatchObject({ type: "para", marker: "esb" });
+  });
+});
+
+describe("default-attribute lookups (shared with attribute display)", () => {
+  it("char defaults match PT9 ≤3.0", () => {
+    expect(defaultMarkerAttribute("w")).toBe("lemma");
+    expect(defaultMarkerAttribute("rb")).toBe("gloss");
+    expect(defaultMarkerAttribute("xt")).toBe("link-href");
+    expect(defaultMarkerAttribute("jmp")).toBe("link-href");
+    expect(defaultMarkerAttribute("fig")).toBeUndefined();
+    expect(defaultMarkerAttribute("nd")).toBeUndefined();
+  });
+  it("milestone defaults match PT9 ≤3.0", () => {
+    expect(milestoneDefaultAttribute("qt1-s")).toBe("who");
+    expect(milestoneDefaultAttribute("qt1-e")).toBe("eid");
+    expect(milestoneDefaultAttribute("ts-s")).toBe("sid");
+  });
+});
+
+describe("regularizeSpaces — Paratext 9 RegularizeSpaces vectors", () => {
+  // These are the assertions from ParatextData.Tests/UsfmTokenTests.cs, so a divergence from
+  // Paratext shows up here as a failure rather than as corrupted text in a project.
+  it("collapses runs of plain spaces to one", () => {
+    expect(regularizeSpaces("This is a test.")).toBe("This is a test.");
+    expect(regularizeSpaces("This   is     a  test.")).toBe("This is a test.");
+    expect(regularizeSpaces("   This is a test.  ")).toBe(" This is a test. ");
+  });
+
+  it("turns control characters into plain spaces", () => {
+    expect(regularizeSpaces("This\u0001is a\u001Atest.")).toBe("This is a test.");
+    expect(regularizeSpaces("This\u0006\u0006\u0006is a\u001B\u001Btest.")).toBe("This is a test.");
+    expect(regularizeSpaces(" \u0003  This is a test.  \u001C")).toBe(" This is a test. ");
+  });
+
+  it("keeps the first space of a run exactly as authored", () => {
+    // EN SPACE, FIGURE SPACE, EM SPACE: the run collapses to whichever space came first
+    expect(regularizeSpaces("This\u2002 is\u2007\u2007\u2007 a \u2003test.")).toBe(
+      "This\u2002is\u2007a test.",
+    );
+    // THIN SPACE and HAIR SPACE
+    expect(regularizeSpaces("\u2009 This is a test. \u200A")).toBe("\u2009This is a test. ");
+  });
+
+  it("treats IDEOGRAPHIC SPACE as content, collapsing only exact repeats", () => {
+    expect(regularizeSpaces(" \u3000\u3000\u3000  This is\u3000 a test.  \u3000")).toBe(
+      " \u3000 This is\u3000 a test. \u3000",
+    );
+  });
+
+  it("drops a ZWSP that is redundant beside a space but keeps one between words", () => {
+    expect(regularizeSpaces("This\u200B is\u200C a\u200D \u200Btest.")).toBe(
+      "This is\u200C a\u200D test.",
+    );
+  });
+
+  it("collapses an invisible character repeated immediately", () => {
+    expect(regularizeSpaces("This is a word\u2060\u2060break test.")).toBe(
+      "This is a word\u2060break test.",
+    );
+  });
+
+  it("preserves NBSP rather than flattening it to a space", () => {
+    expect(regularizeSpaces("a\u00A0b")).toBe("a\u00A0b");
+  });
+
+  it("preserves the ZWSP that breaks words in Thai, Khmer, and Lao", () => {
+    // No space is adjacent, so this ZWSP is the word boundary itself and must survive
+    expect(regularizeSpaces("\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200B\u0e42\u0e25\u0e01")).toBe(
+      "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200B\u0e42\u0e25\u0e01",
+    );
+  });
+
+  it("still collapses a run containing a line break to the structural marker", () => {
+    expect(regularizeSpaces("a \n b")).toBe("a\nb");
+    expect(regularizeSpaces("a\u00A0\nb")).toBe("a\nb");
+  });
+});
+
+describe("usfmFragmentToUsjContent — authored spacing survives a parse", () => {
+  it("keeps a literal NBSP in verse text", () => {
+    expect(usfmFragmentToUsjContent("\\p one\u00A0two")).toEqual([
+      { type: "para", marker: "p", content: [`one${NBSP}two`] },
+    ]);
+  });
+
+  it("keeps a word-breaking ZWSP in verse text", () => {
+    expect(usfmFragmentToUsjContent("\\p \u0e14\u0e35\u200B\u0e42\u0e25")).toEqual([
+      { type: "para", marker: "p", content: ["\u0e14\u0e35\u200B\u0e42\u0e25"] },
+    ]);
+  });
+});
+
+describe("usfmFragmentToUsjContent — unknown markers resolve against the open note", () => {
+  // PT9's DetermineUnknownTokenType asks whether a Note is on the OPEN ELEMENT STACK, so a note
+  // opened inside this very fragment counts. Classifying by the fragment alone tore the note in
+  // half: the unknown marker became a top-level paragraph and `\f*` was left unmatched.
+  it("keeps an unknown marker inside a note as a char span, leaving the note intact", () => {
+    expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\zz custom \\f* after")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "zz", content: ["custom "], closed: "false" },
+            ],
+          },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("goes back to paragraphs for an unknown marker after the note has closed", () => {
+    const content = usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\f* \\zz custom");
+
+    expect(content).toHaveLength(2);
+    expect(content[1]).toEqual({ type: "para", marker: "zz", content: ["custom"] });
+  });
+});
+
+describe("usfmFragmentToUsjContent — Paratext 9 parity for empty attribute markers and values", () => {
+  // An attribute marker with nothing in it stays an ordinary marker in the text. It does not fold
+  // onto the marker it follows (that is what a FILLED one does) and it does not disappear. These
+  // are Paratext's USX shapes for the same bytes: <char style="ca"/>, <para style="cp"/>,
+  // <char style="va"/>, <char style="vp"/>, <char style="cat"/>.
+  it("keeps an empty \\ca as a char marker beside the chapter", () => {
+    expect(usfmFragmentToUsjContent("\\c 1 \\ca \\ca* \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "1" },
+      { type: "char", marker: "ca" },
+      " ",
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+  });
+
+  it("keeps an empty \\cp as its own paragraph", () => {
+    expect(usfmFragmentToUsjContent("\\c 1 \\cp  \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "1" },
+      { type: "para", marker: "cp" },
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+  });
+
+  it("keeps an empty \\va and \\vp as char markers beside the verse", () => {
+    expect(usfmFragmentToUsjContent("\\p \\v 1 \\va \\va* text")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          { type: "char", marker: "va" },
+          " text",
+        ],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent("\\p \\v 1 \\vp \\vp* text")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "verse", marker: "v", number: "1" },
+          { type: "char", marker: "vp" },
+          " text",
+        ],
+      },
+    ]);
+  });
+
+  it("keeps an empty \\cat as a char marker inside the note", () => {
+    expect(usfmFragmentToUsjContent("\\p \\f + \\fr 1.1 \\cat \\cat*\\f*")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          {
+            type: "note",
+            marker: "f",
+            caller: "+",
+            content: [
+              { type: "char", marker: "fr", content: ["1.1 "], closed: "false" },
+              { type: "char", marker: "cat" },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("still folds a FILLED attribute marker onto its target", () => {
+    expect(usfmFragmentToUsjContent("\\c 1 \\ca 2\\ca* \\p text")).toEqual([
+      { type: "chapter", marker: "c", number: "1", altnumber: "2" },
+      { type: "para", marker: "p", content: ["text"] },
+    ]);
+    expect(usfmFragmentToUsjContent("\\p \\v 1 \\vp 2\\vp* text")).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "verse", marker: "v", number: "1", pubnumber: "2" }, " text"],
+      },
+    ]);
+  });
+
+  // An attribute whose VALUE is empty is a different case with the same principle behind it:
+  // Paratext will not read `|who=""` as an attribute, so neither does this, and the bytes the
+  // author typed stay visible as text rather than being silently dropped.
+  it("leaves an empty attribute value as the literal text the author typed", () => {
+    expect(usfmFragmentToUsjContent('\\p \\qt-s |who=""\\* text')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          { type: "ms", marker: "qt-s" },
+          '|who=""',
+          { type: "unmatched", marker: "*" },
+          " text",
+        ],
+      },
+    ]);
+    expect(usfmFragmentToUsjContent('\\p \\w grace|lemma=""\\w* after')).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [{ type: "char", marker: "w", content: ['grace|lemma=""'] }, " after"],
+      },
+    ]);
+  });
+});
+
+describe("usfmFragmentToUsjContent — figures parse without a project stylesheet", () => {
+  // The default marker table is the fallback used before a project's stylesheet resolves. It had
+  // no `fig`, so a figure read as an unknown marker: its own paragraph, with the closer stranded.
+  it("reads a USFM 3.0 figure as a figure", () => {
+    expect(
+      usfmFragmentToUsjContent('\\p text \\fig caption|src="f.jpg" size="col"\\fig* after'),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text ",
+          { type: "figure", marker: "fig", file: "f.jpg", size: "col", content: ["caption"] },
+          " after",
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a USFM 2.0 positional figure inside its paragraph", () => {
+    expect(
+      usfmFragmentToUsjContent("\\p text \\fig desc|file|size|loc|copy|caption|ref\\fig* after"),
+    ).toEqual([
+      {
+        type: "para",
+        marker: "p",
+        content: [
+          "text ",
+          { type: "char", marker: "fig", content: ["desc|file|size|loc|copy|caption|ref"] },
+          " after",
+        ],
+      },
+    ]);
+  });
+});
