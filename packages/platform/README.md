@@ -140,25 +140,33 @@ export default function App() {
 
 ## Styling
 
-The package ships a stylesheet covering the editor chrome and the marker menu. Import it once, wherever your app imports CSS:
+The package ships a stylesheet covering the editor chrome. Import it once, wherever your app imports CSS:
 
 ```ts
 import "@eten-tech-foundation/platform-editor/styles.css";
 ```
 
-If you use the **built-in UI** (`hasExternalUI` is `false`, the default), also import the toolbar, and the context menu if you use it:
+Every consumer also needs the context menu today, because `ContextMenuPlugin` currently renders unconditionally:
 
 ```ts
-import "@eten-tech-foundation/platform-editor/toolbar.css";
 import "@eten-tech-foundation/platform-editor/context-menu.css";
 ```
 
-They are separate entries so an app supplying its own toolbar or context menu doesn't ship styles it will override anyway.
+It is a separate entry because it is expected to become gated on `hasExternalUI` like the toolbar; until then, import it.
 
-The toolbar icons are inlined as data URIs, so **no asset copying is required**. Two things worth knowing:
+If you use the **built-in UI** (`hasExternalUI` is `false`, the default), also import the toolbar, and the marker menu if you pass `scrRef`:
+
+```ts
+import "@eten-tech-foundation/platform-editor/toolbar.css";
+import "@eten-tech-foundation/platform-editor/nodes-menu.css";
+```
+
+They are separate entries so an app supplying its own toolbar or marker menu doesn't ship styles it will override anyway.
+
+The toolbar's 15 icons are inlined into `toolbar.css` as data URIs, so **no asset copying is required**. `styles.css`, `context-menu.css` and `nodes-menu.css` reference no images at all. Two things worth knowing:
 
 - Importing from a **bundler-processed stylesheet** works too (`@import "@eten-tech-foundation/platform-editor/styles.css";`), but a browser loading a plain `<link>`ed file cannot resolve a bare package specifier.
-- If your host page sets a Content Security Policy, `img-src` must allow `data:` or the icons silently disappear — which looks like the stylesheet failed to load.
+- If your host page sets a Content Security Policy, `img-src` must allow `data:` or the toolbar icons silently disappear — which looks like the stylesheet failed to load.
 
 ### Scripture node styles are not bundled
 
@@ -168,11 +176,7 @@ Until that generation lands, copy it out of the repo:
 
 - Scripture Nodes [/packages/platform/src/usj-nodes.css](/packages/platform/src/usj-nodes.css)
 
-If using the **commenting features** in the deprecated `<Marginal />` component, also import:
-
-```ts
-import "@eten-tech-foundation/platform-editor/comments.css";
-```
+Comment styles for the deprecated `<Marginal />` component are not published under a subpath either — `<Marginal />` is on its way out, so a public entry would only buy a breaking removal later. Copy them from the repo (list below) if you still use it.
 
 Consumers doing a bare `tsc` (no bundler types) may need `declare module "*.css";` for the import to type-check; anything using `vite/client` types already has it.
 
@@ -186,8 +190,8 @@ To restyle beyond CSS overrides, copy the sources out of this repo instead:
 - Editor [/packages/platform/src/editor/editor.css](/packages/platform/src/editor/editor.css)
 - Built-in toolbar [/packages/platform/src/editor/toolbar.css](/packages/platform/src/editor/toolbar.css)
 - Context menu [/packages/platform/src/editor/context-menu.css](/packages/platform/src/editor/context-menu.css)
-- TreeView, `debug` only [/packages/platform/src/editor/debug-tree-view.css](/packages/platform/src/editor/debug-tree-view.css)
 - Marker Menu [/libs/shared/src/styles/nodes-menu.css](/libs/shared/src/styles/nodes-menu.css)
+- TreeView, `debug` only [/packages/platform/src/editor/debug-tree-view.css](/packages/platform/src/editor/debug-tree-view.css) — the only stylesheet with no published subpath at all, because `debug` is an experimental dev-only prop and the file carries unscoped `pre` selectors that would restyle every `<pre>` on your page. Copy it if you turn `debug` on.
 
 `toolbar.css` references its icons from [/packages/platform/assets](/packages/platform/assets) by absolute URL, so a hand-copied stylesheet also needs those assets served from your web root. Swap the vendored imports for `styles.css` rather than stacking both, or the rules double up.
 

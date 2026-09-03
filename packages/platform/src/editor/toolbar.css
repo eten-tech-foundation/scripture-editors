@@ -1,5 +1,13 @@
+/* stylelint-disable selector-no-qualifying-type */
+
 /* Built-in toolbar styles, only needed when `hasExternalUI` is false (the default).
-   Split out of editor.css so a consumer supplying its own UI does not pay for them. */
+   Split out of editor.css so a consumer supplying its own UI does not pay for them.
+
+   The icon `url()`s below are root-absolute, which looks like it could not survive a build, but
+   Vite resolves root-absolute CSS urls against `config.root` — packages/platform — so they hit
+   ./assets/images/icons/. Each SVG is 258-720 B, under the 4096 B default `assetsInlineLimit`,
+   so all 15 are inlined as data URIs in dist/toolbar.css and consumers copy no assets. Keep them
+   small: an icon over that limit would be emitted as a separate file that nothing publishes. */
 
 .dropdown {
   z-index: 100;

@@ -1,3 +1,5 @@
+/* stylelint-disable selector-no-qualifying-type */
+
 /* ContextMenuPlugin styles. Split out of editor.css: consumers that supply their own context
    menu do not need them. See #225 for the menu's own open work. */
 

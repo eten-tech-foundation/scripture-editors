@@ -1,5 +1,14 @@
 /* TreeView styles, only needed when the editor is created with `debug=true`.
-   Split out of editor.css so the bundled stylesheet carries only what every editor needs. */
+
+   Split out of editor.css for a stronger reason than "debug only": the two `pre::-webkit-scrollbar`
+   rules below are unscoped element selectors, so they hit every <pre> on the host page. Left in
+   editor.css they would restyle the scrollbars of every consumer's code blocks the moment they
+   imported the bundled styles.css.
+
+   That is also why this file gets no build entry and no `exports` subpath, unlike toolbar.css and
+   context-menu.css: `debug` is an experimental dev-only prop, and shipping these rules behind a
+   public subpath would invite exactly the leak the split avoids. Copy the file out of the repo if
+   you turn `debug` on (see README). */
 
 .tree-view-output {
   display: block;
