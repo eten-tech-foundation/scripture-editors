@@ -69,6 +69,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -203,8 +204,6 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
   const [usj, setUsj] = useState(defaultUsj);
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [contextMarker, setContextMarker] = useState<string>();
-  // Annotations address the loaded document, so they wait for the load in flight (#515).
-  const { handleLoadingChange, noteLoadRequested, runWhenLoaded } = useLoadGate();
 
   const {
     isReadonly = false,
@@ -270,6 +269,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     loggerRef.current = logger;
   }
   const stableLogger = loggerRef.current;
+
+  // Annotations address the loaded document, so they wait for the load in flight (#515).
+  const { handleLoadingChange, noteLoadRequested, runWhenLoaded } = useLoadGate(stableLogger);
+  // `LoadStatePlugin` only reports a load from its own passive effect, and a consumer's LAYOUT
+  // effect runs before every passive effect in the commit - including at mount, which is the first
+  // moment a consumer can touch the ref at all. So close the gate here instead: a change to any
+  // input of that plugin's reload effect means a reload is coming, and this layout effect runs
+  // before the consumer's own. Keep these dependencies a SUBSET of that effect's (`scripture`,
+  // `viewOptions`, `logger`, plus the `key={loadTrigger}` remount below) - anything else would
+  // close the gate for a load that never arrives.
+  useLayoutEffect(() => {
+    noteLoadRequested();
+  }, [loadTrigger, noteLoadRequested, stableLogger, usj, viewOptions]);
 
   // Editable-mode document-first marker-menu harness (drives shared-react's `UsjNodesMenuPlugin`
   // "editableHarness" branch; see its doc comment). `undefined` outside markerMode "editable" so
@@ -449,9 +461,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         transientInputRef.current = undefined;
         // This can happen when using `applyUpdate` since `usj` won't change.
         const shouldForceReload = deepEqual(usj, incomingUsj);
-        // A load is now certain, but React hasn't re-rendered yet, so LoadStatePlugin hasn't
-        // reported it. Without this, an annotation set in this same tick would address the
-        // outgoing document and be discarded by the load (#515).
+        // A load is now certain, but React hasn't re-rendered yet, so neither the gate's layout
+        // effect above nor LoadStatePlugin has seen it. Without this, an annotation set in this
+        // same tick would address the outgoing document and be discarded by the load (#515).
         noteLoadRequested();
         setUsj(incomingUsj);
         if (shouldForceReload) setLoadTrigger((prev) => prev + 1);
@@ -549,8 +561,9 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
       );
     },
     removeAnnotation(type, id) {
-      // Also gated: removing an annotation that a queued call is about to add must happen after
-      // it, not before, or the removal is a no-op and the mark survives.
+      // Gated for the same reason `setAnnotation` is, and so the pair keeps its issue order: an
+      // un-gated removal alongside a queued set would run against the outgoing document while its
+      // set ran against the loaded one.
       runWhenLoaded(() => annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id));
     },
     formatPara(blockMarker) {
