@@ -55,6 +55,38 @@ const usfmMarkersOverwrites: { [marker: string]: MarkerOverwrite } = {
   v: {
     children: null,
   },
+  // The following are attribute-bearing character markers present in usfm.sty and in
+  // CharNode's VALID_CHAR_MARKERS, but absent from the generated usfmMarkers data.
+  // They are defined here as complete entries rather than hand-edited into the
+  // generated file, which would be silently lost on regeneration.
+  w: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A wordlist/glossary/dictionary entry marker for study/analysis purposes",
+    hasEndMarker: true,
+  },
+  rb: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A ruby glossing marker for study/analysis purposes",
+    hasEndMarker: true,
+  },
+  jmp: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "A hyperlink marker for study/analysis purposes",
+    hasEndMarker: true,
+  },
+  // The generated table has no `fig`, but `usfm.sty` does (and so does the stylesheet data every
+  // project supplies). Without an entry here, a document parsed BEFORE its project stylesheet
+  // resolves falls back to this table, reads `\fig` as an unknown marker, and breaks the figure
+  // into its own paragraph with the closer stranded as unmatched.
+  fig: {
+    category: CategoryType.SpecialFeatures,
+    type: MarkerType.Character,
+    description: "Illustration [Columns to span, height, filename, caption text]",
+    hasEndMarker: true,
+  },
 };
 
 export default usfmMarkersOverwrites;

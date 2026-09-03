@@ -1,3 +1,9 @@
+/**
+ * Anything {@link filterAndRankItems} can filter — a string-keyed record; the configured
+ * `filterBy`/`sortBy` keys should hold strings.
+ *
+ * @public
+ */
 export interface Item {
   [key: string]: unknown;
 }
@@ -18,11 +24,25 @@ const getSafeValue = <T extends Item>(item: T, key: string): string => {
   return typeof value === "string" ? value : String(value);
 };
 
+/**
+ * Ranking knobs for {@link filterAndRankItems}. `priorityOrder` defaults to
+ * `["exact", "startsWith", "contains"]` — the marker palettes' exact-match-first ordering.
+ *
+ * @public
+ */
 export interface SortingOptions {
   caseSensitive?: boolean;
   priorityOrder?: ("exact" | "startsWith" | "contains")[];
 }
 
+/**
+ * Options for {@link filterAndRankItems}: the `query` to match, the `items` to search, and either
+ * a `filterBy` key (default filter: case-insensitive containment on that key's value) or a custom
+ * `filter` predicate. `sortBy` (defaulting to the filter key) names the value ranked against the
+ * query.
+ *
+ * @public
+ */
 export interface FilterAndRankItems<T extends Item> {
   query: string;
   items: T[];
@@ -32,6 +52,15 @@ export interface FilterAndRankItems<T extends Item> {
   sortingOptions?: SortingOptions;
 }
 
+/**
+ * Filters `items` by `query` and ranks the matches exact-first — THE ranking behind the editor's
+ * marker palettes (`NodeSelectionMenu` filters with `filterBy: "name"`, the marker code): exact
+ * match, then prefix matches, then containment matches (nearest occurrence first), with ties
+ * keeping the caller's item order (stable sort). Hosts rendering their own palette UI over the
+ * editor's marker items should reuse this rather than reimplementing the ordering.
+ *
+ * @public
+ */
 export function filterAndRankItems<T extends Item>(
   options:
     | (Omit<FilterAndRankItems<T>, "filter"> & { filterBy: keyof Pick<T, string> })

@@ -1,0 +1,1196 @@
+/**
+ * Integration regression for verse `\va`/`\vp` attribute-run deletion. Mounts BOTH the marker-edit
+ * engine (pend/settle) and TextSpacingPlugin (the self-healing display-run sync) — the real app's
+ * plugin stack — because the bug lives in their interaction: deleting the whole triplet left
+ * altnumber set, and the sync re-derived the triplet from it, so the deletion visibly undid itself
+ * and never settled. The grace + pend + settle-on-departure wiring must clear altnumber on caret
+ * departure without the run resurrecting.
+ */
+
+import {
+  $appendVerseAttributeRun,
+  requireDefined,
+  testEnvironmentWithSpacing,
+  viewOptions,
+} from "./markerEdit.test-helpers";
+import {
+  deserializeSerializedEditorState,
+  initialize as initializeDeserialize,
+} from "../adaptors/editor-usj.adaptor";
+import { $rebuildParas, Tier2Context } from "./tier2Rebuild.utils";
+import { act } from "@testing-library/react";
+import {
+  $createRangeSelection,
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  $setSelection,
+  $setState,
+  LexicalEditor,
+  LexicalNode,
+} from "lexical";
+import {
+  $createCharNode,
+  $createMarkerNode,
+  $createParaNode,
+  $createVerseNode,
+  $isAttributeRunNode,
+  $isCharNode,
+  $isDisplayOwnerPended,
+  $isMarkerNode,
+  $isParaNode,
+  $isVerseNode,
+  $verseAttributeRunPieces,
+  getMarker as bundledGetMarker,
+  getVisibleOpenMarkerText,
+  NBSP,
+  textTypeState,
+} from "shared";
+
+// jsdom doesn't implement `getBoundingClientRect` on `Range`; moving the caret gives the editor
+// root DOM focus, and Lexical's post-commit scroll-into-view reads a Range rect. Stub it (a zero
+// rect nothing here asserts on), same as the sibling marker-edit tests.
+if (typeof Range.prototype.getBoundingClientRect !== "function") {
+  Range.prototype.getBoundingClientRect = function (): DOMRect {
+    return {
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      toJSON() {
+        return this;
+      },
+    };
+  };
+}
+
+describe("verse \\va/\\vp deletion settles (does not resurrect)", () => {
+  it("clears altnumber on caret departure after the whole \\va triplet is deleted", async () => {
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+
+    // Re-query nodes each commit (Lexical merges/rebuilds detach cross-closure references).
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Delete the whole \va triplet — wrapped in ONE attribute-run node, the shape the sync always
+    // heals to — with the caret parked at the verse's end (the deletion site).
+    await act(async () =>
+      editor.update(() => {
+        const verse = $firstVerse();
+        const wrapper = verse.getNextSibling();
+        if (!$isAttributeRunNode(wrapper)) throw new Error("\\va wrapper missing");
+        wrapper.remove();
+        verse.select(verse.getTextContentSize(), verse.getTextContentSize());
+      }),
+    );
+
+    // Grace holds while the caret sits at the site: the sync did NOT re-derive the triplet, and
+    // altnumber is still set (the deletion is pending, not settled). A resurrected run is always an
+    // AttributeRunNode wrapper post-flip, never a bare MarkerNode, so the no-resurrect guard checks
+    // for a run's OPENER piece (present regardless of wrapped/loose shape) rather than the
+    // next-sibling's own node type.
+    editor.getEditorState().read(() => {
+      const v = $firstVerse();
+      expect($verseAttributeRunPieces(v, "va").opener).toBeUndefined();
+      expect(v.getAltnumber()).toBe("2");
+    });
+
+    // Caret departs to the second paragraph → the pending verse settles via Tier 2 re-tokenization.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const settledVerse = $firstVerse();
+      // altnumber cleared, and no \va triplet resurrected as the verse's next sibling.
+      expect(settledVerse.getAltnumber()).toBeUndefined();
+      expect($verseAttributeRunPieces(settledVerse, "va").opener).toBeUndefined();
+    });
+  });
+
+  it("deleting only the VALUE settles to no altnumber + an empty char va span (no resurrect, no duplicate)", async () => {
+    // The value-deletion resurrect/duplicate bug the tolerant-pieces model
+    // ($verseAttributeRunPieces) fixes: the old all-or-nothing triplet read a value-deleted run
+    // (opener + closer, value gone) as "no run at all" and re-derived a whole new
+    // opener/value/closer over the surviving glyph debris. The tolerant scan recognizes the partial
+    // state, graces it while the caret holds the opener's end, and settles it on departure to the
+    // TJ/PT9 EMPTY form — the verse loses altnumber and a plain empty `char va` span (displayed
+    // `\va \va*`) takes the run's place.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Remove ONLY the value TextNode from INSIDE the wrapper (opener + closer glyphs left intact);
+    // park the caret at the end of the opener glyph, where a delete-through-the-value leaves it.
+    // One discrete update so the transform-pass grace check reliably sees the caret; grace
+    // assertions run synchronously after.
+    editor.update(
+      () => {
+        const verse = $firstVerse();
+        const { value } = $verseAttributeRunPieces(verse, "va");
+        value?.remove();
+        const { opener } = $verseAttributeRunPieces(verse, "va");
+        if (!opener) throw new Error("opener glyph missing");
+        opener.select(opener.getTextContentSize(), opener.getTextContentSize());
+      },
+      { discrete: true },
+    );
+
+    // Grace holds: the value was NOT re-derived from altnumber (the closer sits immediately after
+    // the opener, inside the wrapper — nothing resurrected between them), NO duplicate opener was
+    // inserted, altnumber untouched.
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const { opener, closer, wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      // The closer sits immediately after the opener inside the wrapper (value gone, not
+      // resurrected).
+      expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
+      // Exactly one va opener inside the wrapper — no duplicate run.
+      if (!wrapper) throw new Error("\\va wrapper missing");
+      const vaOpeners = wrapper
+        .getChildren()
+        .filter(
+          (n) => $isMarkerNode(n) && n.getMarker() === "va" && n.getMarkerSyntax() === "opening",
+        );
+      expect(vaOpeners).toHaveLength(1);
+      expect(verse.getAltnumber()).toBe("2");
+    });
+
+    // Caret departs → the pended verse settles via Tier 2: `\v 1 \va \va*` re-tokenizes to a verse
+    // with NO altnumber plus an empty (explicitly closed) char va span in the run's place.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBeUndefined();
+      // An empty char va span sits after the verse (NOT a resurrected display run). Its live tree
+      // carries the display glyphs + separator; its USJ form (below) is the clean empty element.
+      const charVa = verse.getNextSibling();
+      expect($isCharNode(charVa) && charVa.getMarker() === "va").toBe(true);
+    });
+
+    // The USJ output is the canonical empty form: the verse has NO altnumber, and a
+    // `{ type:"char", marker:"va" }` element (no content) takes the run's place.
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions),
+      "deserialized USJ",
+    );
+    const firstParaContent = (usj.content[0] as { content: unknown[] }).content;
+    expect(firstParaContent).toContainEqual({ type: "verse", marker: "v", number: "1" });
+    expect(firstParaContent).toContainEqual({ type: "char", marker: "va" });
+    // No altnumber survived anywhere.
+    expect(JSON.stringify(usj)).not.toContain("altnumber");
+  });
+
+  /**
+   * A verse carrying BOTH wrapped runs — `\v 11 \va 11 va\va*\vp 11 vp\vp* This verse.` — plus a
+   * second paragraph to park the caret in. TJ's live repro shape.
+   */
+  function $buildVaVpParas(): void {
+    const verse = $createVerseNode(
+      "11",
+      getVisibleOpenMarkerText("v", "11"),
+      undefined,
+      "11 va",
+      "11 vp",
+    );
+    $getRoot().append(
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        verse,
+        $createTextNode(" This verse."),
+      ),
+      $createParaNode("p").append(
+        $createMarkerNode("p"),
+        $createTextNode(NBSP),
+        $createTextNode("body"),
+      ),
+    );
+    $appendVerseAttributeRun(verse, "va", "11 va");
+    $appendVerseAttributeRun(verse, "vp", "11 vp");
+  }
+
+  const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+  const $firstVerse = () =>
+    requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+  const $secondParaTextNode = () => {
+    const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+    if (!$isTextNode(body)) throw new Error("body text node missing");
+    return body;
+  };
+
+  /**
+   * Where the collapsed caret sits, as an index into the FIRST paragraph's own children (the
+   * anchor's top-level ancestor there). Index 0 is the `\p` marker glyph — the paragraph START,
+   * where a rebuild that cannot map the caret forward dumps it.
+   */
+  const $caretParaChildIndex = () => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("no range selection");
+    const para = $firstPara();
+    let node: LexicalNode = selection.anchor.getNode();
+    if (node.is(para)) return selection.anchor.offset;
+    let parent = node.getParent();
+    while (parent && !parent.is(para)) {
+      node = parent;
+      parent = node.getParent();
+    }
+    if (!parent) return -1; // the caret left the first paragraph entirely
+    const topLevel = node;
+    return para.getChildren().findIndex((child) => child.is(topLevel));
+  };
+
+  /**
+   * The caret is somewhere in the window the deleted `\vp` run occupied: at or after the surviving
+   * `\va` wrapper (index 0 is the `\p` glyph — the paragraph START a rebuild dumps it at) and no
+   * further than the trailing text node that followed the run (so a caret flung past the whole
+   * paragraph fails too). Both bounds are positions, not a single expected index: the exact landing
+   * spot inside that window — the emptied wrapper, its neighbor, offset 0 vs. text end — is
+   * Lexical's business, and pinning it would break on any harmless selection-normalization change.
+   */
+  const $expectCaretAtDeletionSite = () => {
+    const children = $firstPara().getChildren();
+    const caretIndex = $caretParaChildIndex();
+    expect(caretIndex).toBeGreaterThanOrEqual(children.findIndex($isAttributeRunNode));
+    expect(caretIndex).toBeLessThanOrEqual(children.length - 1);
+  };
+
+  /**
+   * Everything the departure settle owes once grace has held the deleted run: the emptied
+   * `AttributeRunNode` husk the reorder now leaves in place under the caret is GONE, `pubnumber` is
+   * cleared, and the round-tripped USJ carries no `pubnumber` either.
+   */
+  const expectVpFullySettled = (editor: LexicalEditor) => {
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getPubnumber()).toBeUndefined();
+      // No `\vp` run structure survives anywhere in the paragraph — neither a husk nor a
+      // resurrected run. (`\va` legitimately keeps its own wrapper.)
+      const vpWrappers = $firstPara()
+        .getChildren()
+        .filter($isAttributeRunNode)
+        .filter((wrapper) => wrapper.getRunKind() === "vp");
+      expect(vpWrappers).toHaveLength(0);
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+    });
+
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions),
+      "deserialized USJ",
+    );
+    expect(JSON.stringify(usj)).not.toContain("pubnumber");
+  };
+
+  it("keeps the caret at the deletion site when the whole \\vp run is selected and deleted", async () => {
+    // TJ's live repro, gesture 1: select every piece of `\vp 11 vp\vp*` and delete. The caret must
+    // stay where the run was — it jumped to the START of the paragraph instead.
+    const { editor } = await testEnvironmentWithSpacing($buildVaVpParas);
+
+    // Place the caret once before the gesture, the way a real session always has: the engine's
+    // deferred resolution only runs once it has observed a caret.
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+
+    await act(async () =>
+      editor.update(() => {
+        const vaWrapper = requireDefined(
+          $verseAttributeRunPieces($firstVerse(), "va").wrapper,
+          "\\va wrapper missing",
+        );
+        const { opener, closer } = $verseAttributeRunPieces(vaWrapper, "vp");
+        if (!opener || !closer) throw new Error("\\vp glyphs missing");
+        const selection = $createRangeSelection();
+        selection.anchor.set(opener.getKey(), 0, "text");
+        selection.focus.set(closer.getKey(), closer.getTextContentSize(), "text");
+        $setSelection(selection);
+        selection.removeText();
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+      // The caret is still at the deletion site — NOT dumped at the paragraph start (child 0, the
+      // `\p` glyph) by a mid-gesture rebuild.
+      $expectCaretAtDeletionSite();
+    });
+
+    // Grace deferred the settle, it did not cancel it. Depart to the second paragraph: the emptied
+    // `\vp` wrapper the caret was sitting in — which the grace pre-pass now deliberately leaves in
+    // place, where it used to be removed out from under the caret — must be cleaned up here, along
+    // with the `pubnumber` whose run the user deleted. Without this continuation a regression that
+    // leaked the husk forever would keep the whole suite green: the direct husk-arm pins run with
+    // no selection at all, so they never exercise the grace path this reorder created.
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+    expectVpFullySettled(editor);
+  });
+
+  it("keeps the caret at the deletion site when \\vp is backspaced away one character at a time", async () => {
+    // TJ's live repro, gesture 2: delete the `\vp` run right-to-left, one character per Backspace.
+    // The caret held its place for every character — until the leftmost backslash went, taking the
+    // run's last surviving byte with it, at which point it jumped to the paragraph start.
+    const { editor } = await testEnvironmentWithSpacing($buildVaVpParas);
+
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+    // Park the caret at the very end of the `\vp` closer glyph, where the gesture starts.
+    await act(async () =>
+      editor.update(() => {
+        const vaWrapper = requireDefined(
+          $verseAttributeRunPieces($firstVerse(), "va").wrapper,
+          "\\va wrapper missing",
+        );
+        const { closer } = $verseAttributeRunPieces(vaWrapper, "vp");
+        if (!closer) throw new Error("\\vp closer missing");
+        closer.select(closer.getTextContentSize(), closer.getTextContentSize());
+      }),
+    );
+
+    // jsdom cannot drive Lexical's collapsed-caret `deleteCharacter` (it needs the DOM selection's
+    // `modify`, which jsdom does not implement), so each Backspace is a one-character backward
+    // range deletion — the same editor-state edit, through the same `removeText` the sibling
+    // selection-deletion gestures here use.
+    const $backspaceOnce = () => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("no range selection");
+      const { anchor } = selection;
+      const anchorNode = anchor.getNode();
+      if (anchor.type !== "text" || !$isTextNode(anchorNode) || anchor.offset === 0)
+        throw new Error(
+          `Backspace needs a text caret past offset 0; got ${anchor.type} ${anchorNode.getType()}[${anchor.offset}]`,
+        );
+      anchorNode.select(anchor.offset - 1, anchor.offset);
+      const range = $getSelection();
+      if (!$isRangeSelection(range)) throw new Error("no range selection");
+      range.removeText();
+    };
+
+    // 13 characters: the `\vp` opener, its NBSP-prefixed ` 11 vp` value, and the `\vp*` closer. The
+    // last one is the leftmost backslash — the keystroke the caret jump was reported for.
+    for (let step = 0; step < 13; step++)
+      await act(async () => editor.update(() => $backspaceOnce()));
+
+    editor.getEditorState().read(() => {
+      expect($firstPara().getTextContent()).not.toContain("\\vp");
+      $expectCaretAtDeletionSite();
+    });
+
+    // Same departure fence as the selection gesture above: the husk grace left behind is cleaned
+    // up, and `pubnumber` goes with it.
+    await act(async () => editor.update(() => $secondParaTextNode().select(0, 0)));
+    expectVpFullySettled(editor);
+  });
+
+  it("emptying \\va's text beside a live \\vp keeps both markers in document order (no \\vp hoist)", async () => {
+    // A live repro, reproduced end to end. In Standard view the user
+    // selected a `\va` run's whole visible value and pressed Backspace, then moved the caret away.
+    // The verse also carried a `\vp` run, and the settle SWAPPED them on disk:
+    //   `\v 11 \va 11 va\va*\vp 11 vp\vp* This verse…`
+    //   → `\v 11 \vp 11 vp\vp*\va \va* This verse…`
+    // — the published number silently jumped in front of the alternate one. Emptying `\va` makes it
+    // a first-class char element (that part is the pinned empty form above), and the tokenizer then
+    // folded `\vp` onto the verse ACROSS it; USJ puts a verse attribute before any following
+    // sibling, so serializing back reordered the user's document. ParatextData folds NEITHER marker
+    // in that shape — see the pin in usfmFragmentToUsj.test.ts, captured from `GetChapterUsx`.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "11",
+        getVisibleOpenMarkerText("v", "11"),
+        undefined,
+        "11 va",
+        "11 vp",
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode(" This verse."),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "11 va");
+      $appendVerseAttributeRun(verse, "vp", "11 vp");
+    });
+
+    const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+    const $firstVerse = () =>
+      requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Place the caret once before the gesture, the way a real session always has: the engine's
+    // deferred resolution only runs once it has observed a caret, so a first-ever gesture would
+    // otherwise resolve the pends every mount-time transform pass left behind alongside this one.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    // The gesture: select the \va run's whole visible value and delete it through the selection,
+    // the way Backspace over a selection does — not by detaching the node.
+    await act(async () =>
+      editor.update(() => {
+        const { value } = $verseAttributeRunPieces($firstVerse(), "va");
+        if (!$isTextNode(value)) throw new Error("\\va value missing");
+        value.select(0, value.getTextContentSize());
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("no range selection");
+        selection.removeText();
+      }),
+    );
+
+    // Caret-held grace: the deletion is pending, not settled — altnumber is untouched and nothing
+    // was re-derived between the surviving glyphs.
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBe("11 va");
+      expect($verseAttributeRunPieces(verse, "va").value).toBeUndefined();
+    });
+
+    // Depart with a pure selection change → the pended verse settles via Tier 2.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      // Displayed bytes keep the user's own marker order: `\va` still precedes `\vp`.
+      const settled = $firstPara().getTextContent();
+      expect(settled).toContain(`\\va${NBSP}\\va*\\vp${NBSP}11 vp\\vp*`);
+      expect(settled).not.toContain("\\vp*\\va");
+    });
+
+    initializeDeserialize(undefined);
+    const usj = requireDefined(
+      deserializeSerializedEditorState(editor.getEditorState().toJSON(), viewOptions),
+      "deserialized USJ",
+    );
+    const firstParaContent = (usj.content[0] as { content: unknown[] }).content;
+    // Neither marker folded: the verse carries no attributes at all, and both survive as char
+    // elements in their original order. A `pubnumber` here is the reorder — it serializes before
+    // every sibling of the verse, putting `\vp` ahead of the `\va` that precedes it on screen.
+    expect(firstParaContent[0]).toEqual({ type: "verse", marker: "v", number: "11" });
+    expect(firstParaContent[1]).toEqual({ type: "char", marker: "va" });
+    expect(firstParaContent[2]).toEqual({
+      type: "char",
+      marker: "vp",
+      content: ["11 vp"],
+    });
+  });
+
+  it("re-typing the emptied \\va value re-folds BOTH numbers back onto the verse", async () => {
+    // The escape hatch for the settle above: unfolding `\vp` alongside the emptied `\va` must not
+    // strand the user. Typing a value back into the empty `\va` span restores the shape where both
+    // markers fold again, so the display runs (and the verse's own state) come back in one settle.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode("11", getVisibleOpenMarkerText("v", "11"), undefined);
+      const va = $createCharNode("va"); // the settled empty form: displayed `\va \va*`
+      va.append($createMarkerNode("va"), $createTextNode(NBSP), $createMarkerNode("va", "closing"));
+      const vp = $createCharNode("vp"); // unfolded beside it, displayed `\vp 11 vp\vp*`
+      vp.append(
+        $createMarkerNode("vp"),
+        $createTextNode(`${NBSP}11 vp`),
+        $createMarkerNode("vp", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          va,
+          vp,
+          $createTextNode(" This verse."),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    await act(async () =>
+      editor.update(() => {
+        const va = requireDefined(
+          $firstPara()
+            .getChildren()
+            .filter($isCharNode)
+            .find((span) => span.getMarker() === "va"),
+          "va span missing",
+        );
+        const content = va.getChildAtIndex(1); // the NBSP separator text
+        if (!$isTextNode(content)) throw new Error("span content missing");
+        content.setTextContent(`${NBSP}11 va`); // the user types the value back
+        content.select(6, 6);
+      }),
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = requireDefined($firstPara().getChildren().find($isVerseNode), "verse missing");
+      expect(verse.getAltnumber()).toBe("11 va");
+      expect(verse.getPubnumber()).toBe("11 vp");
+      // Both source spans folded away into the verse's own display runs.
+      expect($firstPara().getChildren().some($isCharNode)).toBe(false);
+    });
+  });
+
+  it("the settled empty char va span is a Tier-2 fixed point (rebuild is a no-op)", async () => {
+    // After the value-deletion settle, the verse + empty char va span must be a genuine Tier-2
+    // fixed point: re-tokenizing `\v 1 \va\va*` reproduces exactly that shape, so `$rebuildParas`
+    // refuses (returns false, mutating nothing). If the empty char folded back into a display run,
+    // or altnumber re-appeared, the signatures would differ and the rebuild would churn.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $firstPara = () => $getRoot().getChildren().filter($isParaNode)[0];
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Delete the value (from inside the wrapper) and depart to settle into the empty-char shape.
+    editor.update(
+      () => {
+        const verse = $firstVerse();
+        const { opener, value } = $verseAttributeRunPieces(verse, "va");
+        value?.remove();
+        if (opener) opener.select(opener.getTextContentSize(), opener.getTextContentSize());
+      },
+      { discrete: true },
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    // Now re-tokenize the settled paragraph directly: it must be a fixed point.
+    const context: Tier2Context = { viewOptions, getMarker: bundledGetMarker };
+    await act(async () =>
+      editor.update(
+        () => {
+          expect($rebuildParas([$firstPara()], context)).toBe(false);
+        },
+        { discrete: true },
+      ),
+    );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBeUndefined();
+      const charVa = verse.getNextSibling();
+      expect($isCharNode(charVa) && charVa.getMarker() === "va").toBe(true);
+    });
+  });
+
+  it("a legitimate local altnumber+pubnumber clear does not pend the owner (no stuck grace)", async () => {
+    // The mutation listener that pends a display-run owner from a destroyed run PIECE
+    // (MarkerEditPlugin.tsx's $pendOwnersOfDestroyed) also sees the sync's OWN legitimate
+    // triplet removal as a "destroyed" mutation. Without the still-wanted exemption mirroring
+    // the char span's, a verse whose altnumber/pubnumber were both genuinely cleared would sit
+    // spuriously pended — and since $syncDisplayRun now leaves a pended owner's run
+    // alone (the guard added alongside $settlePendedDisplayOwner), a LATER legitimate altnumber
+    // set would never heal into a visible \va run until an unrelated caret departure
+    // re-tokenized whatever bytes happened to be on screen, silently dropping it.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+
+    // Clear both fields directly, with no caret at the run's site — the sync heals the triplet
+    // away in THIS commit, and that removal is exactly what the mutation listener observes.
+    await act(async () =>
+      editor.update(() => {
+        const verse = $firstVerse();
+        verse.setAltnumber(undefined);
+        verse.setPubnumber(undefined);
+      }),
+    );
+
+    editor.read(() => {
+      expect($isDisplayOwnerPended($firstVerse())).toBe(false);
+      // A resurrected run is always an AttributeRunNode wrapper post-flip, never a bare MarkerNode —
+      // check for the run's OPENER piece instead (present regardless of wrapped/loose shape).
+      expect($verseAttributeRunPieces($firstVerse(), "va").opener).toBeUndefined();
+    });
+
+    // Prove the exemption actually matters: a LATER legitimate altnumber set must heal into a
+    // visible \va run right away, not be blocked by a leftover spurious pend — repairing INSIDE
+    // the emptied husk wrapper the legitimate clear above left behind.
+    await act(async () =>
+      editor.update(() => {
+        $firstVerse().setAltnumber("5");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const { opener, value } = $verseAttributeRunPieces(verse, "va");
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      expect($isTextNode(value) && value.getTextContent()).toBe(`${NBSP}5`);
+    });
+  });
+
+  it("clearing ONE of altnumber/pubnumber while the other stays set does not spuriously pend the verse (per-field precision)", async () => {
+    // The still-wanted exemption above (and MarkerEditPlugin's mirror of it) originally required
+    // BOTH altnumber AND pubnumber to be undefined before exempting a destroyed run from the pend
+    // — coarse, because a verse's \va and \vp triplets are two INDEPENDENT runs sharing one owner
+    // identity. Clearing only altnumber legitimately destroys just the \va triplet in this commit;
+    // requiring pubnumber (never touched) to ALSO be undefined would spuriously pend the verse and
+    // — since $syncDisplayRun leaves a pended owner's runs alone entirely — block a
+    // LATER legitimate altnumber set from healing until an unrelated caret departure. The fix
+    // classifies which field each destroyed piece belonged to and checks only THAT field.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      // Both fields set at construction: the VerseNode transform (TextSpacingPlugin's
+      // $syncDisplayRun registration) heals both the \va and \vp triplets on mount.
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBe("2");
+      expect(verse.getPubnumber()).toBe("3");
+    });
+
+    // Clear ONLY altnumber, with no caret at either run's site — the sync heals the \va triplet
+    // away in THIS commit (destroying its glyphs/value); the \vp triplet is untouched.
+    await act(async () =>
+      editor.update(() => {
+        $firstVerse().setAltnumber(undefined);
+      }),
+    );
+
+    editor.read(() => {
+      // Not spuriously pended: the destroyed pieces were all \va's, and altnumber IS now
+      // undefined — a fully legitimate, still-wanted clear. The untouched (still-set) pubnumber
+      // must not block recognizing that — the old both-fields-undefined check would have.
+      expect($isDisplayOwnerPended($firstVerse())).toBe(false);
+    });
+
+    // Prove the exemption actually matters: a LATER legitimate altnumber set must heal into a
+    // visible \va run right away, not be blocked by a leftover spurious pend.
+    await act(async () =>
+      editor.update(() => {
+        $firstVerse().setAltnumber("9");
+      }),
+    );
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const { opener, value } = $verseAttributeRunPieces(verse, "va");
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      expect($isTextNode(value) && value.getTextContent()).toBe(`${NBSP}9`);
+      // pubnumber, never touched, survived throughout.
+      expect(verse.getPubnumber()).toBe("3");
+    });
+  });
+
+  it("typing a value into an empty \\va span re-folds to altnumber on departure (TJ repro)", async () => {
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        undefined,
+        undefined,
+      );
+      const span = $createCharNode("va"); // the settled empty form: displayed `\va \va*`
+      span.append(
+        $createMarkerNode("va"),
+        $createTextNode(NBSP),
+        $createMarkerNode("va", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          span,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+    });
+
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    await act(async () =>
+      editor.update(() => {
+        const span = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isCharNode),
+          "va span missing",
+        );
+        const content = span.getChildAtIndex(1); // the NBSP separator text
+        if (!$isTextNode(content)) throw new Error("span content missing");
+        content.setTextContent(`${NBSP}3`); // the user types the value
+        content.select(2, 2);
+      }),
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+      expect(verse.getAltnumber()).toBe("3"); // re-folded
+      // Canonical triplet re-materialized via Tier-2's rebuild, wrapped in ONE attribute-run node
+      // — the shape the adaptor's own fragment materializer always builds.
+      const { opener, wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect($isAttributeRunNode(wrapper)).toBe(true);
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      // and the source span is gone (folded into the verse)
+      expect($getRoot().getChildren().filter($isParaNode)[0].getChildren().some($isCharNode)).toBe(
+        false,
+      );
+    });
+  });
+
+  it("migrates a complete but caret-held-loose \\va run into its wrapper on departure (migration-pend behavior)", async () => {
+    // A complete-but-still-LOOSE run (bytes already canonical, only its AttributeRunNode wrapper
+    // missing) is pended on caret-held mid-edit grace and DELIVERS the wrap migration on the next
+    // departure. $settlePendedDisplayOwner's verse arm
+    // (markerEditTier1.utils.ts) recognizes exactly this divergence shape
+    // ($runNeedsOnlyWrapMigration, displayRunSync.utils.ts) and calls the shared $syncDisplayRun
+    // driver directly, rather than falling through to the Tier-2 rebuild probe — a wrap-only
+    // change is byte-identical to what is already displayed (an AttributeRunNode wrapper carries
+    // no bytes of its own), so that probe would always REFUSE it as a fixed point and leave the
+    // run loose forever, with nothing else to re-drive it.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      const open = $createMarkerNode("va");
+      const value = $createTextNode(`${NBSP}2`); // matches altnumber exactly — no content divergence
+      $setState(value, textTypeState, "attribute");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          open,
+          value,
+          $createMarkerNode("va", "closing"),
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      // Caret parked on the loose (but byte-exact) value: mid-edit grace blocks the construction
+      // commit's own healing attempt, and — the migration-pend behavior — also pends the verse.
+      value.select(value.getTextContentSize(), value.getTextContentSize());
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Caret departs → the pended verse's loose \va run settles by MIGRATING into its wrapper —
+    // not by re-tokenizing: there is nothing to re-tokenize, since the displayed bytes are already
+    // canonical and altnumber never changes.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.read(() => {
+      const verse = $firstVerse();
+      expect($isDisplayOwnerPended(verse)).toBe(false);
+      // The ACTUAL wrap landed — not just a reporter's boolean: the wrapper is present, and the
+      // opener/value/closer pieces it now holds are the SAME bytes, untouched.
+      const { opener, value, closer, wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect(wrapper).toBeDefined();
+      expect($isMarkerNode(opener) && opener.getMarker() === "va").toBe(true);
+      expect(value?.getTextContent()).toBe(`${NBSP}2`);
+      expect($isMarkerNode(closer) && closer.getMarkerSyntax() === "closing").toBe(true);
+      expect(verse.getAltnumber()).toBe("2"); // untouched — a migration, never a re-tokenize
+    });
+  });
+
+  it("crosses a WRAPPED \\va to find the owning verse when re-driving a LOOSE \\vp's caret-held pend (mixed shape)", async () => {
+    // A mixed va-wrapped/vp-loose tree is transient post-flip (the next sync pass heals the loose
+    // \vp forward into its own wrapper), but transient still means REAL for one commit — e.g. an
+    // undo-restored pre-flip state, or a partial collab materialization. `$ownerOfRunPiece`'s
+    // walk-back (shared's displayRunOwner.utils.ts), which the MarkerNode transform below
+    // delegates to for its loose-glyph re-drive, must cross the WRAPPED \va to reach the owning
+    // verse when re-driving the pend off a dirtied LOOSE \vp glyph — without that, the pend is
+    // silently lost and a caret-held \vp edit would resurrect on departure instead of settling.
+    // `$ownerOfRunPiece` already crosses a wrapper correctly for the DESTROYED-piece classifier
+    // ($pendOwnersOfDestroyed) and $verseOfAttributeSourceText's own walk-back does the same for
+    // the SOURCE-SPAN case; this test pins the SAME crossing for the LIVE re-sync path the
+    // MarkerNode transform shares with the destroyed-piece classifier.
+    //
+    // Establishing the mixed shape (below) necessarily dirties the \va wrapper too (Lexical's
+    // sibling list touches both neighbors of an insertion point), which independently pends the
+    // verse via the ALREADY-correct AttributeRunNode transform (also `$ownerOfRunPiece`-backed) —
+    // not the path under test here. The caret is parked on the loose \vp's value WITHOUT diverging
+    // it, so mid-edit grace alone blocks the construction commit's own healing attempt.
+    //
+    // That grace does NOT mean the verse stays unpended, though: the shared driver's $runDiverges
+    // (displayRunSync.utils.ts) counts a wanted-but-unwrapped run as diverging in its own right,
+    // so $syncAndPendOwner's caret-held check reports \vp caret-held — genuinely true, its bytes
+    // already match pubnumber exactly, but it is still riding loose — and the construction commit
+    // DOES pend the verse. The pend does not surface at a synchronous read here: the update
+    // listener queues a deferred resolve on THIS SAME commit (the pended key is the VERSE's, never
+    // equal to the live anchor's own key, whatever piece the caret sits in), and by the time that
+    // microtask runs the caret has already moved off \vp's value to wherever mount/render leaves
+    // it — so the FIRST thing to happen after `testEnvironmentWithSpacing` resolves is already a
+    // completed departure settle, which delivers the \vp wrap migration (the same migration-pend
+    // behavior the settle always applies to a wanted-but-loose run once the caret departs).
+    // Relying on that incidental,
+    // uncontrolled departure to reach a clean "unpended" baseline is exactly the coincidental
+    // passing this test used to have; the explicit, deterministic departure below (a pure
+    // selection-change commit, which dirties no nodes and so cannot itself heal anything) replaces
+    // it, and the SAME settle it triggers is asserted directly instead of assumed. The mixed shape
+    // this test actually needs is then rebuilt in the isolated commit further down — see its own
+    // comment.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode("1", getVisibleOpenMarkerText("v", "1"), undefined, "2", "3");
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      const vaWrapper = $appendVerseAttributeRun(verse, "va", "2");
+      const vpOpener = $createMarkerNode("vp");
+      const vpValue = $createTextNode(`${NBSP}3`); // matches pubnumber exactly — no divergence
+      $setState(vpValue, textTypeState, "attribute");
+      const vpCloser = $createMarkerNode("vp", "closing");
+      vaWrapper.insertAfter(vpOpener);
+      vpOpener.insertAfter(vpValue);
+      vpValue.insertAfter(vpCloser);
+      // Caret parked on the (non-diverging) loose value: mid-edit grace alone blocks the
+      // construction commit's own healing attempt.
+      vpValue.select(vpValue.getTextContentSize(), vpValue.getTextContentSize());
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    // Deterministic departure: a PURE selection-change commit dirties no nodes, so this commit's
+    // own transform pass cannot touch the run either way — awaiting it still lets the deferred
+    // settle queued by construction's pend run to completion. That settle DELIVERS \vp's wrap
+    // (its bytes were already canonical, only the wrapper was missing —
+    // $runNeedsOnlyWrapMigration, displayRunSync.utils.ts), landing both runs wrapped and clearing
+    // the pend — asserted directly, not assumed from an uncontrolled caret move.
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.read(() => {
+      const verse = $firstVerse();
+      expect($isDisplayOwnerPended(verse)).toBe(false);
+      const vaWrapper = $verseAttributeRunPieces(verse, "va").wrapper;
+      if (!vaWrapper) throw new Error("\\va wrapper missing");
+      expect($verseAttributeRunPieces(vaWrapper, "vp").wrapper).toBeDefined();
+    });
+
+    // Re-park the caret and dirty ONLY \vp's still-loose opener glyph — rebuilding the mixed shape
+    // (WRAPPED \va, LOOSE \vp) the deterministic departure above migrated away, mimicking an
+    // undo-restored pre-flip state (a real, if transient, shape the sync must still heal
+    // correctly) — then diverge the loose \vp's value IN PLACE (never removed — a destroyed run
+    // piece would ALSO pend via the already-correct mutation-listener path, $ownerOfRunPiece,
+    // masking whether THIS fix matters) and explicitly dirty the opener — the trigger
+    // MarkerEditPlugin's registered MarkerNode transform reacts to. Every step here — the unwrap,
+    // the divergence, and the caret placement that graces it — runs inside ONE discrete commit,
+    // read synchronously right after: nothing yields to the deferred settle microtask in between,
+    // so the isolated read below can only be explained by the SAME commit's own MarkerNode
+    // transform re-drive, never by the mixed-shape rebuild or the earlier departure settle.
+    editor.update(
+      () => {
+        const verse = $firstVerse();
+        const vaWrapper = $verseAttributeRunPieces(verse, "va").wrapper;
+        if (!vaWrapper) throw new Error("\\va wrapper missing");
+        const vpWrapper = $verseAttributeRunPieces(vaWrapper, "vp").wrapper;
+        if (!vpWrapper) throw new Error("\\vp wrapper missing");
+        let anchor: LexicalNode = vaWrapper;
+        for (const piece of vpWrapper.getChildren()) {
+          anchor.insertAfter(piece);
+          anchor = piece;
+        }
+        vpWrapper.remove();
+        const { opener, value } = $verseAttributeRunPieces(vaWrapper, "vp");
+        if (!opener || !value) throw new Error("loose \\vp opener/value missing");
+        value.setTextContent(`${NBSP}4`);
+        value.select(value.getTextContentSize(), value.getTextContentSize());
+        opener.getWritable();
+      },
+      { discrete: true },
+    );
+
+    // The verse was found and pended from the dirtied loose \vp glyph alone — proof the
+    // walk-back crossed the wrapped \va in one step rather than stopping at it. Read
+    // synchronously, before MarkerEditPlugin's deferred settle microtask could resolve the pend.
+    editor.read(() => {
+      expect($isDisplayOwnerPended($firstVerse())).toBe(true);
+    });
+  });
+
+  it("typing a value into an empty \\vp span behind a WRAPPED \\va run re-folds to pubnumber on departure", async () => {
+    // The wrapper-migration gap this pin closes: post-migration, an altnumber-bearing verse's
+    // \va run is ALWAYS wrapped (never loose) — the only shape such a verse can have — so a
+    // settled-empty \vp span typed into behind it must walk PAST the whole AttributeRunNode
+    // wrapper in one hop to find its owning verse ($verseOfAttributeSourceText's
+    // $isAttributeRunNode isRunPiece disjunct). Without that disjunct the walk stops at the
+    // wrapper, the typed value never pends, and pubnumber never folds — the exact silent-no-fold
+    // failure the TJ-repro pin above fixed, reachable again for this shape.
+    const { editor } = await testEnvironmentWithSpacing(() => {
+      const verse = $createVerseNode(
+        "1",
+        getVisibleOpenMarkerText("v", "1"),
+        undefined,
+        "2",
+        undefined,
+      );
+      const span = $createCharNode("vp"); // the settled empty form: displayed `\vp \vp*`
+      span.append(
+        $createMarkerNode("vp"),
+        $createTextNode(NBSP),
+        $createMarkerNode("vp", "closing"),
+      );
+      $getRoot().append(
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          verse,
+          span,
+          $createTextNode("In the beginning"),
+        ),
+        $createParaNode("p").append(
+          $createMarkerNode("p"),
+          $createTextNode(NBSP),
+          $createTextNode("body"),
+        ),
+      );
+      // Inserted after construction so it lands directly after `verse` and before `span`, giving
+      // the target shape: verse -> WRAPPED \va run -> settled-empty \vp span.
+      $appendVerseAttributeRun(verse, "va", "2");
+    });
+
+    const $firstVerse = () =>
+      requireDefined(
+        $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isVerseNode),
+        "verse missing",
+      );
+    const $bodyTextNode = () => {
+      const body = $getRoot().getChildren().filter($isParaNode)[1].getLastChild();
+      if (!$isTextNode(body)) throw new Error("body text node missing");
+      return body;
+    };
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      const { wrapper } = $verseAttributeRunPieces(verse, "va");
+      expect($isAttributeRunNode(wrapper)).toBe(true);
+      expect(wrapper?.getNextSibling() && $isCharNode(wrapper.getNextSibling())).toBe(true);
+    });
+
+    await act(async () =>
+      editor.update(() => {
+        const span = requireDefined(
+          $getRoot().getChildren().filter($isParaNode)[0].getChildren().find($isCharNode),
+          "vp span missing",
+        );
+        const content = span.getChildAtIndex(1); // the NBSP separator text
+        if (!$isTextNode(content)) throw new Error("span content missing");
+        content.setTextContent(`${NBSP}4`); // the user types the value
+        content.select(2, 2);
+      }),
+    );
+    await act(async () => editor.update(() => $bodyTextNode().select(0, 0)));
+
+    editor.getEditorState().read(() => {
+      const verse = $firstVerse();
+      expect(verse.getAltnumber()).toBe("2"); // untouched
+      expect(verse.getPubnumber()).toBe("4"); // re-folded
+      // Canonical \vp triplet re-materialized via Tier-2's rebuild, wrapped in ONE
+      // attribute-run node chained after the \va wrapper — the shape the adaptor's own
+      // fragment materializer always builds.
+      const { wrapper: vaWrapper } = $verseAttributeRunPieces(verse, "va");
+      if (!vaWrapper) throw new Error("\\va wrapper missing");
+      const { opener, wrapper: vpWrapper } = $verseAttributeRunPieces(vaWrapper, "vp");
+      expect($isAttributeRunNode(vpWrapper)).toBe(true);
+      expect($isMarkerNode(opener) && opener.getMarker() === "vp").toBe(true);
+      // and the source span is gone (folded into the verse)
+      expect($getRoot().getChildren().filter($isParaNode)[0].getChildren().some($isCharNode)).toBe(
+        false,
+      );
+    });
+  });
+});

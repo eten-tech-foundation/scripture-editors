@@ -5,17 +5,18 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { $isImmutableNoteCallerNode, ImmutableNoteCallerNode } from "./ImmutableNoteCallerNode";
 import { ImmutableVerseNode, $createImmutableVerseNode } from "./ImmutableVerseNode";
 import {
+  $findNextVerseAfter,
   $findPreviousVerseInSiblings,
   $findVerseInNode,
   $findVerseOrPara,
   $findLastVerse,
   $findThisVerse,
   $getEffectiveVerseForBcv,
-  $insertNote,
   $isSomeVerseNode,
   $selectNextVerse,
   $selectPreviousVerse,
 } from "./node-react.utils";
+import { $insertNote, isCollapsedNoteMode } from "./note.utils";
 import { UsjNodeOptions } from "./usj-node-options.model";
 import {
   $createPoint,
@@ -33,6 +34,7 @@ import {
   $createBookNode,
   $createCharNode,
   $createImmutableChapterNode,
+  $createMarkerNode,
   $createParaNode,
   $createTypedMarkNode,
   $createVerseNode,
@@ -44,6 +46,7 @@ import {
   GENERATOR_NOTE_CALLER,
   HIDDEN_NOTE_CALLER,
   ImmutableChapterNode,
+  MarkerNode,
   NoteNode,
   ParaNode,
   TypedMarkNode,
@@ -242,6 +245,101 @@ describe("$findPreviousVerseInSiblings()", () => {
       const verseNode = $findPreviousVerseInSiblings(p, 2);
 
       expect(verseNode?.getNumber()).toBe("1");
+    });
+  });
+});
+
+describe("$findNextVerseAfter()", () => {
+  it("finds the next verse sibling within the same parent", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1"), $createVerseNode("2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
+    });
+  });
+
+  it("finds the next verse in a following paragraph", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1")),
+          $createParaNode().append($createVerseNode("2"), $createTextNode("text2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
+    });
+  });
+
+  it("skips over an intermediate paragraph with no verse before finding the next verse", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1")),
+          $createParaNode().append($createTextNode("no verse here")),
+          $createParaNode().append($createVerseNode("2"), $createTextNode("text2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)?.getNumber()).toBe("2");
+    });
+  });
+
+  it("returns undefined when a chapter boundary is reached before another verse", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode, ImmutableChapterNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append(
+          $createParaNode().append(verse1, $createTextNode("text1")),
+          $createImmutableChapterNode("2"),
+          $createParaNode().append($createVerseNode("1"), $createTextNode("text2")),
+        );
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)).toBeUndefined();
+    });
+  });
+
+  it("returns undefined when there is no next verse anywhere", () => {
+    let verse1: VerseNode;
+    const { editor } = createBasicTestEnvironment([ParaNode, VerseNode]);
+    editor.update(
+      () => {
+        verse1 = $createVerseNode("1");
+        $getRoot().append($createParaNode().append(verse1, $createTextNode("text1")));
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      expect($findNextVerseAfter(verse1)).toBeUndefined();
     });
   });
 });
@@ -785,8 +883,21 @@ describe("$getEffectiveVerseForBcv()", () => {
   });
 });
 
+describe("isCollapsedNoteMode()", () => {
+  it("collapses every mode except 'expanded' — the ONE predicate shared by load and insert paths", () => {
+    // "collapsed", "expandInline", and unset all build collapsed notes; only "expanded" builds
+    // expanded. $createWholeNote, $insertNoteWithSelect, and the platform adaptor's createNote
+    // must all agree on this, or a freshly inserted note's structure/flag drifts from a loaded
+    // one's (the flag/layout mismatch class of bug).
+    expect(isCollapsedNoteMode("collapsed")).toBe(true);
+    expect(isCollapsedNoteMode("expandInline")).toBe(true);
+    expect(isCollapsedNoteMode(undefined)).toBe(true);
+    expect(isCollapsedNoteMode("expanded")).toBe(false);
+  });
+});
+
 describe("$insertNote()", () => {
-  const requiredNodes = [ParaNode, NoteNode, CharNode, ImmutableNoteCallerNode];
+  const requiredNodes = [ParaNode, NoteNode, CharNode, ImmutableNoteCallerNode, MarkerNode];
   const viewOptions: ViewOptions = {
     markerMode: "hidden",
     noteMode: "expanded",
@@ -945,6 +1056,43 @@ describe("$insertNote()", () => {
     });
   });
 
+  it("should insert a cross-reference note with selected text (non-collapsed selection carries \\xq)", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("selected text here");
+        $getRoot().append($createParaNode().append(t1));
+        // Select "selected"
+        t1.select(0, 8);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "x",
+        HIDDEN_NOTE_CALLER,
+        undefined,
+        { book: "JHN", chapterNum: 3, verseNum: 16 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      expect(noteNode).toBeDefined();
+
+      const children = noteNode?.getChildren() ?? [];
+      const charNodes = children.filter($isCharNode);
+
+      // Should have xo, xq (with selected text), xt
+      expect(charNodes.length).toBeGreaterThanOrEqual(3);
+
+      const xqNode = charNodes.find((node) => node.getMarker() === "xq");
+      expect(xqNode).toBeDefined();
+      expect(xqNode?.getTextContent()).toBe("selected");
+    });
+  });
+
   it("should insert note with collapsed noteMode", () => {
     const collapsedViewOptions: ViewOptions = { ...viewOptions, noteMode: "collapsed" };
 
@@ -971,6 +1119,82 @@ describe("$insertNote()", () => {
 
       expect(noteNode).toBeDefined();
       expect(noteNode?.getIsCollapsed()).toBe(true);
+    });
+  });
+
+  it("should insert a collapsed note under expandInline noteMode (structure and flag agree with a loaded note)", () => {
+    // expandInline notes start collapsed and only expand while the caret is adjacent
+    // (NoteNodePlugin), exactly like notes built at document load (`createNote`), where
+    // `noteMode !== "expanded"` governs BOTH the child structure and the collapsed flag.
+    const expandInlineViewOptions: ViewOptions = {
+      markerMode: "editable",
+      noteMode: "expandInline",
+      hasSpacing: true,
+      isFormattedFont: true,
+    };
+
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        expandInlineViewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      if (!noteNode) throw new Error("noteNode not inserted");
+      // Collapsed layout: caller widget, not editable caller text.
+      expect(noteNode.getChildren().some($isImmutableNoteCallerNode)).toBe(true);
+      // The flag must agree with the layout.
+      expect(noteNode.getIsCollapsed()).toBe(true);
+    });
+  });
+
+  it("should insert a collapsed note when noteMode is undefined (structure and flag agree with a loaded note)", () => {
+    const noNoteModeViewOptions: ViewOptions = {
+      markerMode: "editable",
+      hasSpacing: true,
+      isFormattedFont: true,
+    };
+
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        noNoteModeViewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      if (!noteNode) throw new Error("noteNode not inserted");
+      // Collapsed layout: caller widget, not editable caller text.
+      expect(noteNode.getChildren().some($isImmutableNoteCallerNode)).toBe(true);
+      // The flag must agree with the layout.
+      expect(noteNode.getIsCollapsed()).toBe(true);
     });
   });
 
@@ -1179,6 +1403,243 @@ describe("$insertNote()", () => {
 
       const caller = noteNode.getFirstChild();
       expect($isImmutableNoteCallerNode(caller)).toBe(true);
+    });
+  });
+
+  it("uses the project chapter:verse separator and cross-ref default caller", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "x",
+        undefined,
+        undefined,
+        { book: "JHN", chapterNum: 3, verseNum: 16 },
+        viewOptions,
+        { chapterVerseSeparator: ".", defaultCrossRefCaller: "†" },
+        undefined,
+      );
+
+      expect(noteNode?.getCaller()).toBe("†");
+      const xo = noteNode
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "xo");
+      expect(xo?.getTextContent().trim()).toBe("3.16");
+    });
+  });
+
+  it("substitutes the project verse-range separator into a bridged \\fr reference", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      // `verse` carries the raw "-" bridge; without a project separator it passes through as-is.
+      const bridgedDefault = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "MAT", chapterNum: 1, verseNum: 16, verse: "16-18" },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+      const frDefault = bridgedDefault
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "fr");
+      expect(frDefault?.getTextContent()).toBe("1:16-18 ");
+
+      // The project's configured verse-range separator replaces the raw bridge "-"
+      // (PT9 GetFormattedVerse), while verseNum alone would have shown only "16".
+      const bridged = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "MAT", chapterNum: 1, verseNum: 16, verse: "16-18" },
+        viewOptions,
+        { verseRangeSeparator: "–" },
+        undefined,
+      );
+      const fr = bridged
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "fr");
+      expect(fr?.getTextContent()).toBe("1:16–18 ");
+
+      // The separator is project-configured text, so it must reach the reference LITERALLY. Handed
+      // to `String.replace` as a replacement STRING, a `$&` in it expands to the matched "-"
+      // instead of being inserted, so the separator has to go through a replacer function.
+      const dollarSeparator = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "MAT", chapterNum: 1, verseNum: 16, verse: "16-18" },
+        viewOptions,
+        { verseRangeSeparator: "$&" },
+        undefined,
+      );
+      const frDollar = dollarSeparator
+        ?.getChildren()
+        .filter($isCharNode)
+        .find((c) => c.getMarker() === "fr");
+      expect(frDollar?.getTextContent()).toBe("1:16$&18 ");
+    });
+  });
+
+  it("classifies 'ex' as a cross-reference when resolving the project default caller", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const projectCallers: UsjNodeOptions = {
+        defaultCrossRefCaller: "†",
+        defaultFootnoteCaller: "‡",
+      };
+      const extendedCrossRef = $insertNote(
+        "ex",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        projectCallers,
+        undefined,
+      );
+      expect(extendedCrossRef?.getCaller()).toBe("†");
+
+      // Positive control: "ef" also starts with "e" but is a footnote — it must take the
+      // footnote default, proving the cross-reference classification matches "ex" exactly.
+      const studyNote = $insertNote(
+        "ef",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        projectCallers,
+        undefined,
+      );
+      expect(studyNote?.getCaller()).toBe("‡");
+    });
+  });
+
+  it("resolves the footnote default caller from defaultFootnoteCaller when caller is undefined", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        { defaultFootnoteCaller: "‡" },
+        undefined,
+      );
+
+      expect(noteNode?.getCaller()).toBe("‡");
+    });
+  });
+
+  it("falls back to '+'/'-' when no caller and no project default caller are given", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const t1 = $createTextNode("text");
+        $getRoot().append($createParaNode().append(t1));
+        t1.select(2, 2);
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const footnote = $insertNote(
+        "f",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+      expect(footnote?.getCaller()).toBe(GENERATOR_NOTE_CALLER);
+
+      const crossRef = $insertNote(
+        "x",
+        undefined,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+      expect(crossRef?.getCaller()).toBe(HIDDEN_NOTE_CALLER);
+    });
+  });
+
+  it("builds \\fq from the stripped quotation, not the raw selection text (markers removed)", () => {
+    const { editor } = createBasicTestEnvironment(requiredNodes);
+    editor.update(
+      () => {
+        const para = $createParaNode();
+        $getRoot().append(
+          para.append(
+            $createTextNode("selected "),
+            $createCharNode("nd").append(
+              $createMarkerNode("nd"),
+              $createTextNode("word"),
+              $createMarkerNode("nd", "closing"),
+            ),
+          ),
+        );
+        para.select(0, para.getChildrenSize());
+      },
+      { discrete: true },
+    );
+
+    editor.update(() => {
+      const noteNode = $insertNote(
+        "f",
+        GENERATOR_NOTE_CALLER,
+        undefined,
+        { book: "GEN", chapterNum: 1, verseNum: 1 },
+        viewOptions,
+        nodeOptions,
+        undefined,
+      );
+
+      const children = noteNode?.getChildren() ?? [];
+      const fqNode = children.filter($isCharNode).find((node) => node.getMarker() === "fq");
+      expect(fqNode?.getTextContent()).toBe("selected word");
     });
   });
 });

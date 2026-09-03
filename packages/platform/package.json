@@ -1,6 +1,6 @@
 {
   "name": "@eten-tech-foundation/platform-editor",
-  "version": "0.8.15",
+  "version": "0.8.16",
   "description": "Scripture editor used in Platform. See https://platform.bible",
   "license": "MIT",
   "homepage": "https://github.com/eten-tech-foundation/scripture-editors/tree/main/packages/platform#readme",
@@ -32,6 +32,7 @@
     "src",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx",
+    "!src/**/*.test-helpers.*",
     "!src/context-menu.ts",
     "!src/context-menu.css",
     "!src/toolbar.ts",
@@ -62,13 +63,14 @@
   "dependencies": {
     "@eten-tech-foundation/scripture-utilities": "workspace:~",
     "@floating-ui/dom": "^1.7.6",
+    "@lexical/clipboard": "^0.43.0",
     "@lexical/html": "^0.43.0",
     "@lexical/react": "^0.43.0",
     "@lexical/selection": "^0.43.0",
     "@lexical/text": "^0.43.0",
     "@lexical/utils": "^0.43.0",
     "@lexical/yjs": "^0.43.0",
-    "@sillsdev/scripture": "^2.0.5",
+    "@sillsdev/scripture": "^2.1.0",
     "fast-equals": "^5.4.0",
     "lexical": "^0.43.0",
     "quill-delta": "^5.1.0"

@@ -24,12 +24,14 @@ import {
 import {
   $createBookNode,
   $createCharNode,
+  $createNoteNode,
   $createImmutableChapterNode,
   $createImpliedParaNode,
   $isImmutableChapterNode,
   $isImpliedParaNode,
   blackListedChangeTags,
   charIdState,
+  CURSOR_CHANGE_TAG,
   EXTERNAL_USJ_MUTATION_TAG,
   ImmutableChapterNode,
   ImpliedParaNode,
@@ -244,6 +246,44 @@ describe("OnChangePlugin", () => {
     });
   });
 
+  describe("Note-internal edits", () => {
+    it("falls back to the full diff for a text edit INSIDE a note (no bare insert at the note's outer position)", async () => {
+      // A note is ONE opaque embed unit in delta-doc coordinates — its `contents` are
+      // deliberately empty in the doc-delta stream ($getNoteOp), because note content flows via
+      // the replaceEmbedUpdate channel. A note-internal edit is therefore INEXPRESSIBLE here and
+      // the correct emission is NOTHING. The single-dirty-leaf fast path instead emitted
+      // `retain(notePos) + insert("a")` — landing the typed character AFTER the note in the
+      // shared doc.
+      let noteText: TextNode;
+      const { editor } = await testEnvironment(() => {
+        noteText = $createTextNode("note body");
+        const note = $createNoteNode("f", "+", false); // expanded — its text is editable inline
+        note.append(noteText);
+        $getRoot().append(
+          $createImpliedParaNode().append(
+            $createTextNode("before "),
+            note,
+            $createTextNode(" after"),
+          ),
+        );
+      });
+
+      updateOps = [];
+      // Defined by the test environment.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await typeTextAtSelection(editor, "a", noteText!, 0);
+
+      // No doc-delta ops for a note-internal edit — and in particular no stray text insert.
+      expect(updateOps).toEqual([]);
+      // The local edit itself still happened.
+      editor.getEditorState().read(() => {
+        // Defined by the test environment.
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        expect(noteText!.getTextContent()).toBe("anote body");
+      });
+    });
+  });
+
   describe("Mixed Operations", () => {
     it("should handle complex OT position calculation with chapters, verses, and char nodes", async () => {
       let ch1: ImmutableChapterNode;
@@ -356,6 +396,15 @@ describe("OnChangePlugin", () => {
     it("skips the delta when the update carries a blacklisted tag (e.g. chapter load)", async () => {
       const { editor, calls } = await setup();
       await sutUpdate(editor, $makeMultiNodeChange, { tag: EXTERNAL_USJ_MUTATION_TAG });
+      expect(calls).toHaveLength(0);
+    });
+
+    // The transient caret hosts (an emptied verse's, and a trailing note's) tag every mutation they
+    // make with CURSOR_CHANGE_TAG. That tag is what keeps a host out of save emission entirely: the
+    // commit never reaches this handler, so the host application is never told the document changed.
+    it("skips the delta for a CURSOR_CHANGE_TAG commit, so a caret host is never emitted", async () => {
+      const { editor, calls } = await setup();
+      await sutUpdate(editor, $makeMultiNodeChange, { tag: CURSOR_CHANGE_TAG });
       expect(calls).toHaveLength(0);
     });
   });
