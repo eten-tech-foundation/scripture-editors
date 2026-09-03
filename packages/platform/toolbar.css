@@ -1,9 +1,9 @@
 /*
  * Stable path for resolvers that don't honour the "exports" map (webpack 4, older Metro/Jest).
- * Bundlers that do honour it get dist/styles.css directly through the "./styles.css" subpath.
+ * Bundlers that do honour it get dist/toolbar.css directly through the "./toolbar.css" subpath.
  *
  * dist/ is gitignored, so in a clone of this repo this file points at nothing; it only resolves
  * inside a published tarball, where dist/ is present. There is one of these per published
  * stylesheet, so an exports-blind resolver reaches all of them, not just the core one.
  */
-@import "./dist/styles.css";
+@import "./dist/toolbar.css";

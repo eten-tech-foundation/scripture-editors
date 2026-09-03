@@ -68,8 +68,9 @@ export default defineConfig({
         index: path.resolve(__dirname, "src/index.ts"),
         styles: path.resolve(__dirname, "src/styles.ts"),
         // Optional UI stylesheets, kept out of styles.css so a consumer that supplies its own
-        // toolbar/context menu doesn't ship them (#516).
+        // toolbar/marker menu/context menu doesn't ship them (#516).
         toolbar: path.resolve(__dirname, "src/toolbar.ts"),
+        "nodes-menu": path.resolve(__dirname, "src/nodes-menu.ts"),
         "context-menu": path.resolve(__dirname, "src/context-menu.ts"),
       },
       external: [

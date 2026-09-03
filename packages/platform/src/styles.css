@@ -2,17 +2,22 @@
  * Bundled stylesheet for @eten-tech-foundation/platform-editor.
  *
  * Built to dist/styles.css and exposed to consumers as
- * `@eten-tech-foundation/platform-editor/styles.css`. Icon SVGs referenced by
- * editor.css are inlined as data URIs at build time, so no assets need copying.
+ * `@eten-tech-foundation/platform-editor/styles.css`. The repo's platform demo imports this
+ * same file (demos/platform/src/styles.css), so `nx dev platform` exercises the composition
+ * we publish rather than a parallel one that can drift from it.
  *
- * Scope: what every editor needs, whatever its configuration. Three things are
- * deliberately NOT here:
- *   - the built-in toolbar (`hasExternalUI: false`) and the context menu, which
- *     ship as their own entries so a consumer supplying its own UI doesn't pay
- *     for them: `platform-editor/toolbar.css`, `platform-editor/context-menu.css`;
- *   - `usj-nodes.css`, which Platform generates per project — it has to respond to
- *     project stylesheets, `custom.sty` markers and view modes, so a fixed copy in
- *     the package would be wrong. Keep copying it (see README).
+ * Scope: what every editor needs, whatever its configuration. Five things are deliberately
+ * NOT here:
+ *   - the built-in toolbar (`hasExternalUI: false`), the marker menu (`scrRef` and
+ *     `hasExternalUI: false`) and the context menu, which ship as their own entries so a
+ *     consumer supplying its own UI doesn't pay for them: `platform-editor/toolbar.css`,
+ *     `platform-editor/nodes-menu.css`, `platform-editor/context-menu.css`;
+ *   - `usj-nodes.css`, which Platform generates per project — it has to respond to project
+ *     stylesheets, `custom.sty` markers and view modes, so a fixed copy in the package would
+ *     be wrong. Keep copying it (see README);
+ *   - `editor/debug-tree-view.css`, which is source-only on purpose: it has no build entry and
+ *     no `exports` subpath, because `debug` is an experimental dev-only prop and the file
+ *     carries unscoped `pre` selectors that must not reach a consumer's page. Copy it from the
+ *     repo if you turn `debug` on (see README).
  */
 @import "./editor/editor.css";
-@import "../../../libs/shared/src/styles/nodes-menu.css";
