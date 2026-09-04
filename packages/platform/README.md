@@ -140,17 +140,62 @@ export default function App() {
 
 ## Styling
 
-This npm package does not include styling so you need to style the editor component to suit your application. A good place to start is to copy the **CSS** from this repo:
+The package ships a stylesheet covering the editor chrome. Import it once, wherever your app imports CSS:
+
+```ts
+import "@eten-tech-foundation/platform-editor/styles.css";
+```
+
+Every consumer also needs the context menu today, because `ContextMenuPlugin` currently renders unconditionally:
+
+```ts
+import "@eten-tech-foundation/platform-editor/context-menu.css";
+```
+
+It is a separate entry because it is expected to become gated on `hasExternalUI` like the toolbar; until then, import it.
+
+If you use the **built-in UI** (`hasExternalUI` is `false`, the default), also import the toolbar, and the marker menu if you pass `scrRef`:
+
+```ts
+import "@eten-tech-foundation/platform-editor/toolbar.css";
+import "@eten-tech-foundation/platform-editor/nodes-menu.css";
+```
+
+They are separate entries so an app supplying its own toolbar or marker menu doesn't ship styles it will override anyway.
+
+The toolbar's 15 icons are inlined into `toolbar.css` as data URIs, so **no asset copying is required**. `styles.css`, `context-menu.css` and `nodes-menu.css` reference no images at all. Two things worth knowing:
+
+- Importing from a **bundler-processed stylesheet** works too (`@import "@eten-tech-foundation/platform-editor/styles.css";`), but a browser loading a plain `<link>`ed file cannot resolve a bare package specifier.
+- If your host page sets a Content Security Policy, `img-src` must allow `data:` or the toolbar icons silently disappear — which looks like the stylesheet failed to load.
+
+### Scripture node styles are not bundled
+
+`usj-nodes.css` is deliberately **not** part of the bundle. Platform generates it per project, because it has to respond to project-specific stylesheets, `custom.sty` markers and the active view mode, so a fixed copy shipped in the package would be wrong for most consumers. The file in this repo is a placeholder for a formatted view.
+
+Until that generation lands, copy it out of the repo:
+
+- Scripture Nodes [/packages/platform/src/usj-nodes.css](/packages/platform/src/usj-nodes.css)
+
+Comment styles for the deprecated `<Marginal />` component are not published under a subpath either — `<Marginal />` is on its way out, so a public entry would only buy a breaking removal later. Copy them from the repo (list below) if you still use it.
+
+Consumers doing a bare `tsc` (no bundler types) may need `declare module "*.css";` for the import to type-check; anything using `vite/client` types already has it.
+
+Icons are [Bootstrap Icons](https://icons.getbootstrap.com/) (MIT); the license travels with the package at `assets/images/icons/LICENSE.md`.
+
+### Overriding or forking the stylesheets
+
+To restyle beyond CSS overrides, copy the sources out of this repo instead:
 
 - Scripture Nodes [/packages/platform/src/usj-nodes.css](/packages/platform/src/usj-nodes.css)
 - Editor [/packages/platform/src/editor/editor.css](/packages/platform/src/editor/editor.css)
-- Marker Menu [/libs/shared/styles/nodes-menu.css](/libs/shared/styles/nodes-menu.css)
+- Built-in toolbar [/packages/platform/src/editor/toolbar.css](/packages/platform/src/editor/toolbar.css)
+- Context menu [/packages/platform/src/editor/context-menu.css](/packages/platform/src/editor/context-menu.css)
+- Marker Menu [/libs/shared/src/styles/nodes-menu.css](/libs/shared/src/styles/nodes-menu.css)
+- TreeView, `debug` only [/packages/platform/src/editor/debug-tree-view.css](/packages/platform/src/editor/debug-tree-view.css) — the only stylesheet with no published subpath at all, because `debug` is an experimental dev-only prop and the file carries unscoped `pre` selectors that would restyle every `<pre>` on your page. Copy it if you turn `debug` on.
 
-For **icon assets** for the editor referenced in `editor.css` (the license file is included):
+`toolbar.css` references its icons from [/packages/platform/assets](/packages/platform/assets) by absolute URL, so a hand-copied stylesheet also needs those assets served from your web root. Swap the vendored imports for `styles.css` rather than stacking both, or the rules double up.
 
-- [/packages/platform/assets](/packages/platform/assets)
-
-If using the **commenting features** in the `<Marginal />` component:
+Comment styles, if using `<Marginal />`:
 
 - [/packages/platform/src/marginal/comments/ui/Button.css](/packages/platform/src/marginal/comments/ui/Button.css)
 - [/packages/platform/src/marginal/comments/ui/ContentEditable.css](/packages/platform/src/marginal/comments/ui/ContentEditable.css)

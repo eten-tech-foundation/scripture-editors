@@ -5,8 +5,17 @@
 @import "../../../packages/platform/src/marginal/comments/ui/Placeholder";
 @import "../../../packages/platform/src/marginal/comments/comment-editor.theme";
 @import "../../../packages/platform/src/marginal/comments/CommentPlugin";
-@import "../../../packages/platform/src/editor/editor";
+/* The bundle the package publishes as `platform-editor/styles.css`, imported as the package
+   builds it rather than re-enumerating its parts, so `nx dev platform` regresses the real
+   composition instead of a parallel one that can drift from it (#516). */
+@import "../../../packages/platform/src/styles.css";
+/* The optional entries, each published under its own subpath: the built-in toolbar, the marker
+   menu and the context menu. The demo uses all three. */
+@import "../../../packages/platform/src/editor/toolbar";
 @import "../../../libs/shared/src/styles/nodes-menu";
+@import "../../../packages/platform/src/editor/context-menu";
+/* Not published under any subpath: the debug TreeView, which the demo turns on. */
+@import "../../../packages/platform/src/editor/debug-tree-view";
 @import "./app/app-overrides";
 
 @import "https://fonts.googleapis.com/css?family=Reenie+Beanie";
