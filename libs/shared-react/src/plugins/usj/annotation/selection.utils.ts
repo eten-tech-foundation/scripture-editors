@@ -39,6 +39,7 @@ import {
   $isMarkerNode,
   $isParaLikeNode,
   $isTypedMarkNode,
+  $isVerseBlockNode,
   $isVisibleMarkerNode,
   $shouldIgnoreNodeForContentIndexes,
   ImmutableTypedTextNode,
@@ -63,10 +64,16 @@ import {
  *   a range), it defaults to the 'start' value.
  * - If either the start or end node cannot be found, or if their offsets are undefined, the
  *   function returns undefined.
+ * - In the block verse layout it always returns `undefined`: that layout splits a paragraph
+ *   spanning verses across their blocks, so the editor's content indexes no longer match the
+ *   source USJ's and no location can be resolved. Callers that need to tell a host why report it
+ *   through their own logger - these are `$` functions with none threaded in.
  */
 export function $getRangeFromUsjSelection(
   selection: SelectionRange | AnnotationRange,
 ): RangeSelection | undefined {
+  if ($hasVerseBlocks()) return undefined;
+
   const { start } = selection;
   let { end } = selection;
   end ??= start;
@@ -94,9 +101,12 @@ export function $getRangeFromUsjSelection(
  * forward and backward selections, as well as collapsed (single point) selections.
  *
  * @returns A USJ `SelectionRange` object containing the start and end positions of the selection,
- *   or `undefined` if there is no valid range selection.
+ *   or `undefined` if there is no valid range selection. Always `undefined` in the block verse
+ *   layout - see {@link $getRangeFromUsjSelection} for why.
  */
 export function $getUsjSelectionFromEditor(): SelectionRange | undefined {
+  if ($hasVerseBlocks()) return undefined;
+
   const editorSelection = $getSelection();
   if (!editorSelection || !$isRangeSelection(editorSelection)) return;
 
@@ -507,4 +517,28 @@ function $getJsonPathIndexes(node: LexicalNode): number[] {
     current = parent;
   }
   return jsonPathIndexes;
+}
+
+/**
+ * Whether the document uses the block verse layout.
+ *
+ * USJ locations are indexes into the source USJ's content. That layout regroups verses into blocks,
+ * splitting any paragraph that spans verses into one fragment per verse, so the editor's content
+ * indexes no longer line up with the USJ's - and no amount of treating the block itself as
+ * transparent fixes the renumbering underneath. Locations are therefore unavailable there, rather
+ * than confidently wrong.
+ */
+function $hasVerseBlocks(): boolean {
+  // Both callers run on every selection change, so this walks siblings and exits at the first
+  // block rather than calling `getChildren()`, which would build an array of every root child.
+  //
+  // The layout is known from `ViewOptions.verseLayout`, and an editor registers `VerseBlockNode`
+  // only for that layout, so `editor.hasNodes([VerseBlockNode])` looks like a cheaper answer. It
+  // is not available here: `$getEditor()` needs an active *editor*, and these functions are
+  // called from `editorState.read()` as well, which establishes only an active editor state.
+  // Reading the layout instead would mean threading `ViewOptions` through every caller.
+  for (let child = $getRoot().getFirstChild(); child; child = child.getNextSibling()) {
+    if ($isVerseBlockNode(child)) return true;
+  }
+  return false;
 }

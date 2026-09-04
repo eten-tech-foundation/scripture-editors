@@ -50,10 +50,15 @@ import {
   isSerializedImmutableChapterNode,
   SerializedImmutableChapterNode,
 } from "./ImmutableChapterNode.js";
-import { $isImpliedParaNode, ImpliedParaNode } from "./ImpliedParaNode.js";
+import {
+  $isImpliedParaNode,
+  ImpliedParaNode,
+  isSerializedImpliedParaNode,
+  SerializedImpliedParaNode,
+} from "./ImpliedParaNode.js";
 import { $isMilestoneNode, MilestoneNode } from "./MilestoneNode.js";
 import { $isNoteNode, NoteNode } from "./NoteNode.js";
-import { $isParaNode, ParaNode } from "./ParaNode.js";
+import { $isParaNode, isSerializedParaNode, ParaNode, SerializedParaNode } from "./ParaNode.js";
 import { $isVerseNode, VerseNode } from "./VerseNode.js";
 import { EMPTY_CHAR_PLACEHOLDER_TEXT, NBSP, UnknownAttributes } from "./node-constants.js";
 import { isCursorPlaceholderOnly } from "../../plugins/CursorHandler/index.js";
@@ -73,6 +78,8 @@ export type NodesWithMarker =
 // If you want use these utils with your own chapter node, add it to this list of types.
 export type SomeChapterNode = ChapterNode | ImmutableChapterNode;
 export type SomeParaNode = ParaNode | ImpliedParaNode;
+/** Serialized form of {@link SomeParaNode}. */
+export type SomeSerializedParaNode = SerializedParaNode | SerializedImpliedParaNode;
 
 export type ParaLikeNode = SomeParaNode | BookNode;
 
@@ -291,6 +298,18 @@ export function $isParaLikeNode(node: LexicalNode | null | undefined): node is P
  */
 export function $isSomeParaNode(node: LexicalNode | null | undefined): node is SomeParaNode {
   return $isParaNode(node) || $isImpliedParaNode(node);
+}
+
+/**
+ * Checks if the given serialized node is a SerializedParaNode or SerializedImpliedParaNode.
+ * @param node - The serialized node to check.
+ * @returns `true` if the node is a SerializedParaNode or SerializedImpliedParaNode, `false`
+ *   otherwise.
+ */
+export function isSomeSerializedParaNode(
+  node: SerializedLexicalNode | null | undefined,
+): node is SomeSerializedParaNode {
+  return isSerializedParaNode(node) || isSerializedImpliedParaNode(node);
 }
 
 /**
@@ -885,6 +904,29 @@ export function isVerseInRange(verseNum: number, verseRange: string | undefined)
  */
 export function isVerseRange(verseRange: string | undefined): boolean {
   return !!verseRange && verseRange.includes("-");
+}
+
+/**
+ * Parses a (possibly combined/partial) verse marker into its numeric bounds.
+ *
+ * Unlike {@link isVerseInRange}, this never throws: a marker that isn't numeric yields `NaN` bounds
+ * for the caller to reject. Verse numbers come from imported USFM and are not guaranteed to be
+ * well-formed.
+ *
+ * @param verseRange - The verse marker, e.g. `"5"`, `"14-15"`, `"3a"`.
+ * @returns the first and last verse numbers the marker covers.
+ * @example
+ *   "5" - `{ start: 5, end: 5 }`
+ *   "14-15" - `{ start: 14, end: 15 }`
+ *   "1-3a" - `{ start: 1, end: 3 }`
+ *   "3a" - `{ start: 3, end: 3 }`
+ *   "abc" - `{ start: NaN, end: NaN }`
+ */
+export function parseVerseRange(verseRange: string): { start: number; end: number } {
+  const parts = verseRange.split("-");
+  const start = parseInt(parts[0], 10);
+  const end = parts.length > 1 ? parseInt(parts[parts.length - 1], 10) : start;
+  return { start, end };
 }
 
 function getSelectionStartNodeInner(selection: BaseSelection | null): LexicalNode | undefined {

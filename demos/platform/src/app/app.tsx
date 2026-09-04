@@ -20,6 +20,7 @@ import {
   GENERATOR_NOTE_CALLER,
   getDefaultViewMode,
   getViewOptions,
+  isBlockVerseLayout,
   HIDDEN_NOTE_CALLER,
   isInsertEmbedOpOfType,
   Marginal,
@@ -208,11 +209,18 @@ export default function App() {
     else return customNodeOptions;
   }, [customNodeOptions, nodesMode]);
 
+  // The block verse layout is read-only in the editor regardless; force it here too so the
+  // checkbox reflects what the editor is actually doing.
+  // Only when the options are actually forwarded: with them off the editor never sees `view`, so
+  // claiming a forced read-only would describe an editor that is in fact editable and inline.
+  const isBlockVerseView = isOptionsDefined && isBlockVerseLayout(viewOptions);
+  const effectiveIsReadonly = isReadonly || isBlockVerseView;
+
   const options = useMemo<EditorOptions | undefined>(
     () =>
       isOptionsDefined
         ? {
-            isReadonly,
+            isReadonly: effectiveIsReadonly,
             structureProtectionMode,
             hasExternalUI,
             hasSpellCheck,
@@ -225,7 +233,7 @@ export default function App() {
         : { hasExternalUI, debug },
     [
       isOptionsDefined,
-      isReadonly,
+      effectiveIsReadonly,
       structureProtectionMode,
       hasExternalUI,
       hasSpellCheck,
@@ -484,10 +492,13 @@ export default function App() {
                   <input
                     type="checkbox"
                     id="isReadonlyCheckBox"
-                    checked={isReadonly}
+                    checked={effectiveIsReadonly}
+                    disabled={isBlockVerseView}
                     onChange={(e) => setIsReadonly(e.target.checked)}
                   />
-                  <label htmlFor="isReadonlyCheckBox">Is readonly</label>
+                  <label htmlFor="isReadonlyCheckBox">
+                    Is readonly{isBlockVerseView ? " (forced by block verse)" : ""}
+                  </label>
                 </div>
                 <div className="checkbox">
                   <input
@@ -642,7 +653,7 @@ export default function App() {
             editorRef={marginalRef}
             scrRef={scrRef}
             onScrRefChange={setScrRef}
-            isReadonly={isReadonly}
+            isReadonly={effectiveIsReadonly}
             canUndo={canUndo}
             canRedo={canRedo}
             blockMarker={blockMarker}

@@ -41,6 +41,16 @@ export const PARAGRAPH_STRUCTURE_VIEW_MODE = "paragraph-structure";
 export const STANDARD_VIEW_MODE = "standard";
 
 /**
+ * Constant representing the block verse view mode.
+ * Displays formatted text with each verse wrapped in a block-level element, so a verse can be
+ * placed on a layout row - for example a grid aligning the same verse across several resources.
+ * This view is read-only; see `ViewOptions.verseLayout`.
+ *
+ * @public
+ */
+export const BLOCK_VERSE_VIEW_MODE = "block-verse";
+
+/**
  * Maps view mode keys to their human-readable display names.
  * Used for UI components that need to show view mode options to users.
  *
@@ -51,4 +61,5 @@ export const viewModeToViewNames = {
   [UNFORMATTED_VIEW_MODE]: "Unformatted",
   [PARAGRAPH_STRUCTURE_VIEW_MODE]: "Paragraph Structure",
   [STANDARD_VIEW_MODE]: "Standard",
+  [BLOCK_VERSE_VIEW_MODE]: "Block Verse",
 };

@@ -27,6 +27,7 @@ import {
   $createMilestoneNode,
   $createParaNode,
   $createTypedMarkNode,
+  $createVerseBlockNode,
   $createVerseNode,
   ChapterNode,
   CharNode,
@@ -40,6 +41,7 @@ import {
   ParaNode,
   textTypeState,
   TypedMarkNode,
+  VerseBlockNode,
   VerseNode,
 } from "shared";
 
@@ -1655,5 +1657,54 @@ describe("round-trip conversion", () => {
       expect(editorSelection.anchor.key).toBe(closingMarker.getKey());
       expect(editorSelection.anchor.offset).toBe(2);
     });
+  });
+});
+
+// USJ locations are indexes into the source USJ's content. The block verse layout splits any
+// paragraph that spans verses into one fragment per verse, so those indexes no longer describe the
+// source document and a location taken from this tree would be confidently wrong.
+describe("block verse layout", () => {
+  const blockVerseNodes = [VerseBlockNode, ParaNode, ImmutableVerseNode, TextNode];
+
+  /** A one-verse chapter, laid out inline or in a verse block, with the caret in its text. */
+  function createChapter(isBlockLayout: boolean) {
+    let text: TextNode | undefined;
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, () => {
+      text = $createTextNode("the first verse ");
+      const para = $createParaNode("p");
+      const verseBlock = $createVerseBlockNode("1");
+      $getRoot().append(
+        isBlockLayout
+          ? verseBlock.append(para.append($createImmutableVerseNode("1"), text))
+          : para.append($createImmutableVerseNode("1"), text),
+      );
+    });
+    if (!text) throw new Error("expected the verse text to be created");
+    updateSelection(editor, text, 1);
+    return editor;
+  }
+
+  it("reports no location for a caret inside a verse block", () => {
+    const editor = createChapter(true);
+
+    expect(editor.getEditorState().read($getUsjSelectionFromEditor)).toBeUndefined();
+  });
+
+  // The control: the same caret in the same content resolves normally when it is not in a block,
+  // so the test above is about the layout and not about the caret being missing.
+  it("reports a location for the same caret in the inline layout", () => {
+    const editor = createChapter(false);
+
+    expect(editor.getEditorState().read($getUsjSelectionFromEditor)).toBeDefined();
+  });
+
+  it("refuses to resolve a USJ location back to a range in a verse block document", () => {
+    const editor = createChapter(true);
+
+    const range = editor
+      .getEditorState()
+      .read(() => $getRangeFromUsjSelection({ start: { jsonPath: "$.content[0]", offset: 0 } }));
+
+    expect(range).toBeUndefined();
   });
 });
