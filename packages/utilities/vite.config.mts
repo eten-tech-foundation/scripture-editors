@@ -41,7 +41,7 @@ export default defineConfig({
     },
     rollupOptions: {
       // External packages that should not be bundled into your library.
-      external: ["@xmldom/xmldom"],
+      external: [],
       // open the HTML file manually or  set `open` to true
       // plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
     },

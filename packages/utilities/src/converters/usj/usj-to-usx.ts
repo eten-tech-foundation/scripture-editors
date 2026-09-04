@@ -4,9 +4,9 @@
  * @see https://github.com/usfm-bible/usfmtc/blob/0afa385a1f282b286cc6bff7bbc953ae788aa10c/src/usfmtc/usjproc.py
  */
 
-import { DOMImplementation, Document, Element, Text } from "@xmldom/xmldom";
 import { MarkerContent, MarkerObject, Usj } from "./usj.model.js";
 import { USX_TYPE, USX_VERSION } from "./usx.model.js";
+import { assertDomEnvironment } from "./converter.utils.js";
 
 let chapterEid: string | undefined;
 let verseEid: string | undefined;
@@ -14,18 +14,24 @@ let verseEid: string | undefined;
 /**
  * Converts a USJ object to a USX string.
  *
+ * @remarks Uses the platform's native `DOMParser` and `XMLSerializer` (browsers, web views,
+ * jsdom). In Node.js, provide a DOM implementation as globals before calling, e.g. from jsdom or
+ * `@xmldom/xmldom`.
+ *
  * @param usj - The USJ object to convert
  * @returns The converted USX string.
+ * @throws If no DOM environment is available.
  *
  * @public
  */
 export function usjToUsxString(usj: Usj): string {
-  const usxDoc = new DOMImplementation().createDocument("", USX_TYPE);
+  assertDomEnvironment("usjToUsxString");
+  const usxDoc = new DOMParser().parseFromString(`<${USX_TYPE}/>`, "text/xml");
   if (usxDoc.documentElement) {
     usxDoc.documentElement.setAttribute("version", USX_VERSION);
     usjToUsxDom(usj, usxDoc);
   }
-  return usxDoc.toString();
+  return new XMLSerializer().serializeToString(usxDoc);
 }
 
 export function usjToUsxDom(usj: Usj, usxDoc: Document): Element | undefined {
