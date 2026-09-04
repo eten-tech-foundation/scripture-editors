@@ -1,3 +1,4 @@
+import { groupVersesIntoBlocks } from "./verse-block.utils";
 import {
   BookCode,
   MarkerContent,
@@ -144,6 +145,7 @@ import {
   getDefaultViewOptions,
   getVerseNodeClass,
   hasStandardViewWhitespace,
+  isBlockVerseLayout,
   isCollapsedNoteMode,
   isSomeSerializedVerseNode,
   showParaMarkerPrefix,
@@ -231,8 +233,11 @@ export function serializeEditorState(
         `This USJ version '${usj.version}' didn't match the expected version '${USJ_VERSION}'.`,
       );
 
-    if (usj.content.length > 0) children = insertImpliedParasRecurse(recurseNodes(usj.content));
-    else children = [emptyImpliedParaNode];
+    if (usj.content.length > 0) {
+      children = insertImpliedParasRecurse(recurseNodes(usj.content));
+      // After implied paragraphs exist, so the grouping only ever sees paragraph containers.
+      if (isBlockVerseLayout(_viewOptions)) children = groupVersesIntoBlocks(children, _logger);
+    } else children = [emptyImpliedParaNode];
   } else {
     children = [emptyImpliedParaNode];
   }

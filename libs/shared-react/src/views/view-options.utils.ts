@@ -7,11 +7,14 @@ import {
 import { ImmutableVerseNode } from "../nodes/usj/ImmutableVerseNode";
 import {
   ViewMode,
+  BLOCK_VERSE_VIEW_MODE,
   FORMATTED_VIEW_MODE,
   UNFORMATTED_VIEW_MODE,
   PARAGRAPH_STRUCTURE_VIEW_MODE,
   STANDARD_VIEW_MODE,
+  viewModeToViewNames,
 } from "./view-mode.model";
+import { deepEqual } from "fast-equals";
 
 /**
  * How USFM markers are displayed.
@@ -40,12 +43,29 @@ export type NoteMode =
   | "expanded";
 
 /**
+ * How each verse is laid out in the document.
+ *
+ * @public
+ */
+export type VerseLayout =
+  /** The verse marker is an inline milestone; verse text flows within its paragraph. */
+  | "inline"
+  /**
+   * Each verse is a block-level element containing its own paragraphs, so it can be placed on a
+   * layout row. Read-only: the editor forces read-only when this is selected, and neither USJ
+   * export nor USJ-addressed selection is available, because a paragraph spanning several verses
+   * is split across their blocks and no longer matches the source USJ's content indexes.
+   */
+  | "block";
+
+/**
  * Configuration options for controlling the display and behavior of Scripture text views.
  *
  * @example
  * ```typescript
  * const viewOptions: ViewOptions = {
  *   markerMode: "hidden",
+ *   noteMode: "collapsed",
  *   hasSpacing: true,
  *   isFormattedFont: true
  * };
@@ -115,6 +135,16 @@ export interface ViewOptions {
    * (char/verse/note) are unaffected — only the paragraph's own prefix is suppressed.
    */
   showParaMarkerPrefixes?: boolean;
+  /**
+   * How each verse is laid out. Default (undefined) is `"inline"`, which is what every view other
+   * than block verse uses.
+   *
+   * Switching this between `"inline"` and `"block"` recreates the editor, because the node types a
+   * Lexical editor can hold are fixed when it is created. That discards the undo history and any
+   * annotations the host has applied since the last USJ change, so hosts should choose a layout
+   * when they mount the editor rather than toggling a live one.
+   */
+  verseLayout?: VerseLayout;
 }
 
 /**
@@ -213,6 +243,15 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
         isFormattedFont: true,
       };
       break;
+    case BLOCK_VERSE_VIEW_MODE:
+      viewOptions = {
+        markerMode: "hidden",
+        noteMode: "collapsed",
+        hasSpacing: true,
+        isFormattedFont: true,
+        verseLayout: "block",
+      };
+      break;
     default:
       break;
   }
@@ -222,6 +261,21 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 /**
  * Convert view options to view mode if the view exists.
  *
+ * Inverts {@link getViewOptions} by comparison, so a view option added later cannot be forgotten
+ * here and leave two modes indistinguishable. Matching is exact once each unset optional field is
+ * filled in with its default, so spelling a default out still matches, but options derived from a
+ * mode and then genuinely tweaked describe a view that is no longer that mode and yield
+ * `undefined`.
+ *
+ * @remarks
+ * This is narrower than the field-by-field matching it replaced, which tested only `markerMode`,
+ * `hasSpacing`, `isFormattedFont`, `hasGutterParaMarkers` and `hasActiveTextFocusBox`. Every other
+ * field now counts, `noteMode` included - it has no default to fill in (call sites read `undefined`
+ * inconsistently, some as collapsed and some as not), so it is part of what identifies a mode and
+ * has to be given. Options built from a mode with `noteMode` changed - say
+ * `{ ...getViewOptions(PARAGRAPH_STRUCTURE_VIEW_MODE), noteMode: "expanded" }` - used to return the
+ * mode they started from and now return `undefined`.
+ *
  * @param viewOptions - View options of the editor.
  * @returns the view mode if the view is defined, `undefined` otherwise.
  *
@@ -230,42 +284,36 @@ export function getViewOptions(viewMode?: string | undefined): ViewOptions | und
 export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | undefined {
   if (!viewOptions) return undefined;
 
-  const {
-    markerMode,
-    noteMode,
-    hasSpacing,
-    isFormattedFont,
-    hasGutterParaMarkers,
-    hasActiveTextFocusBox,
-  } = viewOptions;
-  if (
-    markerMode === "hidden" &&
-    hasSpacing &&
-    isFormattedFont &&
-    hasGutterParaMarkers &&
-    hasActiveTextFocusBox
-  )
-    return PARAGRAPH_STRUCTURE_VIEW_MODE;
-  // STANDARD is exactly the whitespace fingerprint plus collapsed notes — expressed as the call so
-  // a sixth axis on `ViewOptions` cannot land in one of the two spellings and not the other.
-  if (hasStandardViewWhitespace(viewOptions) && noteMode === "collapsed") return STANDARD_VIEW_MODE;
-  if (
-    markerMode === "hidden" &&
-    hasSpacing &&
-    isFormattedFont &&
-    !hasGutterParaMarkers &&
-    !hasActiveTextFocusBox
-  )
-    return FORMATTED_VIEW_MODE;
-  if (
-    markerMode === "editable" &&
-    !hasSpacing &&
-    !isFormattedFont &&
-    !hasGutterParaMarkers &&
-    !hasActiveTextFocusBox
-  )
-    return UNFORMATTED_VIEW_MODE;
-  return undefined;
+  const normalized = canonicalize(viewOptions);
+  return (Object.keys(viewModeToViewNames) as ViewMode[]).find((viewMode) =>
+    deepEqual(canonicalize(getViewOptions(viewMode)), normalized),
+  );
+}
+
+/**
+ * Each optional field's documented default, so options that spell a default out compare equal to
+ * options that leave it out - they describe the same view, and the comparison counts keys.
+ *
+ * `noteMode` is absent deliberately: it has no default (call sites read `undefined` inconsistently,
+ * some as collapsed and some as not), so it is part of what identifies a mode and has to be given.
+ */
+const optionalViewOptionDefaults = {
+  showCharMarkerTitles: true,
+  hasGutterParaMarkers: false,
+  hasActiveTextFocusBox: false,
+  verseLayout: "inline",
+} as const satisfies Partial<ViewOptions>;
+
+/** The options with every unset optional field filled in with its default. */
+function canonicalize(viewOptions: ViewOptions | undefined) {
+  if (!viewOptions) return viewOptions;
+
+  // Strip the `undefined`-valued keys first - spreading them over the defaults would reinstate the
+  // very "not set" state the defaults exist to resolve.
+  const setOptions = Object.fromEntries(
+    Object.entries(viewOptions).filter(([, value]) => value !== undefined),
+  );
+  return { ...optionalViewOptionDefaults, ...setOptions };
 }
 
 /**
@@ -285,9 +333,10 @@ export function getViewMode(viewOptions: ViewOptions | undefined): ViewMode | un
  * display-mapped text to invert (their named mode hides markers entirely, so the editable
  * engine's separators never combine with them). Deliberately NOT expressed via
  * {@link getViewMode}: expanded is not the named `standard` mode, and overloading `getViewMode`
- * would break its invertibility contract and the user-facing mode labels. The dependency runs the
- * other way instead — `getViewMode` builds its STANDARD branch out of this predicate and the
- * `noteMode` axis, so the fingerprint is written down exactly once.
+ * would break its invertibility contract and the user-facing mode labels. `getViewMode` compares
+ * whole option objects against {@link getViewOptions}, so this predicate stays independent of it:
+ * it is the one place the whitespace fingerprint — the STANDARD options with the `noteMode` axis
+ * dropped — is written down.
  *
  * @param viewOptions - View options of the editor.
  * @returns `true` when standard-view whitespace normalization applies.
@@ -319,7 +368,28 @@ export function hasStandardViewWhitespace(viewOptions: ViewOptions | undefined):
 export function getVerseNodeClass(viewOptions: ViewOptions | undefined) {
   if (!viewOptions) return;
 
+  // Block verse is read-only, so its marker is never the editable `VerseNode`. Today the marker
+  // mode below would reach the same answer - block verse hides markers - but dispatching on the
+  // layout first keeps that independent of how markers happen to be configured.
+  if (isBlockVerseLayout(viewOptions)) return ImmutableVerseNode;
+
   return viewOptions.markerMode === "editable" ? VerseNode : ImmutableVerseNode;
+}
+
+/**
+ * Whether the view options select the block verse layout.
+ *
+ * That layout is read-only: its paragraphs are split across verse blocks, so an edit has no
+ * correct USJ to go back to. Anything that offers editing - or an affordance that depends on
+ * editing, such as comment authoring - should treat it as read-only whatever `isReadonly` says.
+ *
+ * @param viewOptions - View options of the editor.
+ * @returns `true` if verses are laid out as blocks.
+ *
+ * @public
+ */
+export function isBlockVerseLayout(viewOptions: ViewOptions | undefined): boolean {
+  return viewOptions?.verseLayout === "block";
 }
 
 /**

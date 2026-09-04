@@ -76,13 +76,25 @@ export interface EditorRef {
   undo(): void;
   /** Redo the last undone action. */
   redo(): void;
-  /** Cut the selected text. */
+  /**
+   * Cut the selected text.
+   * @throws Will throw an error if the editor is in readonly mode or uses the block verse layout
+   *   (`ViewOptions.verseLayout: "block"`), which is read-only by construction.
+   */
   cut(): void;
   /** Copy the selected text. */
   copy(): void;
-  /** Paste text at the current cursor position. */
+  /**
+   * Paste text at the current cursor position.
+   * @throws Will throw an error if the editor is in readonly mode or uses the block verse layout
+   *   (`ViewOptions.verseLayout: "block"`), which is read-only by construction.
+   */
   paste(): void;
-  /** Paste text as plain text at the current cursor position. */
+  /**
+   * Paste text as plain text at the current cursor position.
+   * @throws Will throw an error if the editor is in readonly mode or uses the block verse layout
+   *   (`ViewOptions.verseLayout: "block"`), which is read-only by construction.
+   */
   pastePlainText(): void;
   /**
    * Get USJ Scripture data — always SETTLED, whatever the screen currently shows mid-edit. In
@@ -135,7 +147,18 @@ export interface EditorRef {
   setTransientInput(input: TransientInput | undefined): void;
   /** Set the USJ Scripture data. */
   setUsj(usj: Usj): void;
-  /** EXPERIMENTAL: Apply Operational Transform delta update. */
+  /**
+   * EXPERIMENTAL: Apply Operational Transform delta update.
+   *
+   * @remarks
+   * Delta ops address content by its position in the USJ, which the block verse layout
+   * (`ViewOptions.verseLayout: "block"`) regroups, so they cannot be applied there. A `"remote"`
+   * update is reported through the logger and dropped rather than thrown, so a collaborator's op
+   * loop is not torn down; refresh such a view by handing it new USJ instead.
+   *
+   * @throws Will throw an error if the editor uses the block verse layout and `source` is
+   *   `"local"`.
+   */
   applyUpdate(ops: DeltaOp[], source?: DeltaSource): void;
   /**
    * EXPERIMENTAL: Replace an embed Operational Transform delta.
@@ -149,6 +172,13 @@ export interface EditorRef {
   replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
   /**
    * Get the selection location or range.
+   *
+   * @remarks
+   * Always returns `undefined` in the block verse layout (`ViewOptions.verseLayout: "block"`):
+   * it splits a paragraph spanning verses across their blocks, so the editor's content indexes no
+   * longer match the source USJ's and no location can be expressed. The editor reports this once
+   * through its logger.
+   *
    * @returns the selection location or range, or `undefined` if there is no selection. The
    *   json-path in the selection assumes no comment Milestone nodes are present in the USJ, and
    *   addresses the LIVE tree, not {@link EditorRef.getUsj}'s settled output — while anything is
@@ -157,12 +187,22 @@ export interface EditorRef {
   getSelection(): SelectionRange | undefined;
   /**
    * Set the selection location or range.
+   *
+   * @remarks
+   * Does nothing in the block verse layout, for the reason given on
+   * {@link EditorRef.getSelection}.
+   *
    * @param selection - A selection location or range. The json-path in the selection assumes no
    *   comment Milestone nodes are present in the USJ.
    */
   setSelection(selection: SelectionRange): void;
   /**
    * Set an ephemeral annotation with optional event callbacks.
+   *
+   * @remarks
+   * Does nothing in the block verse layout (`ViewOptions.verseLayout: "block"`): an annotation is
+   * addressed by USJ location, which that layout cannot express - see
+   * {@link EditorRef.getSelection}. The failure is reported through the logger.
    *
    * @param selection - An annotation range containing the start and end location. The json-path
    *   in an annotation location assumes no comment Milestone nodes are present in the USJ.
@@ -207,7 +247,11 @@ export interface EditorRef {
    * @param id - ID of the annotation.
    */
   removeAnnotation(type: string, id: string): void;
-  /** Format the paragraph at the current cursor position with the given block marker. */
+  /**
+   * Format the paragraph at the current cursor position with the given block marker.
+   * @throws Will throw an error if the editor is in readonly mode or uses the block verse layout
+   *   (`ViewOptions.verseLayout: "block"`), which is read-only by construction.
+   */
   formatPara(blockMarker: string): void;
   /** Get the editor element for the given node key, if any. */
   getElementByKey(nodeKey: string): HTMLElement | undefined;
@@ -494,6 +538,8 @@ export interface EditorRef {
    * @param selection - Optional selection range where the note should be inserted. By default it
    *   will use the current selection in the editor.
    * @throws Will throw an error if the marker is not a valid note marker.
+   * @throws Will throw an error if the editor is in readonly mode or uses the block verse layout
+   *   (`ViewOptions.verseLayout: "block"`), which is read-only by construction.
    *
    * @deprecated Use {@link EditorRef.insertMarker} instead. `insertMarker` supports note markers
    *   and additionally provides readonly and scrRef guards.
@@ -545,7 +591,13 @@ export interface EditorProps<TLogger extends LoggerBasic> {
  * @public
  */
 export interface EditorOptions {
-  /** Is the editor readonly or editable. */
+  /**
+   * Is the editor readonly or editable.
+   *
+   * Forced to `true` when `view.verseLayout` is `"block"`: that layout regroups verses into blocks
+   * and so has no source USJ an edit could be written back to. Passing `false` alongside it is
+   * reported through the logger and ignored.
+   */
   isReadonly?: boolean;
   /**
    * Structure-protection mode for paragraph/verse markers via keyboard, paste, and drop.

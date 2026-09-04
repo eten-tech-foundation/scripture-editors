@@ -5,13 +5,16 @@ import { ViewOptions } from "../../views/view-options.utils";
 import { $isImmutableNoteCallerNode, ImmutableNoteCallerNode } from "./ImmutableNoteCallerNode";
 import { ImmutableVerseNode, $createImmutableVerseNode } from "./ImmutableVerseNode";
 import {
+  $findLastVerseInNode,
   $findNextVerseAfter,
+  $findNextVerseInNode,
   $findPreviousVerseInSiblings,
   $findVerseInNode,
   $findVerseOrPara,
   $findLastVerse,
   $findThisVerse,
   $getEffectiveVerseForBcv,
+  $getFirstPara,
   $isSomeVerseNode,
   $selectNextVerse,
   $selectPreviousVerse,
@@ -37,10 +40,12 @@ import {
   $createMarkerNode,
   $createParaNode,
   $createTypedMarkNode,
+  $createVerseBlockNode,
   $createVerseNode,
   $isCharNode,
   $isNoteNode,
   $isParaNode,
+  $isVerseBlockNode,
   CharNode,
   EMPTY_CHAR_PLACEHOLDER_TEXT,
   GENERATOR_NOTE_CALLER,
@@ -50,6 +55,7 @@ import {
   NoteNode,
   ParaNode,
   TypedMarkNode,
+  VerseBlockNode,
   VerseNode,
 } from "shared";
 
@@ -1640,6 +1646,201 @@ describe("$insertNote()", () => {
       const children = noteNode?.getChildren() ?? [];
       const fqNode = children.filter($isCharNode).find((node) => node.getMarker() === "fq");
       expect(fqNode?.getTextContent()).toBe("selected word");
+    });
+  });
+});
+
+// In the block verse layout a verse sits two levels below the root - VerseBlockNode > ParaNode >
+// verse - rather than one. Every verse lookup here searches one level, so each of these asserts a
+// positive outcome in a block tree: a fix that merely re-searched the same level would still pass
+// the inline tests above while leaving block mode reporting nothing.
+describe("block verse layout traversal", () => {
+  const blockVerseNodes = [VerseBlockNode, ParaNode, ImmutableVerseNode, ImmutableChapterNode];
+
+  /** GEN 1 with verses 1 and 2 as sibling verse blocks, verse 2 split over two poetry lines. */
+  function $appendBlockVerseChapter() {
+    $getRoot().append(
+      $createImmutableChapterNode("1"),
+      $createVerseBlockNode("1").append(
+        $createParaNode("p").append(
+          $createImmutableVerseNode("1"),
+          $createTextNode("the first verse "),
+        ),
+      ),
+      $createVerseBlockNode("2").append(
+        $createParaNode("q1").append(
+          $createImmutableVerseNode("2"),
+          $createTextNode("the second verse "),
+        ),
+        $createParaNode("q2").append($createTextNode("continued on the next line")),
+      ),
+    );
+  }
+
+  it("finds a verse nested inside a verse block", () => {
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, $appendBlockVerseChapter);
+
+    editor.getEditorState().read(() => {
+      const verseBlock = $getRoot().getChildren()[2];
+
+      expect($findVerseInNode(verseBlock, 2)?.getNumber()).toBe("2");
+    });
+  });
+
+  // The path ScriptureReferencePlugin takes to place the caret for a Scripture reference.
+  it("finds a verse among root children that are verse blocks", () => {
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, $appendBlockVerseChapter);
+
+    editor.getEditorState().read(() => {
+      const verseNode = $findVerseOrPara($getRoot().getChildren(), 2);
+
+      expect($isSomeVerseNode(verseNode)).toBe(true);
+      expect(($isSomeVerseNode(verseNode) ? verseNode : undefined)?.getNumber()).toBe("2");
+    });
+  });
+
+  // Verse 0 places the caret on the first paragraph. In block mode every paragraph is inside a
+  // block, so without opening them up there is no paragraph to find.
+  it("finds the first paragraph inside a verse block", () => {
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, $appendBlockVerseChapter);
+
+    editor.getEditorState().read(() => {
+      const para = $getFirstPara($getRoot().getChildren());
+
+      expect($isParaNode(para)).toBe(true);
+      expect(($isParaNode(para) ? para : undefined)?.getMarker()).toBe("p");
+    });
+  });
+
+  it("finds the first verse across a block's paragraphs", () => {
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, $appendBlockVerseChapter);
+
+    editor.getEditorState().read(() => {
+      const verseBlock = $getRoot().getChildren()[2];
+
+      expect($findNextVerseInNode(verseBlock)?.getNumber()).toBe("2");
+    });
+  });
+
+  it("finds the last verse across a block's paragraphs", () => {
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, () => {
+      $getRoot().append(
+        $createVerseBlockNode("1").append(
+          $createParaNode("p").append($createImmutableVerseNode("1"), $createTextNode("first ")),
+          $createParaNode("p").append($createImmutableVerseNode("2"), $createTextNode("second ")),
+        ),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const verseBlock = $getRoot().getChildren()[0];
+
+      expect($findLastVerseInNode(verseBlock)?.getNumber()).toBe("2");
+    });
+  });
+
+  // Regression guard for the "verse 0 is data, never a sentinel" invariant. Section headings stay
+  // at the root between blocks, so resolving the verse for a caret in one has to look *inside* the
+  // preceding block. Walking past it reaches the chapter and reports verse 0, which the host acts
+  // on as real data.
+  it("reports the preceding verse for a caret in a heading between blocks", () => {
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, () => {
+      $getRoot().append(
+        $createImmutableChapterNode("1"),
+        $createVerseBlockNode("1").append(
+          $createParaNode("p").append(
+            $createImmutableVerseNode("1"),
+            $createTextNode("the first verse "),
+          ),
+        ),
+        $createParaNode("s1").append($createTextNode("A section heading")),
+      );
+    });
+
+    editor.getEditorState().read(() => {
+      const heading = $getRoot().getChildren()[2];
+      if (!$isParaNode(heading)) throw new Error("expected a heading para");
+
+      const verse = $findThisVerse(heading.getFirstChild());
+
+      expect(verse?.getNumber()).toBe("1");
+      expect($getEffectiveVerseForBcv(verse, null).verseNum).toBe(1);
+    });
+  });
+
+  it("moves forward to the verse in the next block", () => {
+    let textKey: NodeKey;
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, $appendBlockVerseChapter);
+    editor.update(
+      () => {
+        const firstBlock = $getRoot().getChildren()[1];
+        if (!$isVerseBlockNode(firstBlock)) throw new Error("expected a verse block");
+        const firstPara = firstBlock.getChildren()[0];
+        if (!$isParaNode(firstPara)) throw new Error("expected a para");
+        const lastChild = firstPara.getLastChild();
+        if (!lastChild) throw new Error("expected content in the para");
+        textKey = lastChild.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        const rangeSelection = $createRangeSelection();
+        rangeSelection.anchor = $createPoint(textKey, 1, "text");
+        rangeSelection.focus = $createPoint(textKey, 1, "text");
+        $setSelection(rangeSelection);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+
+        expect($selectNextVerse(selection)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+
+      expect($findThisVerse(selection.anchor.getNode())?.getNumber()).toBe("2");
+    });
+  });
+
+  // Must land on a *different* verse. Before the block-aware comparison, ArrowUp re-selected the
+  // verse the caret was already in, forever.
+  it("moves back to the verse in the previous block", () => {
+    let textKey: NodeKey;
+    const { editor } = createBasicTestEnvironment(blockVerseNodes, $appendBlockVerseChapter);
+    editor.update(
+      () => {
+        const secondBlock = $getRoot().getChildren()[2];
+        if (!$isVerseBlockNode(secondBlock)) throw new Error("expected a verse block");
+        const firstPara = secondBlock.getChildren()[0];
+        if (!$isParaNode(firstPara)) throw new Error("expected a para");
+        const lastChild = firstPara.getLastChild();
+        if (!lastChild) throw new Error("expected content in the para");
+        textKey = lastChild.getKey();
+      },
+      { discrete: true },
+    );
+    editor.update(
+      () => {
+        const rangeSelection = $createRangeSelection();
+        rangeSelection.anchor = $createPoint(textKey, 1, "text");
+        rangeSelection.focus = $createPoint(textKey, 1, "text");
+        $setSelection(rangeSelection);
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+
+        expect($selectPreviousVerse(selection)).toBe(true);
+      },
+      { discrete: true },
+    );
+
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("expected range selection");
+
+      expect($findThisVerse(selection.anchor.getNode())?.getNumber()).toBe("1");
     });
   });
 });

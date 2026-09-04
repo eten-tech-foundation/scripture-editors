@@ -1,3 +1,4 @@
+import { isBlockVerseLayout } from "shared-react";
 import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -13,6 +14,7 @@ import {
   forwardRef,
   ReactElement,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -114,6 +116,20 @@ const Editor = forwardRef(function Editor(
   const [usj, setUsj] = useState(usjInput);
   const [loadedUsj] = useDeferredState(usj);
   const autoNumbering = false;
+  // Scribe shares the `ViewOptions` type but not the block verse implementation: its adaptor does
+  // not regroup verses and its editor does not register `VerseBlockNode`. Say so rather than
+  // silently rendering an ordinary editable editor for a layout the host asked to be read-only.
+  // From an effect so one misconfiguration is reported once rather than on every render.
+  const isUnsupportedBlockVerse = isBlockVerseLayout(viewOptions);
+  useEffect(() => {
+    if (isUnsupportedBlockVerse)
+      // eslint-disable-next-line no-console -- scribe's editor has no logger to report through.
+      console.error(
+        "Scribe editor: `verseLayout: 'block'` is not supported here and is ignored. The block " +
+          "verse layout is implemented in @eten-tech-foundation/platform-editor.",
+      );
+  }, [isUnsupportedBlockVerse]);
+
   const initialConfig = {
     namespace: "ScribeEditor",
     editable: true,
