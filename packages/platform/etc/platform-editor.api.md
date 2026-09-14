@@ -17,9 +17,31 @@ import type { UsjDocumentLocation } from '@eten-tech-foundation/scripture-utilit
 export type AddMissingComments = (usjCommentIds: string[]) => void;
 
 // @public
+export interface Annotation extends AnnotationReference {
+    // (undocumented)
+    onClick?: TypedMarkOnClick;
+    // (undocumented)
+    onMouseEnter?: TypedMarkOnMouseEnter;
+    // (undocumented)
+    onMouseLeave?: TypedMarkOnMouseLeave;
+    // (undocumented)
+    onRemove?: TypedMarkOnRemove;
+    // (undocumented)
+    selection: AnnotationRange;
+}
+
+// @public
 export interface AnnotationRange {
     end: UsjDocumentLocation;
     start: UsjDocumentLocation;
+}
+
+// @public
+export interface AnnotationReference {
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    type: string;
 }
 
 // @public
@@ -186,6 +208,7 @@ export interface EditorRef {
     pastePlainText(): void;
     redo(): void;
     removeAnnotation(type: string, id: string): void;
+    removeAnnotations(refs: readonly AnnotationReference[]): void;
     removeCharacterMarker(marker?: string): boolean;
     replaceCharacterMarker(toMarker: string, fromMarker?: string): boolean;
     replaceEmbedUpdate(embedNodeKey: string, insertEmbedOps: DeltaOp[]): void;
@@ -198,6 +221,7 @@ export interface EditorRef {
     }): void;
     // @deprecated
     setAnnotation(selection: AnnotationRange, type: string, id: string, onClick?: TypedMarkOnClick, onRemove?: TypedMarkOnRemove): void;
+    setAnnotations(annotations: readonly Annotation[]): void;
     setSelection(selection: SelectionRange): void;
     setTransientInput(input: TransientInput | undefined): void;
     setUsj(usj: Usj): void;

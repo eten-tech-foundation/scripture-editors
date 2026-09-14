@@ -11,7 +11,9 @@ import {
   TypedMarkOnRemove,
 } from "shared";
 import {
+  Annotation,
   AnnotationRange,
+  AnnotationReference,
   ContextMenuOptionConfig,
   DeltaOp,
   DeltaSource,
@@ -197,7 +199,8 @@ export interface EditorRef {
    */
   setSelection(selection: SelectionRange): void;
   /**
-   * Set an ephemeral annotation with optional event callbacks.
+   * Set an ephemeral annotation with optional event callbacks, without creating an undo step or
+   * clearing redo. For multiple annotations, prefer {@link EditorRef.setAnnotations}.
    *
    * Deferred while a load is in flight - a `setUsj`, or a change to `options.view` or `logger` -
    * because the load replaces the whole document and would discard the mark (#515). It then runs
@@ -254,6 +257,23 @@ export interface EditorRef {
    * @param id - ID of the annotation.
    */
   removeAnnotation(type: string, id: string): void;
+  /**
+   * Apply a batch of ephemeral annotations in one editor update, without creating an undo step or
+   * clearing redo. Existing annotations with the same type/id are replaced; unrelated annotations
+   * remain. For repeated type/id pairs in the batch, the last entry wins. Event handlers are
+   * optional fields on each entry. An unresolvable range is logged and skipped.
+   *
+   * @remarks
+   * Like `setAnnotation`, unavailable in the block verse layout. An empty batch
+   * does nothing. Undo/redo restores document snapshots; hosts should refresh diagnostics after
+   * content changes rather than relying on annotations surviving history navigation.
+   */
+  setAnnotations(annotations: readonly Annotation[]): void;
+  /**
+   * Remove a batch of ephemeral annotations in one editor update, without creating an undo step
+   * or clearing redo. Unknown type/id pairs are ignored. An empty batch does nothing.
+   */
+  removeAnnotations(refs: readonly AnnotationReference[]): void;
   /**
    * Format the paragraph at the current cursor position with the given block marker.
    * @throws Will throw an error if the editor is in readonly mode or uses the block verse layout
