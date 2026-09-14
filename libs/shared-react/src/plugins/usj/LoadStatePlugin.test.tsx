@@ -17,9 +17,10 @@ import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { act, render } from "@testing-library/react";
-import { LexicalEditor, SerializedEditorState, SKIP_DOM_SELECTION_TAG } from "lexical";
-import { useEffect } from "react";
+import { $getRoot, LexicalEditor, SerializedEditorState, SKIP_DOM_SELECTION_TAG } from "lexical";
+import { ReactElement, useEffect } from "react";
 import { EditorAdaptor, EXTERNAL_USJ_MUTATION_TAG } from "shared";
+import { vi } from "vitest";
 
 /** Minimal core-nodes serialized state whose text carries the scripture "content". */
 function serializedState(text: string): SerializedEditorState {
@@ -135,5 +136,231 @@ describe("LoadStatePlugin external-mutation DOM-selection containment", () => {
 
     expect(record.commits.length).toBeGreaterThan(0);
     record.commits.forEach((tags) => expect(tags).not.toContain(SKIP_DOM_SELECTION_TAG));
+  });
+});
+
+/**
+ * The `onLoadingChange` contract, which callers gate document-addressing work on (see the platform
+ * editor's load gate, #515): calls are balanced, and when `false` is reported the document this
+ * load leaves behind is already live — the loaded one, or the previous one when the load was
+ * skipped or failed. A settle that lands before the commit is a silent regression for every such
+ * caller, so it is pinned here rather than left to Lexical's internal scheduling.
+ */
+
+/** `mockAdaptor` with a spy, for suites that count how many times the document was loaded. */
+function createCountingAdaptor(): EditorAdaptor & {
+  serializeEditorState: ReturnType<typeof vi.fn>;
+} {
+  return {
+    serializeEditorState: vi.fn((scripture: unknown) => serializedState(String(scripture))),
+  };
+}
+
+function createLogger() {
+  return {
+    error: vi.fn<(...params: unknown[]) => void>(),
+    warn: vi.fn<(...params: unknown[]) => void>(),
+    info: vi.fn<(...params: unknown[]) => void>(),
+    debug: vi.fn<(...params: unknown[]) => void>(),
+  };
+}
+
+/**
+ * Like `testEnvironment` above, but with the adaptor, logger and `onLoadingChange` callback under
+ * the test's control, and a reader for whatever document is live at any moment.
+ */
+/**
+ * The editor the reporting environment below is driving. Module scope, not a return value: the
+ * first settle is reported from inside `loadReportingEnvironment`, before it has returned
+ * anything a test could read.
+ */
+let reportingEditor: LexicalEditor | undefined;
+
+/** What the document says right now, i.e. which load is live. */
+function liveText(): string {
+  if (!reportingEditor) throw new Error("editor was not grabbed");
+  return reportingEditor.getEditorState().read(() => $getRoot().getTextContent());
+}
+
+async function loadReportingEnvironment(props: {
+  scripture: string;
+  editorAdaptor: EditorAdaptor;
+  onLoadingChange?: (isLoading: boolean) => void;
+  logger?: ReturnType<typeof createLogger>;
+}) {
+  reportingEditor = undefined;
+
+  function GrabEditor() {
+    const [composerEditor] = useLexicalComposerContext();
+    useEffect(() => {
+      reportingEditor = composerEditor;
+    }, [composerEditor]);
+    return null;
+  }
+
+  function App(appProps: typeof props): ReactElement {
+    return (
+      <LexicalComposer
+        initialConfig={{
+          namespace: "TestEditor",
+          nodes: [],
+          onError: (error) => {
+            throw error;
+          },
+          theme: {},
+        }}
+      >
+        <GrabEditor />
+        <RichTextPlugin
+          contentEditable={<ContentEditable />}
+          placeholder={null}
+          ErrorBoundary={LexicalErrorBoundary}
+        />
+        <LoadStatePlugin
+          scripture={appProps.scripture}
+          editorAdaptor={appProps.editorAdaptor}
+          onLoadingChange={appProps.onLoadingChange}
+          logger={appProps.logger}
+        />
+      </LexicalComposer>
+    );
+  }
+
+  let rerender: (ui: ReactElement) => void = () => undefined;
+  await act(async () => {
+    ({ rerender } = render(<App {...props} />));
+  });
+
+  return {
+    reload: async (nextProps: Partial<typeof props>) =>
+      act(async () => {
+        rerender(<App {...props} {...nextProps} />);
+      }),
+  };
+}
+
+describe("LoadStatePlugin onLoadingChange", () => {
+  it("reports the load balanced, and the loaded document is live at the settle", async () => {
+    const calls: boolean[] = [];
+    const settledWith: string[] = [];
+    await loadReportingEnvironment({
+      scripture: "first",
+      editorAdaptor: createCountingAdaptor(),
+      onLoadingChange: (isLoading) => {
+        calls.push(isLoading);
+        if (!isLoading) settledWith.push(liveText());
+      },
+    });
+
+    expect(calls).toEqual([true, false]);
+    expect(settledWith).toEqual(["first"]);
+  });
+
+  it("reports each reload the same way, with the new document live", async () => {
+    const settledWith: string[] = [];
+    const onLoadingChange = (isLoading: boolean) => {
+      if (!isLoading) settledWith.push(liveText());
+    };
+
+    const environment = await loadReportingEnvironment({
+      scripture: "first",
+      editorAdaptor: createCountingAdaptor(),
+      onLoadingChange,
+    });
+    await environment.reload({ scripture: "second" });
+
+    expect(settledWith).toEqual(["first", "second"]);
+    expect(liveText()).toBe("second");
+  });
+
+  it("settles with the previous document live when there is nothing to serialize", async () => {
+    const calls: boolean[] = [];
+    const settledWith: string[] = [];
+    const logger = createLogger();
+    const editorAdaptor = createCountingAdaptor();
+    const onLoadingChange = (isLoading: boolean) => {
+      calls.push(isLoading);
+      if (!isLoading) settledWith.push(liveText());
+    };
+
+    const environment = await loadReportingEnvironment({
+      scripture: "first",
+      editorAdaptor,
+      onLoadingChange,
+      logger,
+    });
+    editorAdaptor.serializeEditorState.mockReturnValueOnce(
+      undefined as unknown as SerializedEditorState,
+    );
+    await environment.reload({ scripture: "skipped" });
+
+    expect(calls).toEqual([true, false, true, false]);
+    // The invariant the prop documents: a settle means the document is stable, and a skipped load
+    // leaves the previous one in place.
+    expect(settledWith).toEqual(["first", "first"]);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("settles when the adaptor throws", async () => {
+    const calls: boolean[] = [];
+    const logger = createLogger();
+
+    await loadReportingEnvironment({
+      scripture: "first",
+      editorAdaptor: {
+        serializeEditorState: () => {
+          throw new Error("adaptor exploded");
+        },
+      },
+      onLoadingChange: (isLoading) => calls.push(isLoading),
+      logger,
+    });
+
+    expect(calls).toEqual([true, false]);
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it("settles when a consumer's own callback throws on the way in", async () => {
+    const calls: boolean[] = [];
+
+    await loadReportingEnvironment({
+      scripture: "first",
+      editorAdaptor: createCountingAdaptor(),
+      onLoadingChange: (isLoading) => {
+        calls.push(isLoading);
+        if (isLoading) throw new Error("consumer exploded");
+      },
+      logger: createLogger(),
+    });
+
+    // Balanced even so: a caller counting these must not be left waiting forever.
+    expect(calls).toEqual([true, false]);
+  });
+
+  it("does not reload when only the callback's identity changes", async () => {
+    // The callback is a dependency of nothing: an inline lambda would otherwise reload the
+    // document — clearing undo/redo with it — on every render of the consumer.
+    const editorAdaptor = createCountingAdaptor();
+    const environment = await loadReportingEnvironment({
+      scripture: "first",
+      editorAdaptor,
+      onLoadingChange: () => undefined,
+    });
+    expect(editorAdaptor.serializeEditorState).toHaveBeenCalledTimes(1);
+
+    const laterCalls: boolean[] = [];
+    await environment.reload({ onLoadingChange: (isLoading) => laterCalls.push(isLoading) });
+
+    expect(editorAdaptor.serializeEditorState).toHaveBeenCalledTimes(1);
+    expect(laterCalls).toEqual([]);
+
+    // ...and the latest callback is the one a real reload reports to.
+    await environment.reload({
+      scripture: "second",
+      onLoadingChange: (isLoading) => laterCalls.push(isLoading),
+    });
+
+    expect(editorAdaptor.serializeEditorState).toHaveBeenCalledTimes(2);
+    expect(laterCalls).toEqual([true, false]);
   });
 });

@@ -9,6 +9,7 @@ import {
   isUsjMarkerSupported,
 } from "./adaptors/usj-marker-action.utils";
 import { EditorOptions, EditorProps, EditorRef } from "./editor.model";
+import { useLoadGate } from "./use-load-gate.hook";
 import editorTheme from "./editor.theme";
 import { ActiveTextPlugin } from "./ActiveTextPlugin";
 import {
@@ -68,6 +69,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -298,6 +300,19 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     loggerRef.current = logger;
   }
   const stableLogger = loggerRef.current;
+
+  // Annotations address the loaded document, so they wait for the load in flight (#515).
+  const { handleLoadingChange, noteLoadRequested, runWhenLoaded } = useLoadGate(stableLogger);
+  // `LoadStatePlugin` only reports a load from its own passive effect, and a consumer's LAYOUT
+  // effect runs before every passive effect in the commit - including at mount, which is the first
+  // moment a consumer can touch the ref at all. So close the gate here instead: a change to any
+  // input of that plugin's reload effect means a reload is coming, and this layout effect runs
+  // before the consumer's own. Keep these dependencies a SUBSET of that effect's (`scripture`,
+  // `viewOptions`, `logger`, plus the `key={loadTrigger}` remount below) - anything else would
+  // close the gate for a load that never arrives.
+  useLayoutEffect(() => {
+    noteLoadRequested();
+  }, [loadTrigger, noteLoadRequested, stableLogger, usj, viewOptions]);
 
   // The block verse layout regroups each verse into its own element, splitting paragraphs that span
   // verses. That shape cannot be exported back to USJ, so the layout is read-only by construction
@@ -549,6 +564,10 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         transientInputRef.current = undefined;
         // This can happen when using `applyUpdate` since `usj` won't change.
         const shouldForceReload = deepEqual(usj, incomingUsj);
+        // A load is now certain, but React hasn't re-rendered yet, so neither the gate's layout
+        // effect above nor LoadStatePlugin has seen it. Without this, an annotation set in this
+        // same tick would address the outgoing document and be discarded by the load (#515).
+        noteLoadRequested();
         setUsj(incomingUsj);
         if (shouldForceReload) setLoadTrigger((prev) => prev + 1);
       }
@@ -674,16 +693,20 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         reportUsjLocationsUnavailable("set annotations");
         return;
       }
-      annotationRef.current?.setAnnotations(
-        annotations.map((annotation) => ({
-          ...annotation,
-          type: externalTypedMarkType(annotation.type),
-        })),
+      runWhenLoaded(() =>
+        annotationRef.current?.setAnnotations(
+          annotations.map((annotation) => ({
+            ...annotation,
+            type: externalTypedMarkType(annotation.type),
+          })),
+        ),
       );
     },
     removeAnnotations(refs) {
-      annotationRef.current?.removeAnnotations(
-        refs.map(({ type, id }) => ({ type: externalTypedMarkType(type), id })),
+      runWhenLoaded(() =>
+        annotationRef.current?.removeAnnotations(
+          refs.map(({ type, id }) => ({ type: externalTypedMarkType(type), id })),
+        ),
       );
     },
     formatPara(blockMarker) {
@@ -1112,6 +1135,7 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
             nodeOptions={nodeOptions}
             editorAdaptor={usjEditorAdaptor}
             viewOptions={viewOptions}
+            onLoadingChange={handleLoadingChange}
             logger={stableLogger}
           />
           <OnSelectionChangePlugin onChange={onSelectionChange} />
