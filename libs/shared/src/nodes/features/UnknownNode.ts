@@ -3,6 +3,7 @@ import { MarkerObject } from "@eten-tech-foundation/scripture-utilities";
 import {
   $applyNodeReplacement,
   $getSelection,
+  $isNodeSelection,
   BaseSelection,
   DOMConversionMap,
   DOMConversionOutput,
@@ -288,6 +289,12 @@ export class UnknownNode extends ElementNode {
   override isSelected(selection?: BaseSelection | null): boolean {
     const targetSelection = selection ?? $getSelection();
     if (!targetSelection) return false;
+    // A `NodeSelection` marks a node selected by its OWN key, never by its children's, so the
+    // child-membership test below cannot see one and the base predicate has to answer first.
+    // Answering false there does not drop the construct quietly — `$appendNodesToJSON` HOISTS its
+    // (also unselected) children in its place — so a node the user selected outright would copy as
+    // nothing at all, the same convincing-lie hazard the range case above exists to prevent.
+    if ($isNodeSelection(targetSelection) && super.isSelected(targetSelection)) return true;
     const selectedNodes = targetSelection.getNodes();
     return this.getChildren().some((child) => selectedNodes.some((node) => node.is(child)));
   }

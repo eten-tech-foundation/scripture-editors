@@ -3,6 +3,7 @@ import { $createParaNode, ParaNode } from "../usj/ParaNode.js";
 import { createBasicTestEnvironment } from "../usj/test.utils.js";
 import { $createUnknownNode, UnknownNode } from "./UnknownNode.js";
 import {
+  $createNodeSelection,
   $createPoint,
   $createRangeSelection,
   $createTextNode,
@@ -384,6 +385,55 @@ describe("UnknownNode", () => {
       editor.update(() => {
         const figure = $createUnknownNode("figure", "fig");
         expect(figure.excludeFromCopy("html")).toBe(true);
+      });
+    });
+  });
+
+  // The override answers on CHILD membership, which is the right test for the range selections the
+  // clipboard pins exercise but blind to a `NodeSelection` — that marks a node by its OWN key and
+  // never puts the children in `getNodes()` at all. Paired with `excludeFromCopy` above, a false
+  // answer there would make `$appendNodesToJSON` hoist the (also unselected) children, so a
+  // construct selected outright would copy as nothing.
+  describe("isSelected()", () => {
+    function $figureInDocument() {
+      const figure = $createUnknownNode("figure", "fig");
+      figure.append($createImmutableTypedTextNode("marker", "\\fig "));
+      $getRoot().append($createParaNode("p").append(figure));
+      return figure;
+    }
+
+    it("answers true for a node a NodeSelection holds by its own key, whose children are NOT in the selection", () => {
+      const { editor } = createBasicTestEnvironment([
+        UnknownNode,
+        ImmutableTypedTextNode,
+        ParaNode,
+      ]);
+      editor.update(() => {
+        const figure = $figureInDocument();
+        const selection = $createNodeSelection();
+        selection.add(figure.getKey());
+        $setSelection(selection);
+
+        expect(selection.getNodes().some((node) => node.is(figure.getFirstChild()))).toBe(false);
+        expect(figure.isSelected()).toBe(true);
+      });
+    });
+
+    it("answers false for a NodeSelection holding some other node — the key test does not over-claim", () => {
+      const { editor } = createBasicTestEnvironment([
+        UnknownNode,
+        ImmutableTypedTextNode,
+        ParaNode,
+      ]);
+      editor.update(() => {
+        const figure = $figureInDocument();
+        const other = $createTextNode("elsewhere");
+        $getRoot().append($createParaNode("p").append(other));
+        const selection = $createNodeSelection();
+        selection.add(other.getKey());
+        $setSelection(selection);
+
+        expect(figure.isSelected()).toBe(false);
       });
     });
   });

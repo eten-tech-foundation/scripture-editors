@@ -7,9 +7,10 @@ import { $createParaNode } from "shared";
 
 /**
  * The context menu's Cut/Copy dispatch the same commands the keyboard shortcuts do, so they are
- * covered by the same empty-copy guard (`registerEmptyCopyGuard`, mounted by `ClipboardPlugin` —
- * both plugins ship together in every editor that mounts either). This pins that the leg really
- * does go through it, rather than dispatching around it.
+ * covered by the same empty-copy guard (`registerEmptyCopyGuard`). This pins that the leg really
+ * does go through it, rather than dispatching around it — both in the shape the shipped editors
+ * mount (alongside `ClipboardPlugin`, which registers the guard too) and with `ContextMenuPlugin`
+ * mounted alone, which a host consuming the plugin on its own is free to do.
  *
  * Note where `onSelect` runs: inside `editor.update()` (see the plugin's Enter handler). That is
  * why the guard has to live on the COMMAND and read the live selection — a check in front of the
@@ -37,7 +38,9 @@ afterEach(async () => {
   Reflect.deleteProperty(document, "execCommand");
 });
 
-async function contextMenuEnvironment(): Promise<{ editor: LexicalEditor; text: TextNode }> {
+async function contextMenuEnvironment(
+  withClipboardPlugin = true,
+): Promise<{ editor: LexicalEditor; text: TextNode }> {
   let text: TextNode | undefined;
   const { editor } = await baseTestEnvironment(
     () => {
@@ -45,7 +48,7 @@ async function contextMenuEnvironment(): Promise<{ editor: LexicalEditor; text: 
       $getRoot().append($createParaNode("p").append(text));
     },
     <>
-      <ClipboardPlugin />
+      {withClipboardPlugin && <ClipboardPlugin />}
       <ContextMenuPlugin />
     </>,
   );
@@ -100,6 +103,26 @@ describe("ContextMenuPlugin — Cut/Copy go through the empty-copy guard", () =>
 
   it("Copy with a selection copies — the menu leg is really wired to the command", async () => {
     const { editor, text } = await contextMenuEnvironment();
+    await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
+
+    await chooseContextMenuOption(editor, COPY_OPTION);
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+});
+
+describe("ContextMenuPlugin mounted without ClipboardPlugin", () => {
+  it("Copy with a collapsed caret still leaves the clipboard untouched — the plugin carries its own guard", async () => {
+    const { editor, text } = await contextMenuEnvironment(false);
+    await act(async () => editor.update(() => text.select(3, 3)));
+
+    await chooseContextMenuOption(editor, COPY_OPTION);
+
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  it("Copy with a selection still copies — the standalone guard does not over-claim", async () => {
+    const { editor, text } = await contextMenuEnvironment(false);
     await act(async () => editor.update(() => text.select(0, text.getTextContentSize())));
 
     await chooseContextMenuOption(editor, COPY_OPTION);
