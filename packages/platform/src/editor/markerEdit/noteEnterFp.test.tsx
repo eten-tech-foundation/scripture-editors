@@ -1261,7 +1261,7 @@ describe("multi-line plain-text paste inside note content", () => {
 
   it("normalizes a pasted data-NBSP with no marker adjacency to `~` (round-trips to NBSP in USJ)", async () => {
     // This claim outranks the standard-view paste normalization at HIGH, so it runs its own NBSP
-    // normalization — the SAME positional rule that path uses (`$normalizePastedNbsp`,
+    // normalization — the SAME positional rule that path uses (`normalizePastedNbsp`,
     // whitespaceDisplay.plugin.utils.ts), not a divergent mapping of its own. This payload has no
     // marker literal anywhere near its NBSP, so it lands as `~` (genuine data) under the
     // positional rule exactly as it would under a blanket one — the positional-vs-blanket
@@ -1299,7 +1299,7 @@ describe("multi-line plain-text paste inside note content", () => {
 
   it("normalizes a marker-adjacent pasted NBSP positionally, not into `~` (the same corruption class the main paste path was fixed for)", async () => {
     // This claim runs its own NBSP normalization via the shared positional rule
-    // (`$normalizePastedNbsp`), not a blanket NBSP→`~` mapping: a blanket mapping would turn the
+    // (`normalizePastedNbsp`), not a blanket NBSP→`~` mapping: a blanket mapping would turn the
     // required separator after a marker's opener into data, corrupting a recognizable
     // `\nd`…`\nd*` pair — the same corruption class the main external-paste path guards against
     // (see whitespaceDisplay.plugin.utils.test.tsx's NBSP-normalization pins). Multi-line so this
@@ -1333,7 +1333,7 @@ describe("multi-line plain-text paste inside note content", () => {
   });
 
   it("normalizes a data-NBSP at the start of a note's SECOND \\fp line to a plain space, not `~` — the same leading-NBSP-per-line pass the main paste path uses", async () => {
-    // `$normalizePastedNbsp`'s leading-NBSP pass is `gm`-flagged: `^` matches right after every
+    // `normalizePastedNbsp`'s leading-NBSP pass is `gm`-flagged: `^` matches right after every
     // `\n`, not just at the very start of the whole paste (whitespaceDisplay.plugin.utils.test.tsx
     // pins the identical outcome for the main external-paste path). A leading NBSP reads as a
     // structural separator with nothing in front of it to match against, the same as a partial

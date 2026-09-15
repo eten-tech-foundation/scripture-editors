@@ -400,7 +400,12 @@ describe("\\c/\\id strip on paste", () => {
     // earlier pins use — the chapter-count and paragraph-content assertions already cover what
     // matters (the pasted "\c 5" left no trace, structural or textual, inside the paragraph).
     expect(topLevelBareStrings(usj)).toEqual([]);
-    expect((usj.content[2] as MarkerObject).content).toEqual(["before x after"]);
+    // The strip takes the marker and its chapter NUMBER, and stops there: the trailing "y" is
+    // ordinary content the user pasted and survives. ("yafter" only because this fixture splits
+    // "before after" at offset 7 and the payload lands between the halves.) Assert the whole
+    // paragraph, not just that "y" appears somewhere, so a strip that widened again — back to
+    // eating to the newline — fails here rather than passing on the untouched "before ".
+    expect((usj.content[2] as MarkerObject).content).toEqual(["before x yafter"]);
   });
 
   it('paste "text \\id GEN more" mid-paragraph: still exactly one book id, one chapter, no stranded top-level string', async () => {
@@ -538,7 +543,7 @@ describe("own-marker-prefix dedup survives a DEFERRED settle", () => {
 });
 
 describe("paste-as-plain-text equivalence (S4): no literal mode, plain always wins", () => {
-  // S4 (docs/superpowers/specs/2026-08-06-clipboard-semantics.md): Ctrl+Shift+V / "paste as plain
+  // Paste-as-plain-text (docs/clipboard-semantics.md): Ctrl+Shift+V / "paste as plain
   // text" narrows the clipboard payload down to `text/plain` only, but `$handlePasteForStandardView`
   // reads `text/plain` unconditionally whenever it is present — the `text/html` leg only comes into
   // play when `text/plain` is ABSENT (`htmlPasteText(html)` fallback). So a full (plain+html) paste

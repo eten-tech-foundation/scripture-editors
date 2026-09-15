@@ -30,8 +30,8 @@ import {
   $displayWhitespaceTransform,
   $handleCopyForStandardView,
   $handlePasteForStandardView,
-  $normalizePastedNbsp,
-  $stripPastedChapterAndBookId,
+  normalizePastedNbsp,
+  stripPastedChapterAndBookId,
   getPastePayload,
 } from "./whitespaceDisplay.plugin.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -341,7 +341,7 @@ function registerPasteNormalization(
         // ($handlePasteForStandardView, whitespaceDisplay.plugin.utils.ts) at HIGH is fine
         // because this claim runs its own normalization below — it does not depend on that
         // handler running first — but it reuses that handler's exported positional rule
-        // (`$normalizePastedNbsp`) rather than a divergent mapping of its own, so a display-NBSP
+        // (`normalizePastedNbsp`) rather than a divergent mapping of its own, so a display-NBSP
         // here is never corrupted into data any differently than it would be outside a note.
         //
         // The claim covers editor-internal rich pastes (application/x-lexical-editor) too:
@@ -363,19 +363,19 @@ function registerPasteNormalization(
         const pastedText = payload.text;
         if (pastedText.includes("\n")) {
           // Standard view: every pasted NBSP is normalized POSITIONALLY here, via the same
-          // `$normalizePastedNbsp` the Standard-view external-paste handler uses
+          // `normalizePastedNbsp` the Standard-view external-paste handler uses
           // (whitespaceDisplay.plugin.utils.ts) — a display-NBSP (the separator after
           // `\fr`/`\ft`, a note's inter-child spacer) settles to a space or is dropped exactly
           // as it would outside a note, and only genuine data survives as `~`. Inserted raw an
           // NBSP is indistinguishable from a display-NBSP (a plain space in a run), so
           // serialization would corrupt it into a plain space if left unmapped. A pasted
           // literal `~` is already the display form and passes through unchanged. `\c`/`\id`
-          // bytes are dropped first, via the same `$stripPastedChapterAndBookId` the external
+          // bytes are dropped first, via the same `stripPastedChapterAndBookId` the external
           // handler uses — note content re-tokenizes literal text through the SAME Tier 2
           // tokenizer a paragraph does, so a pasted `\c`/`\id` landing here is just as reachable
           // (and just as save-poisoning) as one landing in body text.
           const noteText = isStandardView
-            ? $normalizePastedNbsp($stripPastedChapterAndBookId(pastedText))
+            ? normalizePastedNbsp(stripPastedChapterAndBookId(pastedText))
             : pastedText;
           const lines = noteText.split("\n");
           let outcome = $handlePasteLinesInNote(lines, context.getMarker);

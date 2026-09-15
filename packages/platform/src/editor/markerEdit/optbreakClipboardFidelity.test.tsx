@@ -13,7 +13,7 @@
  *   `$handlePasteForStandardView` (`whitespaceDisplay.plugin.utils.ts`) prefers `text/plain`
  *   whenever present, and Standard view's own copy always populates `text/plain` — H1 predicts the
  *   symptom does not reach the plain path here. Pinned, not assumed, in "paste round trip" below.
- * - **H2**: `$normalizePastedNbsp`'s marker-token regexes (`whitespaceDisplay.plugin.utils.ts`)
+ * - **H2**: `normalizePastedNbsp`'s marker-token regexes (`whitespaceDisplay.plugin.utils.ts`)
  *   only match `\`-shaped tokens — an NBSP adjacent to `//` would not be recognized as display
  *   whitespace and would fall to the blanket data-`~` rule instead. Characterized below: Standard
  *   view's own copy walker (`$selectionToUsfmText`) inverts every TextNode's NBSP to a plain space
@@ -267,7 +267,7 @@ describe("copy characterization: what the walker actually emits around an optbre
   });
 
   it("characterization only (not fixed — unreachable via this branch's own copy): a synthetic html-only foreign payload with an NBSP directly before `//` still settles to a real optbreak node, with the foreign source's own NBSP kept as data `~` rather than folded into a display space", async () => {
-    // $normalizePastedNbsp's marker-token regexes only match `\`-shaped tokens (AFTER_MARKER_NBSP /
+    // normalizePastedNbsp's marker-token regexes only match `\`-shaped tokens (AFTER_MARKER_NBSP /
     // BEFORE_MARKER_NBSP, whitespaceDisplay.plugin.utils.ts) — `//` has no backslash, so neither
     // pass recognizes an NBSP next to it, and the final blanket `.replaceAll(NBSP, "~")` converts
     // it to a literal data tilde — the correct display form for genuine data-NBSP, just one

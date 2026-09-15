@@ -1,4 +1,5 @@
 import { MarkerEditPlugin } from "./MarkerEditPlugin";
+import { mountStandardViewEditor } from "../settledGetUsj.test-helpers";
 import {
   copyEvent,
   execCommandSpy,
@@ -14,6 +15,8 @@ import {
   $handleCopyForStandardView,
   $handlePasteForStandardView,
   invertDisplayNbspInHtml,
+  normalizePastedNbsp,
+  stripPastedChapterAndBookId,
 } from "./whitespaceDisplay.plugin.utils";
 import { displayTextToUsj } from "./whitespaceDisplay.utils";
 import { act } from "@testing-library/react";
@@ -1135,6 +1138,52 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
   });
 
   describe("positional NBSP normalization", () => {
+    // Direct pins on the pure string passes. The round-trip tests below exercise the same rules
+    // through a real editor, but a rebuild re-derives its own separators, which hides exactly the
+    // marker-RECOGNITION question these two ask.
+    describe("marker recognition (the byte class the token regexes are built from)", () => {
+      it("recognizes a marker name the ENGINE class allows but canonical USFM does not", () => {
+        // The engine's name class is `\w` plus `-` — deliberately wider than canonical USFM, so a
+        // wrong-case or underscored name is still a marker-shaped run the tokenizer will read as a
+        // marker (markerName.pattern.ts). The positional NBSP rules have to agree with it: a name
+        // this normalization fails to recognize keeps its separator NBSP, which then survives into
+        // content as a literal `~` right where the tokenizer expects a space.
+        expect(normalizePastedNbsp(`\\my_marker${NBSP}light`)).toBe("\\my_marker light");
+        expect(normalizePastedNbsp(`\\ND${NBSP}light`)).toBe("\\ND light");
+        expect(normalizePastedNbsp(`light${NBSP}\\my_marker*`)).toBe("light\\my_marker*");
+      });
+
+      it("leaves an NBSP that is not adjacent to any marker as data", () => {
+        expect(normalizePastedNbsp(`a${NBSP}b`)).toBe("a~b");
+      });
+    });
+
+    describe("chapter/book-id strip takes the token and nothing else", () => {
+      it("keeps content that follows the chapter number", () => {
+        // `\c` takes exactly one whitespace-delimited word as its number (`getNextWord`,
+        // usfmFragmentToUsj.ts); everything after that is the user's content, and a strip that ate
+        // to the newline would drop it silently.
+        expect(stripPastedChapterAndBookId("x \\c 5 y")).toBe("x  y");
+        expect(stripPastedChapterAndBookId("x \\c 5")).toBe("x ");
+      });
+
+      it("stops at the next marker rather than swallowing it", () => {
+        expect(stripPastedChapterAndBookId("\\c 5\\v 1 In the beginning")).toBe(
+          "\\v 1 In the beginning",
+        );
+        expect(stripPastedChapterAndBookId("\\c\\nd x")).toBe("\\nd x");
+      });
+
+      it("takes an `\\id` line's whole remainder — book code plus description are all payload", () => {
+        expect(stripPastedChapterAndBookId("text \\id GEN more")).toBe("text ");
+      });
+
+      it("leaves a name that merely starts with `c`/`id` alone", () => {
+        expect(stripPastedChapterAndBookId(`\\cls${NBSP}x`)).toBe(`\\cls${NBSP}x`);
+        expect(stripPastedChapterAndBookId("\\ide UTF-8")).toBe("\\ide UTF-8");
+      });
+    });
+
     // The pins above hold byte-for-byte under the positional rule wherever the pasted text carries
     // no marker adjacent to an NBSP (nothing there to normalize). These add the marker-adjacent
     // cases the positional rule exists for.
@@ -1368,7 +1417,7 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
     });
 
     it("a leading NBSP on a SECOND line (right after an internal `\\n`, not string-start) also normalizes to a space, under the `gm`-flagged leading-NBSP pass", async () => {
-      // `$normalizePastedNbsp`'s leading-NBSP pass uses the `gm` flags, so `^` matches after
+      // `normalizePastedNbsp`'s leading-NBSP pass uses the `gm` flags, so `^` matches after
       // every `\n`, not just at the very start of the whole paste — a later paragraph of a
       // multi-line paste can itself start mid-span (a partial selection spanning a paragraph
       // boundary) and reads as the same structural separator the string-start case does.
@@ -1470,6 +1519,41 @@ describe("paste normalization ($handlePasteForStandardView)", () => {
         // would extract the verse span's own visible "2" as literal text via `htmlPasteText` and
         // insert "2pasted" — StructureKeyboardPlugin's sanitizer instead strips the verse node
         // entirely, so no such digit leak survives.
+        const content = $getRoot().getTextContent();
+        expect(content).not.toContain("2pasted");
+        expect(content).toContain("pasted");
+      });
+    });
+
+    it("the real `Editor` hands its `structureProtectionMode` down, so a protected paste declines there too", async () => {
+      // The pin above passes the mode straight to `MarkerEditPlugin`, which proves the handler's
+      // rule but not the wiring that reaches it. Both `Editor` and the plugin default the prop to
+      // `"off"`, so a dropped pass-through is invisible to every other test in the suite: the
+      // plugin would simply never be told, and claim the paste that the sanitizer must govern.
+      const { lexical } = await mountStandardViewEditor(
+        {
+          type: "USJ",
+          version: "3.1",
+          content: [{ type: "para", marker: "p", content: ["hello world"] }],
+        },
+        { structureProtectionMode: "protected" },
+      );
+
+      const verseHtml =
+        '<p data-marker="p" class="para">' +
+        '<span data-marker="v" data-number="2" class="verse">2</span>pasted</p>';
+
+      await act(async () =>
+        lexical.update(() => {
+          const paragraph = $getRoot().getChildren().filter($isParaNode)[0];
+          paragraph.selectEnd();
+          lexical.dispatchCommand(PASTE_COMMAND, pasteEvent({ "text/html": verseHtml }).event);
+        }),
+      );
+
+      lexical.getEditorState().read(() => {
+        // Same tell as the plugin-level pin: a claimed paste leaks the verse span's visible "2"
+        // as literal text, while the sanitizer strips the verse node and leaves only "pasted".
         const content = $getRoot().getTextContent();
         expect(content).not.toContain("2pasted");
         expect(content).toContain("pasted");

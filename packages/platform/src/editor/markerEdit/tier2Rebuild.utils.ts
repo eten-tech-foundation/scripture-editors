@@ -12,7 +12,7 @@
 
 import usjEditorAdaptor from "../adaptors/usj-editor.adaptor";
 import { isParaKindMarker } from "./markerKind.utils";
-import { UNTERMINATED_MARKER_TAIL } from "./markerName.pattern";
+import { ENGINE_MARKER_NAME_BYTES, UNTERMINATED_MARKER_TAIL } from "./markerName.pattern";
 import {
   $serializeExpandedNoteContent,
   ATOMIC_SENTINEL,
@@ -1064,7 +1064,9 @@ function $appendNodesFragment(
 /** A paragraph-kind marker literal at the very start of a text run — the same terminated-marker
  * shape `TERMINATED_MARKER_IN_TEXT_REGEX` (markerEditTier2Trigger.utils.ts) recognizes anywhere
  * in a run, anchored here to the run's first character. */
-const LEADING_MARKER_LITERAL = /^\\\+?([\w-]+)(?:\*|[ \u00A0])/;
+const LEADING_MARKER_LITERAL = new RegExp(
+  String.raw`^\\\+?([${ENGINE_MARKER_NAME_BYTES}]+)(?:\*|[ \u00A0])`,
+);
 
 /**
  * "Own marker wins": when `para` already carries its own visible marker prefix (a real glyph, not

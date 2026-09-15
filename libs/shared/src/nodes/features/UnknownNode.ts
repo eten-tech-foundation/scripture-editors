@@ -213,9 +213,8 @@ export class UnknownNode extends ElementNode {
   // computes this same `excludeFromCopy('html')` value, but `exportDOM()` above always returns
   // `{element: null}` and `$appendNodesToHTML` returns early on a null `element` BEFORE ever
   // consulting the exclusion value it just computed, so `text/html` output is byte-identical for
-  // every kind whatever this predicate answers (confirmed by reading `LexicalHtml.dev.js`).
-  // `'clone'` is never passed by any Lexical-shipped code path in the installed version (confirmed
-  // by reading `LexicalClipboard.dev.js`), so an unconditional `destination !== "clone"` would
+  // every kind whatever this predicate answers. `'clone'` is never passed by any Lexical-shipped
+  // code path in the installed version, so an unconditional `destination !== "clone"` would
   // exclude every `UnknownNode` from the lexical-JSON flavor outright.
   //
   // Excluding a node does not drop it silently: `$appendNodesToJSON` HOISTS the excluded node's own
@@ -282,10 +281,9 @@ export class UnknownNode extends ElementNode {
   // the copy ends up carrying the construct's CHARACTERS with the wrapper and its attributes
   // silently gone. That is the convincing-lie hazard this whole pair exists to prevent. Membership
   // keeps the construct whole, so the lexical flavor is a SUPERSET of `text/plain` at that one
-  // boundary rather than a structural loss. Recorded as a residual (the clipboard semantics doc's
-  // "Deferred / Out of Scope" list) rather than papered over; closing it needs a lever Lexical does
-  // not offer — `exportNodeToJSON` requires every ElementNode's `exportJSON()` to return a
-  // `children` array, so a node cannot say "drop me AND my children".
+  // boundary rather than a structural loss. That residual stands deliberately: closing it needs a
+  // lever Lexical does not offer — `exportNodeToJSON` requires every ElementNode's `exportJSON()`
+  // to return a `children` array, so a node cannot say "drop me AND my children".
   override isSelected(selection?: BaseSelection | null): boolean {
     const targetSelection = selection ?? $getSelection();
     if (!targetSelection) return false;

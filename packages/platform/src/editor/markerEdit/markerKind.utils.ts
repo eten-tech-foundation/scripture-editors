@@ -29,20 +29,28 @@ import { isMilestoneHeuristicName, MarkerLookup, MarkerType, NoteNode } from "sh
  * disagree with it for any unknown/custom.sty marker.
  */
 export function isParaKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
-  const clean = marker.replace(/^\+/, "");
-  if (clean === "v" || clean === "c") return false;
-  const kind = getMarkerFn(clean)?.type;
-  if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Paragraph;
-  if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
-  return true;
+  return isKindMarker(marker, getMarkerFn, MarkerType.Paragraph);
 }
 
 /** Same-positional-kind rule for char openers (see {@link isParaKindMarker}). */
 export function isCharKindMarker(marker: string, getMarkerFn: MarkerLookup): boolean {
+  return isKindMarker(marker, getMarkerFn, MarkerType.Character);
+}
+
+/**
+ * The one body both public rules run, differing only in the kind they compare the stylesheet's
+ * answer against. One function rather than two parallel ones because the whole reason this module
+ * exists is that the two tiers must never disagree about a marker's position — and two copies of
+ * the same five lines is exactly how they would come to.
+ *
+ * The unknown fallback answers TRUE for BOTH kinds deliberately: a marker the effective sheet does
+ * not know stays wherever it was typed, so neither kind rules it out.
+ */
+function isKindMarker(marker: string, getMarkerFn: MarkerLookup, kind: MarkerType): boolean {
   const clean = marker.replace(/^\+/, "");
   if (clean === "v" || clean === "c") return false;
-  const kind = getMarkerFn(clean)?.type;
-  if (kind !== undefined && kind !== MarkerType.Unknown) return kind === MarkerType.Character;
+  const sheetKind = getMarkerFn(clean)?.type;
+  if (sheetKind !== undefined && sheetKind !== MarkerType.Unknown) return sheetKind === kind;
   if (NoteNode.isValidMarker(clean) || isMilestoneHeuristicName(clean)) return false;
   return true;
 }

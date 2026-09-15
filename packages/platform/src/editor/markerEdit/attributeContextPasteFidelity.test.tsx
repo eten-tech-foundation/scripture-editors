@@ -540,7 +540,7 @@ describe("marker-bearing payload: literal value text, no strip — and what the 
 
     editor.getEditorState().read(() => {
       // Literal bytes intact in the run — the chapter/book-id strip
-      // ($stripPastedChapterAndBookId) must never run against attribute-context text.
+      // (stripPastedChapterAndBookId) must never run against attribute-context text.
       expect($charAttributeRun($firstChar()).getTextContent()).toBe('|who="hi"\\c 5');
     });
     const usj = usjOf(editor);
@@ -555,8 +555,8 @@ describe("marker-bearing payload: literal value text, no strip — and what the 
     // re-tokenize": the attribute tag survives the insertion, but the caret-departure settle
     // re-tokenizes the whole paragraph and reads `\c 5` as the chapter marker it spells. Recorded
     // here rather than left invisible behind an unsettled assertion. The residual — marker bytes
-    // reaching a value at all — is the TYPED `\c` hole (Deferred item 2 in the semantics doc),
-    // which paste inherits by design; closing it for paste alone would eat bytes out of an
+    // reaching a value at all — is the TYPED `\c` hole, which paste reaches through a different
+    // door rather than introducing; closing it for paste alone would eat bytes out of an
     // attribute value that were never a chapter token, and would break the equivalence below.
     const pasted = await testEnvironmentWithCharSync($charFixture);
     await act(async () => pasted.editor.update($selectRunEnd));
@@ -856,8 +856,8 @@ describe("mixed selection: the pasted bytes are BODY content, not attribute-valu
     //
     // Settled deliberately, and the settled shape asserted concretely: the attribute tag survives
     // the insertion but not the caret-departure re-tokenization, so `\c 5` DOES become a chapter
-    // marker here — the typed `\c` hole (Deferred item 2), inherited by design rather than
-    // introduced. An assertion that stopped before the settle would read "safe" over a corrupt
+    // marker here — the typed `\c` hole, reached through a different door rather than
+    // introduced by paste. An assertion that stopped before the settle would read "safe" over a corrupt
     // document, which is the shape this suite exists to refuse.
     function $selectValueInterior(): void {
       const run = $charAttributeRun($firstChar());

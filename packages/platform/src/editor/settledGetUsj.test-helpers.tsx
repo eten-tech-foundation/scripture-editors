@@ -26,7 +26,13 @@ import {
   NoteNode,
   TypedMarkNode,
 } from "shared";
-import { getViewOptions, STANDARD_VIEW_MODE, usjReactNodes, ViewOptions } from "shared-react";
+import {
+  getViewOptions,
+  STANDARD_VIEW_MODE,
+  StructureProtectionMode,
+  usjReactNodes,
+  ViewOptions,
+} from "shared-react";
 import { expect } from "vitest";
 // Reaching inside only for tests.
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -82,6 +88,12 @@ type OnUsjChange = EditorProps<LoggerBasic>["onUsjChange"];
 interface MountOptions {
   onUsjChange?: OnUsjChange;
   scrRef?: SerializedVerseRef;
+  /**
+   * `EditorOptions.structureProtectionMode` — the host option the real `Editor` must hand down to
+   * `MarkerEditPlugin` (and to `StructureKeyboardPlugin`) for a protected document's paste to
+   * reach the sanitizer.
+   */
+  structureProtectionMode?: StructureProtectionMode;
 }
 
 export function requireStandardViewOptions(): ViewOptions {
@@ -119,7 +131,7 @@ export const spanUsj: Usj = {
 async function mountEditor(
   usj: Usj,
   view: ViewOptions,
-  { onUsjChange, scrRef }: MountOptions = {},
+  { onUsjChange, scrRef, structureProtectionMode }: MountOptions = {},
 ): Promise<{ ref: RefObject<EditorRef | null>; lexical: LexicalEditor }> {
   const ref = createRef<EditorRef>();
   const lexicalRef = createRef<LexicalEditor>();
@@ -130,7 +142,7 @@ async function mountEditor(
         ref={ref}
         defaultUsj={usj}
         scrRef={scrRef}
-        options={{ view }}
+        options={{ view, structureProtectionMode }}
         onUsjChange={onUsjChange}
       >
         {capture}

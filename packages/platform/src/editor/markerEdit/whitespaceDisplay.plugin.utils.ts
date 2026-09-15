@@ -47,7 +47,12 @@ import {
   NBSP,
   textTypeState,
 } from "shared";
-import { $isImmutableNoteCallerNode, $opaqueBlockAncestor } from "shared-react";
+import {
+  $hasCopyableSelection,
+  $isImmutableNoteCallerNode,
+  $opaqueBlockAncestor,
+} from "shared-react";
+import { ENGINE_MARKER_NAME_BYTES } from "./markerName.pattern";
 
 /** Spaces in runs display as NBSP so they are visible while typing. */
 export function $displayWhitespaceTransform(node: TextNode): void {
@@ -171,7 +176,7 @@ export function getPastePayload(
   // TRUE of every P10 copy, and an NBSP-presence test would route P10's own round trip through
   // html, whose decoded text drops a collapsed note's caller entirely (it rides as a `data-caller`
   // attribute, never as text). A lost note caller on the editor's own copy is a worse, far likelier
-  // loss than a foreign clipboard's data-NBSP. Recorded in the semantics doc's deferred list.
+  // loss than a foreign clipboard's data-NBSP.
   return {
     text: plainText || htmlText,
     isInternal: !!clipboardData.getData("application/x-lexical-editor"),
@@ -182,9 +187,15 @@ export function getPastePayload(
  * A marker token this handler recognizes for positional NBSP normalization: a plain or
  * nested-char marker (`\nd`, `\+nd`), either one's closer (`\nd*`, `\+nd*`), or a milestone's
  * anonymous self-closer (`\*`).
+ *
+ * Built from the engine's liberal name class, not the canonical one: this is RECOGNIZING a
+ * marker-shaped byte run in arbitrary pasted text, which is exactly the job that class exists for,
+ * and a name the tokenizer will read as a marker has to be read as one here too — otherwise its
+ * separator NBSP survives into content as a data `~`.
  */
-const AFTER_MARKER_NBSP = /(\\(?:\+?[a-z0-9-]+\*?|\*))\u00A0/gi;
-const BEFORE_MARKER_NBSP = /\u00A0(?=\\(?:\+?[a-z0-9-]+\*?|\*))/gi;
+const MARKER_TOKEN = String.raw`\\(?:\+?[${ENGINE_MARKER_NAME_BYTES}]+\*?|\*)`;
+const AFTER_MARKER_NBSP = new RegExp(String.raw`(${MARKER_TOKEN})\u00A0`, "g");
+const BEFORE_MARKER_NBSP = new RegExp(String.raw`\u00A0(?=${MARKER_TOKEN})`, "g");
 
 /**
  * Positional NBSP normalization for an external paste's resolved text. Standard view has no
@@ -217,7 +228,7 @@ const BEFORE_MARKER_NBSP = /\u00A0(?=\\(?:\+?[a-z0-9-]+\*?|\*))/gi;
  * and is preserved as `~`, the same display form typed data-NBSP takes, so serialization
  * round-trips it to a real NBSP instead of silently collapsing it to a plain space or dropping it.
  */
-export function $normalizePastedNbsp(text: string): string {
+export function normalizePastedNbsp(text: string): string {
   return text
     .replace(/^\u00A0/gm, " ")
     .replace(AFTER_MARKER_NBSP, "$1 ")
@@ -225,12 +236,23 @@ export function $normalizePastedNbsp(text: string): string {
     .replaceAll(NBSP, "~");
 }
 
-/** A `\c`/`\id` marker token ANYWHERE in a line, capturing its payload up to — but not including —
- * the next marker or line end. Not anchored to the line's start: a chapter/book-id token can sit
- * mid-line (`x \c 5 y`, a paste landing mid-sentence), and an anchor there would silently miss it
- * (see `$stripPastedChapterAndBookId`'s doc comment). Global so more than one occurrence on the
- * same line is fully swept, not just the first. */
-const CHAPTER_OR_BOOK_ID_TOKEN = /\\(?:c|id)(?![\w-])[^\n\\]*/g;
+/** A `\c` chapter token ANYWHERE in a line: the marker, its separator, and the ONE
+ * whitespace-delimited word the tokenizer reads as the chapter number (`getNextWord`,
+ * usfmFragmentToUsj.ts) — and nothing more, because everything past that word is ordinary content
+ * the paste must keep. Stops at a backslash too, so `\c\nd x` strips the bare `\c` and leaves
+ * `\nd x` whole. Not anchored to the line's start: a chapter token can sit mid-line (`x \c 5 y`,
+ * a paste landing mid-sentence), and an anchor there would silently miss it. Global so more than
+ * one occurrence on the same line is fully swept, not just the first. */
+const CHAPTER_TOKEN = new RegExp(
+  String.raw`\\c(?![${ENGINE_MARKER_NAME_BYTES}])[ \u00A0]*[^\s\\]*`,
+  "g",
+);
+
+/** A `\id` book-id token ANYWHERE in a line, capturing its payload up to — but not including —
+ * the next marker or line end. Wider than {@link CHAPTER_TOKEN} on purpose: an `\id` line's whole
+ * remainder IS the token's payload (book code plus an optional free-text description), so there is
+ * no trailing content to preserve the way there is after a chapter number. */
+const BOOK_ID_TOKEN = new RegExp(String.raw`\\id(?![${ENGINE_MARKER_NAME_BYTES}])[^\n\\]*`, "g");
 
 /**
  * Drops every pasted `\c`/`\id` token and its payload (the chapter number / book code, up to the
@@ -248,28 +270,30 @@ const CHAPTER_OR_BOOK_ID_TOKEN = /\\(?:c|id)(?![\w-])[^\n\\]*/g;
  * string outside any paragraph, since a chapter token closes the enclosing paragraph the same way
  * it does on a real load.
  *
+ * Only the token's OWN bytes go: `\c` plus the one word the tokenizer reads as the chapter
+ * number. Content that merely follows it on the same line is the user's and survives — `x \c 5 y`
+ * strips to `x  y`, not to `x `. Removing more would trade one silent corruption for another, and
+ * the poisoning this exists to prevent is fully undone once the marker and its number are gone.
+ * A token sharing a line with a LATER marker — `\c 5\v 1 In the beginning` — likewise only loses
+ * its own bytes: both token regexes stop at the next `\`.
+ *
  * Splits on lines and strips per line (not one global pass over the whole text) so a token that
  * consumes an ENTIRE line can cleanly take that line's own newline with it too (no stray empty
- * paragraph left behind). A token sharing a line with a LATER marker — `\c 5\v 1 In the
- * beginning` — only loses its own bytes: the token regex stops at the next `\`, leaving `\v 1 In
- * the beginning` to paste normally. But `[^\n\\]*` has no such stop when nothing marker-shaped
- * follows on the line: the mid-line `x \c 5 y` shape above loses the token's trailing payload TOO,
- * all the way to the newline — `x \c 5 y` strips down to `x ` alone, the trailing `y` dropped
- * along with the marker (pinned in `markerPasteFidelity.test.tsx`). A line that already carried no
- * other content becomes empty after stripping and is dropped from the output entirely, rather than
- * surviving as a blank paragraph; a line that was ALREADY blank in the source paste (nothing to do
- * with `\c`/`\id`) is left alone.
+ * paragraph left behind). A line that already carried no other content becomes empty after
+ * stripping and is dropped from the output entirely, rather than surviving as a blank paragraph;
+ * a line that was ALREADY blank in the source paste (nothing to do with `\c`/`\id`) is left
+ * alone.
  *
  * Exported for the in-note CRITICAL multi-line paste claim (`MarkerEditPlugin.tsx`), which shares
- * this strip the same way it shares `$normalizePastedNbsp` — a `\c`/`\id` token pasted into note
+ * this strip the same way it shares `normalizePastedNbsp` — a `\c`/`\id` token pasted into note
  * content is just as reachable (the note-content Tier 2 rebuild tokenizes literal text the same
  * way a paragraph rebuild does) and just as harmful there.
  */
-export function $stripPastedChapterAndBookId(text: string): string {
+export function stripPastedChapterAndBookId(text: string): string {
   return text
     .split("\n")
     .map((line) => {
-      const stripped = line.replace(CHAPTER_OR_BOOK_ID_TOKEN, "");
+      const stripped = line.replace(CHAPTER_TOKEN, "").replace(BOOK_ID_TOKEN, "");
       return stripped === "" && line !== "" ? undefined : stripped;
     })
     .filter((line): line is string => line !== undefined)
@@ -327,20 +351,19 @@ function $isSelectionInAttributeContext(selection: RangeSelection): boolean {
  * only one whose value-byte carve-outs ({@link $insertPastedTextIntoAttributeContext}) are earned.
  * What earns them is paste ≡ TYPING: the bytes land where the same keystrokes would land, and this
  * editor's whole attribute-context contract is that a paste in a value behaves as typing there
- * does. It is NOT that the bytes never re-tokenize — measured, that is false: the `"attribute"` tag
- * survives the insertion, but the caret-departure settle re-tokenizes the paragraph, so a pasted
- * `\c 5` in a value DOES become a chapter marker. It becomes one identically when TYPED, which is
- * why this is the typed-`\c` hole the semantics doc defers (Deferred item 2), inherited rather than
- * introduced. Extending the strip to cover it would eat bytes out of an attribute value that were
+ * does. The bytes DO still re-tokenize: the `"attribute"` tag survives the insertion, but the
+ * caret-departure settle re-tokenizes the paragraph, so a pasted `\c 5` in a value becomes a
+ * chapter marker. It becomes one identically when TYPED, so this is the typed-`\c` hole, reached
+ * through a different door — not something paste introduces. Extending the strip to cover it would eat bytes out of an attribute value that were
  * never a chapter token — the very regression the carve-out exists to prevent — and would break the
  * equivalence. Both halves are pinned settled, on concrete USJ, in
  * `attributeContextPasteFidelity.test.tsx`.
  *
  * A selection that merely TOUCHES attribute context does not land in a value at all. Removing the
  * range takes the bytes out of the run, and when the range covers a char span's closing glyph it
- * deletes the closer too, so what arrives is ordinary paragraph content — measured both ways round,
- * a range starting in body text and reaching INTO the run, and a range starting inside the run and
- * reaching PAST the closer. Those bytes get body content's rules, which is a divergence from typing
+ * deletes the closer too, so what arrives is ordinary paragraph content. That holds both ways
+ * round: a range starting in body text and reaching INTO the run, and a range starting inside the
+ * run and reaching PAST the closer. Those bytes get body content's rules, which is a divergence from typing
  * in exactly the two places body paste always diverges from it.
  */
 function $isSelectionWithinOneAttributeNode(selection: RangeSelection): boolean {
@@ -381,7 +404,7 @@ function $isSelectionWithinOneAttributeNode(selection: RangeSelection): boolean 
  */
 function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: string): void {
   const valueBytes = $isSelectionWithinOneAttributeNode(selection);
-  const resolved = valueBytes ? text : $normalizePastedNbsp($stripPastedChapterAndBookId(text));
+  const resolved = valueBytes ? text : normalizePastedNbsp(stripPastedChapterAndBookId(text));
   selection.insertText(resolved.replace(/\n/g, " "));
 }
 
@@ -399,7 +422,7 @@ function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: 
  * NBSP→`~` mapping would corrupt a same-editor paste of its own copy: every display-NBSP (the
  * separator after `\f`/`\fr`/`\ft`) would become a literal `~`, turning recognized markers into
  * unknown-marker soup, and a browser-hop `\nd …\nd*` paste would come back with an unmatched
- * closer. `$normalizePastedNbsp` above uses a positional rule instead, so only genuine data-NBSPs
+ * closer. `normalizePastedNbsp` above uses a positional rule instead, so only genuine data-NBSPs
  * become `~`.
  *
  * A MULTI-LINE payload is replayed line by line with an `INSERT_PARAGRAPH_COMMAND` dispatch
@@ -424,13 +447,13 @@ function $insertPastedTextIntoAttributeContext(selection: RangeSelection, text: 
  * and (see `attributeContextPasteFidelity.test.tsx`'s "root cause" describe) merges the run, the
  * closing glyph, and even the FOLLOWING paragraph's own sibling text into one plain node: the
  * attribute display and the closing marker both vanish, and the pasted bytes end up loose in body
- * content. Regression classes closed by this suspension: (1) a live native paste event that still
- * carries a same-namespace `application/x-lexical-editor` flavor (S2's own documented case for
- * when that CAN still reach a handler, unlike the reconstructed-`DataTransfer` path); (2) a
+ * content. The suspension covers: (1) a live native paste event that still carries a
+ * same-namespace `application/x-lexical-editor` flavor, which unlike the
+ * reconstructed-`DataTransfer` path can still reach a handler; (2) a
  * multi-line plain-text payload, which the ordinary external-paste pipeline below would split into
  * real paragraphs via `INSERT_PARAGRAPH_COMMAND` — inside an attribute run that is exactly as
  * destructive as the rich-paste shape; (3) a marker-bearing payload (`\c 5`) landing wholly INSIDE
- * one attribute node, where the ordinary pipeline's `$stripPastedChapterAndBookId` would eat bytes
+ * one attribute node, where the ordinary pipeline's `stripPastedChapterAndBookId` would eat bytes
  * out of an attribute VALUE that were never a chapter token to begin with — bytes merely TOUCHING
  * a run get that strip, since they end up as re-tokenizing paragraph content
  * ({@link $insertPastedTextIntoAttributeContext}); (4) a MIXED selection (one end inside the run,
@@ -481,7 +504,7 @@ export function $handlePasteForStandardView(
   // all) can just as easily trigger the immediate own-marker-prefix dedup rebuild (`\p one` pasted
   // right after an existing `\p` host's prefix) as a multi-line one can.
   armPasteRebuildDedup();
-  const normalized = $normalizePastedNbsp($stripPastedChapterAndBookId(text));
+  const normalized = normalizePastedNbsp(stripPastedChapterAndBookId(text));
   const lines = normalized.split("\n");
   if (lines.length < 2) {
     selection.insertText(normalized);
@@ -546,7 +569,7 @@ function $isNoteInternalDisplaySeparator(node: TextNode): boolean {
  * `isLast` is what keeps it inside the selection. These bytes stand for the region AFTER the
  * separator, so a selection that STOPS there covers none of them: emitting anyway put
  * `\cat People\cat*` on the clipboard for a range the user never selected, with no `\f` opener in
- * front of the run that followed (measured: `\f -\cat People\cat*`). The sibling caller rule
+ * front of the run that followed (`\f -\cat People\cat*`). The sibling caller rule
  * guards its own boundary the same way.
  */
 function $collapsedNoteCategoryBytes(node: TextNode, isLast: boolean): string {
@@ -594,7 +617,9 @@ function $startsBlockLine(node: LexicalNode): boolean {
 
 /**
  * Source-faithful USFM text of `selection` — the `text/plain` leg of Standard-view copy/cut. Walks
- * `selection.getNodes()` the same way `RangeSelection.getTextContent()` does (single `\n` between
+ * `selection.getNodes()` the same way `RangeSelection.getTextContent()` does — mirrored from
+ * lexical 0.43.0, so a Lexical upgrade should re-read that walk and confirm it still matches
+ * before trusting this one — (single `\n` between
  * non-inline block boundaries, anchor/focus offsets respected on the boundary text nodes,
  * `DecoratorNode`s contributing their own text; an inline element like `AttributeRunNode` or
  * `NoteNode` contributes nothing itself, its children being walked as their own list entries), with
@@ -762,7 +787,10 @@ export function $handleCopyForStandardView(
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || selection.isCollapsed()) {
     const isNullPayloadDispatch = !event || !("clipboardData" in event);
-    return isNullPayloadDispatch && (!selection || selection.isCollapsed());
+    // The same predicate shared-react's guard uses, not a second spelling of it: the two layers
+    // have to agree on what "nothing to copy" means — including that a node selection has real
+    // content and is therefore declined here — and one shared function is what keeps them agreeing.
+    return isNullPayloadDispatch && !$hasCopyableSelection();
   }
   const data = $getStandardViewClipboardData(editor);
   if (!data) return false;
