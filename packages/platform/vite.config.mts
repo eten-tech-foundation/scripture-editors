@@ -18,7 +18,9 @@ export default defineConfig({
     dts({
       entryRoot: "src",
       rollupTypes: true,
-      tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
+      bundledPackages: ["shared", "shared-react"],
+      // Roll up dependency declarations rather than their development source exports.
+      tsconfigPath: path.join(__dirname, "tsconfig.dts.json"),
       exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
       aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
@@ -38,15 +40,26 @@ export default defineConfig({
       transformMixedEsModules: true,
     },
     lib: {
-      // Could also be a dictionary or array of multiple entry points.
-      entry: "src/index.ts",
+      entry: {
+        index: "src/index.ts",
+        "editorial-entry": "src/editorial-entry.ts",
+        "view-options": "src/view-options.ts",
+      },
       name: "@eten-tech-foundation/platform-editor",
-      fileName: "index",
+      // npm excludes directories named node_modules, including bundled vendor modules.
+      fileName: (_format, entryName) => `${entryName.replaceAll("node_modules", "vendor")}.js`,
+      cssFileName: "index",
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
       formats: ["es" as const],
     },
     rollupOptions: {
+      output: {
+        // Keep stylesheet export filenames stable while JavaScript retains its directories.
+        assetFileNames: (asset) => path.basename(asset.names[0] ?? "[name][extname]"),
+        preserveModules: true,
+        preserveModulesRoot: path.resolve(__dirname, "../.."),
+      },
       external: [
         "react/jsx-runtime",
         // Also externalize the dev JSX runtime so a dev-mode build can never bundle a

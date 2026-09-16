@@ -7,7 +7,6 @@
  * Please note:
  * - This is an [uncontrolled React component](https://react.dev/learn/sharing-state-between-components#controlled-and-uncontrolled-components).
  * - Use the `<Editorial />` component for an editor without commenting features.
- * - Use the `<Marginal />` component for an editor with comments (comments appear in the margin).
  *
  * The editor component is for editing Scripture text with these features:
  * - USJ editor with USX support
@@ -16,9 +15,6 @@
  * - Cut, copy, paste, paste as plain text - context menu and keyboard shortcuts
  * - Format block type - change `<para>` markers. The current implementation is a proof-of-concept and doesn't have all the markers available yet.
  * - Insert markers - type '\\' (backslash - configurable to another key) for a marker menu. If text is selected first the marker will apply to the selection if possible, e.g. use '\\wj' to "red-letter" selected text.
- * - Add comments to selected text, reply in comment threads, delete comments and threads.
- *   - To enable comments use the `<Marginal />` editor component (comments appear in the margin).
- *   - To use the editor without comments use the `<Editorial />` component.
  * - Add and remove different types of annotations. Style the different annotations types with CSS, e.g. style a spelling annotation with a red squiggly underline.
  * - Get and set the cursor location or selection range.
  * - Specify `textDirection` as `"ltr"`, `"rtl"`, or `"auto"` (`"auto"` is unlikely to be useful for minority languages).
@@ -29,11 +25,84 @@
  * - Apply [Delta Operation](https://github.com/slab/delta) changes to the editor and see Delta Operations when changes are made in the editor. For use with realtime collaborative editing.
  */
 
-export * from "./editorial-entry";
-/**
- * @deprecated Marginal will be removed in a future release. Prefer {@link Editorial}. Install the
- * optional `yjs` peer dependency if you continue using margin comments during the transition.
- */
-export { default as Marginal } from "./marginal/Marginal";
-export type { CommentBase, Comments, Thread } from "./marginal/comments/commenting";
-export type { MarginalRef, MarginalProps } from "./marginal/Marginal";
+export { default as Editorial } from "./Editorial";
+export {
+  CategoryType,
+  defaultStyleInfo,
+  GENERATOR_NOTE_CALLER,
+  HIDDEN_NOTE_CALLER,
+  MarkerType,
+} from "shared";
+export { generateUsjCss } from "./editor/generateUsjCss";
+export { getEnterMenuItems, getMarkerMenuItems } from "./editor/markerMenu/markerItemSource";
+export {
+  BLOCK_VERSE_VIEW_MODE,
+  directionToNames,
+  filterAndRankItems,
+  getDefaultViewMode,
+  getDefaultViewOptions,
+  getViewMode,
+  getViewOptions,
+  isBlockVerseLayout,
+  isInsertEmbedOpOfType,
+  PARAGRAPH_STRUCTURE_VIEW_MODE,
+  STANDARD_VIEW_MODE,
+  viewModeToViewNames,
+} from "shared-react";
+
+export type {
+  CommitTypedMarkerOptions,
+  EditorOptions,
+  EditorProps,
+  EditorRef,
+  TransientInput,
+} from "./editor/editor.model";
+export type { UsjCssOptions } from "./editor/generateUsjCss";
+export type { MarkerMenuContext, MarkerMenuItem } from "./editor/markerMenu/markerItemSource";
+export type {
+  DomMouseEvent,
+  LoggerBasic,
+  Marker,
+  MarkerLookup,
+  MarkerStyleInfo,
+  NodeOptions,
+  StyleInfo,
+  StyleType,
+  TypedMarkOnClick,
+  TypedMarkOnMouseEnter,
+  TypedMarkOnMouseLeave,
+  TypedMarkOnRemove,
+  TypedMarkRemovalCause,
+} from "shared";
+export type {
+  AddMissingComments,
+  AnnotationRange,
+  ContextMenuOptionConfig,
+  DeltaOp,
+  DeltaOpInsertNoteEmbed,
+  DeltaSource,
+  FilterAndRankItems,
+  Item,
+  MarkerMode,
+  NoteCallerOnClick,
+  NoteMode,
+  OnStateChange,
+  OTChapterEmbed,
+  OTEmbedTypes,
+  OTMilestoneEmbed,
+  OTNoteEmbed,
+  OTParaAttribute,
+  OTUnknownEmbed,
+  OTUnmatchedEmbed,
+  OTVerseEmbed,
+  SelectionRange,
+  SortingOptions,
+  StateChangeSnapshot,
+  StructureProtectionMode,
+  TextDirection,
+  UsjLocation,
+  UsjNodeOptions,
+  VerseLayout,
+  ViewMode,
+  ViewOptions,
+} from "shared-react";

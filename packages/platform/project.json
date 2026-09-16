@@ -19,6 +19,14 @@
         "cwd": "{projectRoot}",
         "parallel": false
       }
+    },
+    "check-bundle": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["extract-api"],
+      "options": {
+        "command": "node scripts/check-platform-bundle.mjs",
+        "cwd": "{workspaceRoot}"
+      }
     }
   }
 }

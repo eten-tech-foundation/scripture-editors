@@ -21,6 +21,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./editorial": {
+      "types": "./dist/editorial-entry.d.ts",
+      "import": "./dist/editorial-entry.js",
+      "default": "./dist/editorial-entry.js"
+    },
+    "./view-options": {
+      "types": "./dist/view-options.d.ts",
+      "import": "./dist/view-options.js",
+      "default": "./dist/view-options.js"
     }
   },
   "files": [
@@ -77,5 +87,8 @@
   },
   "volta": {
     "extends": "../../package.json"
-  }
+  },
+  "sideEffects": [
+    "**/*.css"
+  ]
 }
