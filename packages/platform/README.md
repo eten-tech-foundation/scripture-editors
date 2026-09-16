@@ -161,6 +161,30 @@ If using the **commenting features** in the `<Marginal />` component:
 
 ### Annotation Styles
 
+For check results, use `setAnnotations` and `removeAnnotations` to apply each batch in one editor
+update:
+
+```ts
+editorialRef.current?.setAnnotations([
+  { selection: annotationRange1, type: "spelling", id: "spell-1" },
+  { selection: annotationRange2, type: "grammar", id: "grammar-1", onClick: handleClick },
+]);
+editorialRef.current?.removeAnnotations([
+  { type: "spelling", id: "spell-1" },
+  { type: "grammar", id: "grammar-1" },
+]);
+```
+
+The exported `Annotation` and `AnnotationReference` types describe these entries. Event handlers
+(`onClick`, `onRemove`, `onMouseEnter`, `onMouseLeave`) are optional fields on each annotation.
+Setting an existing type/id replaces it; unrelated annotations stay in place. If a batch repeats a
+type/id, its last entry wins. Invalid ranges are logged and skipped, and empty batches do nothing.
+
+Both the batch and single-annotation methods leave undo/redo history unchanged. They do not emit
+USJ changes. Undo/redo restores document snapshots, so refresh diagnostics after content changes
+rather than relying on highlights surviving history navigation. The existing requirement to apply
+annotations after USJ has loaded also applies to batches.
+
 Annotations are added with a specific `type` via the editor's reference API (see [Editorial Ref](#editorial-ref)). This `type` can then be used to apply custom CSS styles (e.g., a green squiggly underline for a _"grammar"_ type annotation). The CSS classname for an annotation takes the form of `.${annotationPrefix}-external-${type}`, where `type` is the string you pass to the `setAnnotation()` method and `annotationPrefix` is set by `config.theme.typedMark` (defaults to _"editor-typed-mark"_). If annotations overlap with each other an additional CSS classname is added where `annotationPrefix` is set by `config.theme.typedMarkOverlap` (defaults to _"editor-typed-markOverlap"_).
 
 For example, if an annotation of type _"grammar"_ is overlapping it will have both CSS classnames `editor-typed-mark-external-grammar` and `editor-typed-markOverlap-external-grammar`. If it's not overlapping it still has the first classname. Annotations and comments are the same when considering if it's overlapping.
