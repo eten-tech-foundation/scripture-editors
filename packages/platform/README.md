@@ -280,21 +280,43 @@ nx dev platform
 
 ## Develop in App
 
-To develop an editor in a target application you can use [yalc](https://www.npmjs.com/package/yalc) to link the editor in without having to publish to NPM every time something changes.
+To develop an editor in a target application you can use [yalc](https://www.npmjs.com/package/yalc) without publishing to npm.
 
-1. In this monorepo, publish the editor to `yalc`, e.g.:
+1. In this monorepo, build and publish the editor to the local yalc store:
    ```bash
-   nx devpub platform-editor
+   pnpm nx devpub platform-editor
    ```
-2. In the target application repo, link from `yalc`:
+2. In the target application, add the local package and install its dependencies:
+
    ```bash
-   yalc link @eten-tech-foundation/platform-editor
+   yalc add @eten-tech-foundation/platform-editor
+   pnpm add -D yjs@^13.6.30
+   pnpm install
    ```
-3. In this monorepo, make changes and re-publish the editor (see step 1).
-4. When you have finished developing in the target application repo, unlink from `yalc`:
+
+   These commands use pnpm. The application must also have compatible `react` and `react-dom` peers installed; see the local package's `peerDependencies`.
+
+   `yalc add` records a `file:.yalc/...` dependency so the package manager can install the editor's dependencies, including `lexical` and `@lexical/*`. `yalc link` only creates a symlink; it does not install these dependencies. With pnpm, transitive dependencies of the previously installed editor are not available from `.yalc`, so the linked build can fail to resolve `@lexical/utils`.
+
+   Install `yjs` explicitly for this development loop, even when using only `Editorial`. It is an optional peer, but the current root entry also exports `Marginal` and imports `yjs` at the top level. Vite can fail with `MISSING_EXPORT` from `__vite-optional-peer-dep:yjs` when it is absent. Consumers that use `Marginal` in production need `yjs` as a production dependency.
+
+   If this application was already linked with `yalc link`, run `yalc remove @eten-tech-foundation/platform-editor` before this step. In a pnpm/Yarn workspace, use `yalc add --no-pure` in the consuming package so yalc updates its manifest.
+
+3. Make changes in this monorepo and run step 1 again. Then run `pnpm install` in the target application so dependencies are resolved after yalc pushes the updated files. Restart Vite/Vitest if they were running.
+4. When finished, remove the local package and reinstall the original dependency:
    ```bash
-   yalc remove @eten-tech-foundation/platform-editor && npm i
+   yalc remove @eten-tech-foundation/platform-editor
+   pnpm install
    ```
+   Remove the temporary `yjs` dev dependency if this loop was its only use. Keep `.yalc`, `yalc.lock`, and temporary manifest/lockfile changes out of commits.
+
+To verify the package with a separate Vite + Vitest React consumer:
+
+```bash
+pnpm nx test-yalc platform-editor
+```
+
+This builds the package and tests installation, rendering, and a yalc update outside the monorepo. It uses a temporary yalc store and consumer, leaves the checkout unchanged, and does not publish to npm. It needs registry access to install the consumer's dependencies.
 
 ## License
 
