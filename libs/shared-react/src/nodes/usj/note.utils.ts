@@ -40,6 +40,7 @@ import {
   $createNoteNode,
   $getNoteCallerPreviewText,
   $isCharNode,
+  $isGlyphTextNode,
   $isImmutableTypedTextNode,
   $isImmutableUnmatchedNode,
   $isMarkerNode,
@@ -493,7 +494,12 @@ export function $selectAfterNote(noteNode: NoteNode) {
   // Landing in the following text rather than on the parent's element offset gives the caret a
   // text position to type into, the same reason $selectNote prefers `selectEnd()` on the node
   // before over the parent-offset branch.
-  if ($isTextNode(nodeAfter)) {
+  //
+  // A glyph text node is not that text: its bytes are a picture of its own state (a verse number,
+  // a marker's syntax), so offset 0 is a position INSIDE the picture, which the next keystroke
+  // splits - the very thing $normalizeSelectionOutOfGlyphText exists to prevent. A note that ends
+  // a verse is followed by exactly such a node, so it takes the parent-offset branch instead.
+  if ($isTextNode(nodeAfter) && !$isGlyphTextNode(nodeAfter)) {
     nodeAfter.select(0, 0);
     return;
   }

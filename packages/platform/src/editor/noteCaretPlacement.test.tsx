@@ -89,16 +89,37 @@ const usj: Usj = {
   ],
 };
 
+/** The same paragraph, but with the note ending its verse so a VERSE GLYPH follows it. */
+const usjNoteBeforeVerse: Usj = {
+  type: "USJ",
+  version: "3.1",
+  content: [
+    { type: "book", marker: "id", code: "GEN", content: ["Test Book"] },
+    { type: "chapter", marker: "c", number: "1" },
+    {
+      type: "para",
+      marker: "p",
+      content: [
+        { type: "verse", marker: "v", number: "1" },
+        "before ",
+        note,
+        { type: "verse", marker: "v", number: "2" },
+        "more",
+      ],
+    },
+  ],
+};
+
 const scrRef = { book: "GEN", chapterNum: 1, verseNum: 1 };
 
-async function renderEditor() {
+async function renderEditor(defaultUsj: Usj = usj) {
   const ref = createRef<EditorRef>();
   let container: HTMLElement | undefined;
   await act(async () => {
     const result = render(
       <Editorial
         ref={ref}
-        defaultUsj={usj}
+        defaultUsj={defaultUsj}
         scrRef={scrRef}
         onScrRefChange={() => undefined}
         options={options}
@@ -130,6 +151,15 @@ function caret(lexical: LexicalEditor): { text: string; offset: number } {
     const selection = $getSelection();
     if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
     return { text: selection.anchor.getNode().getTextContent(), offset: selection.anchor.offset };
+  });
+}
+
+/** The Lexical node type the caret's anchor sits in, for asserting WHAT it landed in. */
+function caretAnchorType(lexical: LexicalEditor): string {
+  return lexical.getEditorState().read(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("expected a range selection");
+    return selection.anchor.getNode().getType();
   });
 }
 
@@ -204,6 +234,17 @@ describe("EditorRef.selectAfterNote", () => {
     await act(async () => editorRef.selectAfterNote(0));
 
     expect(caret(lexical)).toEqual({ text: "after", offset: 0 });
+  });
+
+  it("stays out of a glyph when the note is followed by one", async () => {
+    // A note that ends a verse is followed by the next verse's glyph, whose bytes are a picture of
+    // the verse's number rather than document text. Offset 0 of that node is INSIDE the picture,
+    // where the next keystroke splits the verse marker; the caret belongs before it instead.
+    const { editorRef, lexical } = await renderEditor(usjNoteBeforeVerse);
+
+    await act(async () => editorRef.selectAfterNote(0));
+
+    expect(caretAnchorType(lexical)).not.toBe("verse");
   });
 
   it("does not pull DOM focus into an editor the user is not in", async () => {
