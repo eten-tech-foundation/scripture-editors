@@ -79,4 +79,18 @@ describe("USJ to USX Converter", () => {
     const usj = usxStringToUsj(usx);
     expect(usj).toEqual(usjEph1v1Whitespace);
   });
+
+  it("should throw a helpful error when DOMParser is not available", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(() => usjToUsxString(EMPTY_USJ)).toThrow(/^usjToUsxString requires a DOM environment/);
+  });
+
+  it("should throw a helpful error when XMLSerializer is not available", () => {
+    vi.stubGlobal("XMLSerializer", undefined);
+    expect(() => usjToUsxString(EMPTY_USJ)).toThrow(/^usjToUsxString requires a DOM environment/);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 });
