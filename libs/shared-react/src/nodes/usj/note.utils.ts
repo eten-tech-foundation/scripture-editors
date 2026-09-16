@@ -29,7 +29,6 @@ import {
   $isTextNode,
   $setState,
   LexicalNode,
-  NodeKey,
   RangeSelection,
   TextNode,
 } from "lexical";
@@ -64,6 +63,10 @@ import {
   segmentState,
   textTypeState,
 } from "shared";
+
+// Lives in a leaf module so this file and `ImmutableNoteCallerNode` do not import each other;
+// re-exported here because this is where callers have always found it.
+export { $getNoteIndex } from "./note-index.utils";
 
 /** Caller count is in an object so it can be manipulated by passing the object. */
 export interface CallerData {
@@ -445,23 +448,6 @@ export function $getNoteByKeyOrIndex(noteKeyOrIndex: string | number): NoteNode 
   if (!$isNoteNode(note)) return;
 
   return note;
-}
-
-/**
- * Document-order index of the note with the given key, or `undefined` when the key is not a note
- * in the document. This is the coordinate a USJ-built notes list (e.g. a host footnotes pane)
- * addresses notes by; hosts should not re-derive it by content comparison.
- *
- * Must be called inside an editor read or update.
- */
-export function $getNoteIndex(noteNodeKey: NodeKey): number | undefined {
-  let index = 0;
-  for (const { node } of $dfs()) {
-    if (!$isNoteNode(node)) continue;
-    if (node.getKey() === noteNodeKey) return index;
-    index += 1;
-  }
-  return undefined;
 }
 
 /**

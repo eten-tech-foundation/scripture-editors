@@ -2,7 +2,7 @@
 
 import { $getParticularNodeOps } from "../../plugins/usj/collab/editor-delta.adaptor";
 import { DeltaOpInsertNoteEmbed } from "../../plugins/usj/collab/rich-text-ot.model";
-import { $getNoteIndex } from "./note.utils";
+import { $getNoteIndex } from "./note-index.utils";
 import {
   $applyNodeReplacement,
   $getNodeByKey,
