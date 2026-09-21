@@ -12,6 +12,12 @@ In this monorepo:
 
 Sharing in this monorepo is a commitment to maintain and organize it. Each application package is free to move in its own direction but keeping in mind items that can be pushed up outside the specific editor package to be used in common.
 
+> **Note:** The Paratext 10 team's development of the `platform-editor` and `scripture-utilities`
+> packages has moved to
+> [`paranext/scripture-editors`](https://github.com/paranext/scripture-editors), a copy of this
+> repository carrying its full history. That repo's README documents how to move changes between
+> the two.
+
 ## Developer Quick Start
 
 1. Install [Volta](https://docs.volta.sh/guide/getting-started).

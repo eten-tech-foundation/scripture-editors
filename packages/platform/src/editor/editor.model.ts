@@ -199,6 +199,12 @@ export interface EditorRef {
   /**
    * Set an ephemeral annotation with optional event callbacks.
    *
+   * Deferred while a load is in flight - a `setUsj`, or a change to `options.view` or `logger` -
+   * because the load replaces the whole document and would discard the mark (#515). It then runs
+   * at the first moment nothing is loading. `setAnnotation` and {@link EditorRef.removeAnnotation}
+   * keep their order with each other, but the rest of this API is not deferred, so during a load
+   * an annotation call is applied after any other ref call made alongside it.
+   *
    * @remarks
    * Does nothing in the block verse layout (`ViewOptions.verseLayout: "block"`): an annotation is
    * addressed by USJ location, which that layout cannot express - see
@@ -242,7 +248,8 @@ export interface EditorRef {
     onRemove?: TypedMarkOnRemove,
   ): void;
   /**
-   * Remove an ephemeral annotation.
+   * Remove an ephemeral annotation. Deferred alongside {@link EditorRef.setAnnotation} while a
+   * load is in flight, and through the same queue, so the two keep the order they were issued in.
    * @param type - Type of the annotation.
    * @param id - ID of the annotation.
    */

@@ -40,16 +40,14 @@ export default defineConfig({
       formats: ["es" as const, "cjs" as const],
     },
     rollupOptions: {
-      // External packages that should not be bundled into your library.
-      external: ["@xmldom/xmldom"],
-      // open the HTML file manually or  set `open` to true
+      // open the HTML file manually or set `open` to true
       // plugins: [visualizer({ filename: "dist/bundle-analysis.html", open: false })],
     },
   },
   test: {
     watch: false,
     globals: true,
-    environment: "node",
+    environment: "jsdom",
     include: ["{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     reporters: ["default"],
     coverage: {
