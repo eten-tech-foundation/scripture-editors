@@ -28,6 +28,7 @@ import { EditorRef } from "./editor.model";
 import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
 import { act, render } from "@testing-library/react";
 import { createRef, useEffect, useRef } from "react";
+import { AnnotationRange } from "shared-react";
 
 const NO_RANGE_LOGGED = "Failed to find start or end node of the annotation.";
 
@@ -68,101 +69,117 @@ function AnnotatingHost({
   return <Editor ref={ref} defaultUsj={usjGen2} logger={createLoggerMock(logError)} />;
 }
 
-describe("annotating before the first content commit (#515)", () => {
-  it("applies an annotation requested from the consumer's mount effect", async () => {
-    const logError = createLogMock();
+describe.each(["single", "batch"] as const)(
+  "%s annotations before loading (#514 + #515)",
+  (mode) => {
+    const setAnnotation = (
+      editor: EditorRef | null,
+      selection: AnnotationRange,
+      type: string,
+      id: string,
+    ) => {
+      if (mode === "single") editor?.setAnnotation(selection, type, id);
+      else editor?.setAnnotations([{ selection, type, id }]);
+    };
+    const removeAnnotation = (editor: EditorRef | null, type: string, id: string) => {
+      if (mode === "single") editor?.removeAnnotation(type, id);
+      else editor?.removeAnnotations([{ type, id }]);
+    };
+    it("applies an annotation requested from the consumer's mount effect", async () => {
+      const logError = createLogMock();
 
-    await act(async () => {
-      render(
-        <AnnotatingHost
-          logError={logError}
-          annotate={(editor) => editor.setAnnotation(earthRange, "spelling", "a1")}
-        />,
-      );
+      await act(async () => {
+        render(
+          <AnnotatingHost
+            logError={logError}
+            annotate={(editor) => setAnnotation(editor, earthRange, "spelling", "a1")}
+          />,
+        );
+      });
+
+      expect(logError).not.toHaveBeenCalled();
+      expect(markTexts()).toEqual(["earth"]);
     });
 
-    expect(logError).not.toHaveBeenCalled();
-    expect(markTexts()).toEqual(["earth"]);
-  });
+    it("applies an annotation requested in the same tick as setUsj", async () => {
+      const logError = createLogMock();
+      const ref = createRef<EditorRef>();
 
-  it("applies an annotation requested in the same tick as setUsj", async () => {
-    const logError = createLogMock();
-    const ref = createRef<EditorRef>();
+      await act(async () => {
+        render(<Editor ref={ref} defaultUsj={usjGen2} logger={createLoggerMock(logError)} />);
+      });
 
-    await act(async () => {
-      render(<Editor ref={ref} defaultUsj={usjGen2} logger={createLoggerMock(logError)} />);
+      // Swap the document and annotate immediately, without awaiting the reload.
+      await act(async () => {
+        ref.current?.setUsj(usjGen3);
+        setAnnotation(ref.current, earthRange, "spelling", "a2");
+      });
+
+      expect(logError).not.toHaveBeenCalled();
+      // The Genesis 3 document really did load: without this the test would also pass if `setUsj`
+      // had done nothing, since `earthRange` resolves against Genesis 2 as well.
+      expect(chapterNumbers()).toEqual(["3"]);
+      expect(markTexts()).toEqual(["earth"]);
     });
 
-    // Swap the document and annotate immediately, without awaiting the reload.
-    await act(async () => {
-      ref.current?.setUsj(usjGen3);
-      ref.current?.setAnnotation(earthRange, "spelling", "a2");
+    it("keeps a set-then-remove pair behaving exactly as it does with no load in flight", async () => {
+      // The paranext Insert-Comment shape: set then remove in one handler. Both are gated, so the
+      // pair keeps its issue order. #514 commits the mark index before the next call, so both
+      // the immediate pair and the pair deferred by #515 must now leave no mark.
+      const logError = createLogMock();
+      const ref = createRef<EditorRef>();
+
+      await act(async () => {
+        render(<Editor ref={ref} defaultUsj={usjGen2} logger={createLoggerMock(logError)} />);
+      });
+
+      // Nothing loading: both calls run immediately, exactly as they did before the gate existed.
+      await act(async () => {
+        setAnnotation(ref.current, earthRange, "translator-comment", "pending");
+        removeAnnotation(ref.current, "translator-comment", "pending");
+      });
+      const withoutLoadInFlight = markTexts();
+      expect(withoutLoadInFlight).toEqual([]);
+
+      // Same pair, this time issued in the same tick as a document swap, so both are queued.
+      await act(async () => {
+        ref.current?.setUsj(usjGen3);
+        setAnnotation(ref.current, earthRange, "translator-comment", "pending");
+        removeAnnotation(ref.current, "translator-comment", "pending");
+      });
+
+      expect(logError).not.toHaveBeenCalled();
+      expect(chapterNumbers()).toEqual(["3"]);
+      expect(markTexts()).toEqual(withoutLoadInFlight);
     });
 
-    expect(logError).not.toHaveBeenCalled();
-    // The Genesis 3 document really did load: without this the test would also pass if `setUsj`
-    // had done nothing, since `earthRange` resolves against Genesis 2 as well.
-    expect(chapterNumbers()).toEqual(["3"]);
-    expect(markTexts()).toEqual(["earth"]);
-  });
+    it("still reports a range that can never resolve, instead of queueing it forever", async () => {
+      const logError = createLogMock();
 
-  it("keeps a set-then-remove pair behaving exactly as it does with no load in flight", async () => {
-    // The paranext Insert-Comment shape: set then remove in one handler. Both are gated, so the
-    // pair keeps its issue order and the gate changes WHEN it runs, not what it does. (What it
-    // does, either way, is leave the mark: `AnnotationPlugin` resolves a removal through a map
-    // its node-mutation listener fills at commit, which a same-tick set has not reached yet.)
-    const logError = createLogMock();
-    const ref = createRef<EditorRef>();
+      await act(async () => {
+        render(
+          <AnnotatingHost
+            logError={logError}
+            annotate={(editor) =>
+              setAnnotation(
+                editor,
+                {
+                  start: { jsonPath: "$.content[99].content[0]", offset: 0 },
+                  end: { jsonPath: "$.content[99].content[0]", offset: 3 },
+                },
+                "spelling",
+                "bad",
+              )
+            }
+          />,
+        );
+      });
 
-    await act(async () => {
-      render(<Editor ref={ref} defaultUsj={usjGen2} logger={createLoggerMock(logError)} />);
+      // Deferring must not swallow genuine failures: once the document is live the annotation is
+      // attempted and fails loudly, exactly as it does today — and with the same message, so this
+      // cannot go green on an unrelated error.
+      expect(logError).toHaveBeenCalledWith(NO_RANGE_LOGGED);
+      expect(markTexts()).toEqual([]);
     });
-
-    // Nothing loading: both calls run immediately, exactly as they did before the gate existed.
-    await act(async () => {
-      ref.current?.setAnnotation(earthRange, "translator-comment", "pending");
-      ref.current?.removeAnnotation("translator-comment", "pending");
-    });
-    const withoutLoadInFlight = markTexts();
-    expect(withoutLoadInFlight).toEqual(["earth"]);
-
-    // Same pair, this time issued in the same tick as a document swap, so both are queued.
-    await act(async () => {
-      ref.current?.setUsj(usjGen3);
-      ref.current?.setAnnotation(earthRange, "translator-comment", "pending");
-      ref.current?.removeAnnotation("translator-comment", "pending");
-    });
-
-    expect(logError).not.toHaveBeenCalled();
-    expect(chapterNumbers()).toEqual(["3"]);
-    expect(markTexts()).toEqual(withoutLoadInFlight);
-  });
-
-  it("still reports a range that can never resolve, instead of queueing it forever", async () => {
-    const logError = createLogMock();
-
-    await act(async () => {
-      render(
-        <AnnotatingHost
-          logError={logError}
-          annotate={(editor) =>
-            editor.setAnnotation(
-              {
-                start: { jsonPath: "$.content[99].content[0]", offset: 0 },
-                end: { jsonPath: "$.content[99].content[0]", offset: 3 },
-              },
-              "spelling",
-              "bad",
-            )
-          }
-        />,
-      );
-    });
-
-    // Deferring must not swallow genuine failures: once the document is live the annotation is
-    // attempted and fails loudly, exactly as it does today — and with the same message, so this
-    // cannot go green on an unrelated error.
-    expect(logError).toHaveBeenCalledWith(NO_RANGE_LOGGED);
-    expect(markTexts()).toEqual([]);
-  });
-});
+  },
+);
