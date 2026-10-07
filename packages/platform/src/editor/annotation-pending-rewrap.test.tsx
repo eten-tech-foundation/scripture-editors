@@ -20,54 +20,16 @@
  * titles/gutter/focus-box all on — the original app configuration) plus the all-off passing
  * control.
  */
-import Editor from "./Editor";
-import { EditorRef } from "./editor.model";
-import { Usj, USJ_TYPE, USJ_VERSION } from "@eten-tech-foundation/scripture-utilities";
-import { act, render } from "@testing-library/react";
-import { createRef } from "react";
-import { AnnotationRange, getViewOptions, ViewOptions } from "shared-react";
-import { vi } from "vitest";
-
-// Genesis 2:1-3 (WEB). In verse 1: "earth" = 17..22, "all" = 28..31.
-const v1Text = "The heavens, the earth, and all their vast array were finished.";
-
-const usjGen2: Usj = {
-  type: USJ_TYPE,
-  version: USJ_VERSION,
-  content: [
-    { type: "chapter", marker: "c", number: "2" },
-    {
-      type: "para",
-      marker: "p",
-      content: [
-        { type: "verse", marker: "v", number: "1" },
-        v1Text,
-        { type: "verse", marker: "v", number: "2" },
-        "On the seventh day God finished his work which he had done; and he rested on the seventh" +
-          " day from all his work which he had done.",
-        { type: "verse", marker: "v", number: "3" },
-        "God blessed the seventh day, and made it holy, because he rested in it from all his work" +
-          " of creation which he had done.",
-      ],
-    },
-  ],
-};
-
-// USJ content: [0]=chapter, [1]=para. Para content items: [0]=verse 1 marker, [1]=v1 text, ...
-const jsonPath = "$.content[1].content[1]";
-const earthStart = v1Text.indexOf("earth");
-const earthRange: AnnotationRange = {
-  start: { jsonPath, offset: earthStart },
-  end: { jsonPath, offset: earthStart + "earth".length },
-};
-
-// Used to pin the original defect's step 5: after the rewrap, every reported selection in that
-// paragraph (not just the annotated range itself) must still resolve to correct USJ coordinates.
-const allStart = v1Text.indexOf("all");
-const allRange: AnnotationRange = {
-  start: { jsonPath, offset: allStart },
-  end: { jsonPath, offset: allStart + "all".length },
-};
+import {
+  allRange,
+  createLogMock,
+  createRealEditor,
+  earthRange,
+  expectDomMarkOver,
+  expectNoDomMarks,
+} from "./annotation.test-helpers";
+import { act } from "@testing-library/react";
+import { getViewOptions, ViewOptions } from "shared-react";
 
 const formattedViewOptions = getViewOptions("formatted");
 if (!formattedViewOptions) throw new Error("Expected formatted view options to exist");
@@ -97,7 +59,7 @@ describe.each(failingModeVariants)(
   "pending-comment rewrap in the real Editor, $name",
   ({ viewOptions }) => {
     it("fixture sanity: 'earth' USJ coordinates round-trip through the Editor selection API", async () => {
-      const editor = await createRealEditor(viewOptions, createLoggerMock());
+      const editor = await createRealEditor(createLogMock(), viewOptions);
 
       await act(async () => {
         editor.setSelection({ start: earthRange.start, end: earthRange.end });
@@ -110,8 +72,8 @@ describe.each(failingModeVariants)(
     });
 
     it("re-applies the same range after a pending wrap/unwrap cycle", async () => {
-      const logError = createLoggerMock();
-      const editor = await createRealEditor(viewOptions, logError);
+      const logError = createLogMock();
+      const editor = await createRealEditor(logError, viewOptions);
 
       // 1. Pending highlight (works in the app too).
       await act(async () => {
@@ -149,8 +111,8 @@ describe.each(failingModeVariants)(
     it("re-applies when remove and set happen back-to-back in one update cycle", async () => {
       // The app calls removeAnnotation + setAnnotation in ONE event handler, so cover the
       // same-tick sequencing as its own case. Fails identically to the separate-act variant.
-      const logError = createLoggerMock();
-      const editor = await createRealEditor(viewOptions, logError);
+      const logError = createLogMock();
+      const editor = await createRealEditor(logError, viewOptions);
 
       await act(async () => {
         editor.setAnnotation(earthRange, "translator-comment", "pending-comment");
@@ -171,8 +133,8 @@ describe("control: same lifecycle in the real Editor WITHOUT gutter para markers
     // Passing control documenting the boundary: identical lifecycle, identical Editor, only
     // `hasGutterParaMarkers` differs. (`showCharMarkerTitles: true` or
     // `hasActiveTextFocusBox: true` alone also pass — verified during narrowing.)
-    const logError = createLoggerMock();
-    const editor = await createRealEditor(formattedViewOptions, logError);
+    const logError = createLogMock();
+    const editor = await createRealEditor(logError, formattedViewOptions);
 
     await act(async () => {
       editor.setAnnotation(earthRange, "translator-comment", "pending-comment");
@@ -188,49 +150,3 @@ describe("control: same lifecycle in the real Editor WITHOUT gutter para markers
     expectDomMarkOver("earth");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Helpers (after the tests; function declarations hoist)
-// ---------------------------------------------------------------------------
-
-/** A `vi.fn()` typed to satisfy `LoggerBasic`'s `(...params: unknown[]) => void` methods. */
-type LoggerMock = ReturnType<typeof vi.fn<(...params: unknown[]) => void>>;
-
-function createLoggerMock(): LoggerMock {
-  return vi.fn<(...params: unknown[]) => void>();
-}
-
-/**
- * Mount the REAL platform Editor (full plugin stack) with the given view options and return its
- * ref API — the same surface paranext-core drives.
- */
-async function createRealEditor(
-  viewOptions: ViewOptions,
-  logError: LoggerMock,
-): Promise<EditorRef> {
-  const logger = {
-    error: logError,
-    warn: createLoggerMock(),
-    info: createLoggerMock(),
-    debug: createLoggerMock(),
-  };
-  const ref = createRef<EditorRef>();
-  await act(async () => {
-    render(
-      <Editor ref={ref} defaultUsj={usjGen2} options={{ view: viewOptions }} logger={logger} />,
-    );
-  });
-  if (!ref.current) throw new Error("EditorRef did not mount");
-  return ref.current;
-}
-
-/** Asserts exactly one rendered <mark> element exists and it wraps the expected text. */
-function expectDomMarkOver(expectedText: string) {
-  const markTexts = [...document.querySelectorAll("mark")].map((mark) => mark.textContent);
-  expect(markTexts).toEqual([expectedText]);
-}
-
-/** Asserts no rendered <mark> elements remain (annotation fully removed). */
-function expectNoDomMarks() {
-  expect(document.querySelectorAll("mark")).toHaveLength(0);
-}

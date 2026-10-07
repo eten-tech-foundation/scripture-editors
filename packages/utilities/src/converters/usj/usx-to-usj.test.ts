@@ -51,4 +51,24 @@ describe("USX to USJ Converter", () => {
     const usj = usxStringToUsj(usxGen1v1Nonstandard);
     expect(usj).toEqual(usjGen1v1Nonstandard);
   });
+
+  it("should throw on malformed USX", () => {
+    expect(() => usxStringToUsj('<usx version="3.1"><para style="p">unclosed</usx>')).toThrow(
+      /^Invalid USX:/,
+    );
+  });
+
+  it("does not require XMLSerializer when parsing", () => {
+    vi.stubGlobal("XMLSerializer", undefined);
+    expect(usxStringToUsj(usxGen1v1)).toEqual(usjGen1v1);
+  });
+
+  it("should throw a helpful error when DOMParser is not available", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(() => usxStringToUsj(usxGen1v1)).toThrow(/^usxStringToUsj requires a DOM environment/);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 });
