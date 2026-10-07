@@ -2,7 +2,7 @@ import { AnnotationRange } from "./selection.model";
 import { $getRangeFromUsjSelection } from "./selection.utils";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister, registerNestedElementResolver } from "@lexical/utils";
-import { $getNodeByKey, LexicalEditor, NodeKey } from "lexical";
+import { $getNodeByKey, HISTORIC_TAG, LexicalEditor, NodeKey } from "lexical";
 import { ForwardedRef, forwardRef, useEffect, useImperativeHandle, useMemo } from "react";
 import {
   $createTypedMarkNode,
@@ -19,8 +19,25 @@ import {
   TypedMarkOnRemove,
 } from "shared";
 
+/** Identifies an ephemeral annotation. @public */
+export interface AnnotationReference {
+  type: string;
+  id: string;
+}
+
+/** An ephemeral annotation and its optional event handlers. @public */
+export interface Annotation extends AnnotationReference {
+  selection: AnnotationRange;
+  onClick?: TypedMarkOnClick;
+  onRemove?: TypedMarkOnRemove;
+  onMouseEnter?: TypedMarkOnMouseEnter;
+  onMouseLeave?: TypedMarkOnMouseLeave;
+}
+
 /** Forward reference for annotations. */
 export interface AnnotationRef {
+  setAnnotations(annotations: readonly Annotation[]): void;
+  removeAnnotations(refs: readonly AnnotationReference[]): void;
   setAnnotation(
     selection: AnnotationRange,
     type: string,
@@ -34,7 +51,7 @@ export interface AnnotationRef {
 }
 
 function getTypeIDMapKey(type: string, id: string): string {
-  return `${type}:${id}`;
+  return JSON.stringify([type, id]);
 }
 
 function useAnnotations(editor: LexicalEditor, markNodeMap: Map<string, Set<NodeKey>>) {
@@ -145,11 +162,9 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
    *
    * @param type - Annotation type to remove.
    * @param id - Annotation ID to remove.
-   * @param nodeKeys - Optional set of known node keys for this type/id. When omitted, keys are
-   *   computed from the shared mark node map.
    */
-  const $removeMarkNodesForTypeID = (type: string, id: string, nodeKeys?: Set<NodeKey>) => {
-    const keys = Array.from(nodeKeys ?? markNodeMap.get(getTypeIDMapKey(type, id)) ?? []);
+  const $removeMarkNodesForTypeID = (type: string, id: string) => {
+    const keys = Array.from(markNodeMap.get(getTypeIDMapKey(type, id)) ?? []);
     if (keys.length === 0) return;
 
     for (const key of keys) {
@@ -163,63 +178,89 @@ export const AnnotationPlugin = forwardRef(function AnnotationPlugin<TLogger ext
     }
   };
 
-  useImperativeHandle(ref, () => ({
-    setAnnotation(
-      selection,
-      type,
-      id,
-      onClick?: TypedMarkOnClick,
-      onRemove?: TypedMarkOnRemove,
-      onMouseEnter?: TypedMarkOnMouseEnter,
-      onMouseLeave?: TypedMarkOnMouseLeave,
-    ) {
+  const validateTypes = (refs: readonly AnnotationReference[], action: string, verb: string) => {
+    for (const { type } of refs) {
       if (TypedMarkNode.isReservedType(type))
         throw new Error(
-          `setAnnotation: Can't directly set this reserved annotation type '${type}'.` +
+          `${action}: Can't directly ${verb} this reserved annotation type '${type}'.` +
             " Use the appropriate plugin instead.",
         );
+    }
+  };
 
-      editor.update(
-        () => {
-          // Apply the annotation to the selected range.
-          const editorSelection = $getRangeFromUsjSelection(selection);
-          if (editorSelection === undefined) {
-            logger?.error("Failed to find start or end node of the annotation.");
-            return;
-          }
+  const updateAnnotations = ($update: () => void) => {
+    // Flush any pending user edit before adding HISTORIC_TAG. Otherwise Lexical can batch that
+    // edit with this update and discard it from history too. Commit this update discretely so
+    // the next edit cannot inherit the tag, and the mark index is ready for a following removal.
+    editor.read(() => undefined);
+    editor.update($update, { tag: [ANNOTATION_CHANGE_TAG, HISTORIC_TAG], discrete: true });
+  };
 
-          $removeMarkNodesForTypeID(type, id);
+  const setAnnotations = (annotations: readonly Annotation[], action = "setAnnotations") => {
+    if (annotations.length === 0) return;
+    validateTypes(annotations, action, "set");
+    // Resolve repeated identities before wrapping: the mutation listener indexes new marks only
+    // after the batch commits. The last entry for a type/id is the requested final annotation.
+    const byIdentity = new Map(
+      annotations.map((annotation) => [
+        getTypeIDMapKey(annotation.type, annotation.id),
+        annotation,
+      ]),
+    );
+    updateAnnotations(() => {
+      for (const {
+        selection,
+        type,
+        id,
+        onClick,
+        onRemove,
+        onMouseEnter,
+        onMouseLeave,
+      } of byIdentity.values()) {
+        // Apply the annotation to the selected range.
+        const editorSelection = $getRangeFromUsjSelection(selection);
+        if (editorSelection === undefined) {
+          logger?.error("Failed to find start or end node of the annotation.");
+          continue;
+        }
 
-          $wrapSelectionInTypedMarkNode(
-            editorSelection,
-            type,
-            id,
-            onClick,
-            onRemove,
-            onMouseEnter,
-            onMouseLeave,
-          );
-        },
-        { tag: ANNOTATION_CHANGE_TAG },
+        $removeMarkNodesForTypeID(type, id);
+
+        $wrapSelectionInTypedMarkNode(
+          editorSelection,
+          type,
+          id,
+          onClick,
+          onRemove,
+          onMouseEnter,
+          onMouseLeave,
+        );
+      }
+    });
+  };
+
+  const removeAnnotations = (
+    refs: readonly AnnotationReference[],
+    action = "removeAnnotations",
+  ) => {
+    if (refs.length === 0) return;
+    validateTypes(refs, action, "remove");
+    updateAnnotations(() => {
+      for (const { type, id } of refs) $removeMarkNodesForTypeID(type, id);
+    });
+  };
+
+  useImperativeHandle(ref, () => ({
+    setAnnotations,
+    removeAnnotations,
+    setAnnotation(selection, type, id, onClick, onRemove, onMouseEnter, onMouseLeave) {
+      setAnnotations(
+        [{ selection, type, id, onClick, onRemove, onMouseEnter, onMouseLeave }],
+        "setAnnotation",
       );
     },
-
     removeAnnotation(type, id) {
-      if (TypedMarkNode.isReservedType(type))
-        throw new Error(
-          `removeAnnotation: Can't directly remove this reserved annotation type '${type}'.` +
-            " Use the appropriate plugin instead.",
-        );
-
-      const markNodeKeys = markNodeMap.get(getTypeIDMapKey(type, id));
-      if (markNodeKeys === undefined || markNodeKeys.size === 0) return;
-
-      editor.update(
-        () => {
-          $removeMarkNodesForTypeID(type, id, markNodeKeys);
-        },
-        { tag: ANNOTATION_CHANGE_TAG },
-      );
+      removeAnnotations([{ type, id }], "removeAnnotation");
     },
   }));
 

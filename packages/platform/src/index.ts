@@ -87,7 +87,9 @@ export type {
 } from "shared";
 export type {
   AddMissingComments,
+  Annotation,
   AnnotationRange,
+  AnnotationReference,
   ContextMenuOptionConfig,
   DeltaOp,
   DeltaOpInsertNoteEmbed,

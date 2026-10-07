@@ -77,6 +77,7 @@ import {
 import {
   $createParaNode,
   $isParaNode,
+  ANNOTATION_CHANGE_TAG,
   blackListedChangeTags,
   createMarkerLookup,
   defaultStyleInfo,
@@ -679,23 +680,34 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
         onMouseLeave = fourth.onMouseLeave;
       }
 
+      editorApi.setAnnotations([
+        { selection, type, id, onClick, onRemove, onMouseEnter, onMouseLeave },
+      ]);
+    },
+    removeAnnotation(type, id) {
+      editorApi.removeAnnotations([{ type, id }]);
+    },
+    setAnnotations(annotations) {
+      if (annotations.length === 0) return;
+      if (isBlockVerse) {
+        reportUsjLocationsUnavailable("set annotations");
+        return;
+      }
       runWhenLoaded(() =>
-        annotationRef.current?.setAnnotation(
-          selection,
-          externalTypedMarkType(type),
-          id,
-          onClick,
-          onRemove,
-          onMouseEnter,
-          onMouseLeave,
+        annotationRef.current?.setAnnotations(
+          annotations.map((annotation) => ({
+            ...annotation,
+            type: externalTypedMarkType(annotation.type),
+          })),
         ),
       );
     },
-    removeAnnotation(type, id) {
-      // Gated for the same reason `setAnnotation` is, and so the pair keeps its issue order: an
-      // un-gated removal alongside a queued set would run against the outgoing document while its
-      // set ran against the loaded one.
-      runWhenLoaded(() => annotationRef.current?.removeAnnotation(externalTypedMarkType(type), id));
+    removeAnnotations(refs) {
+      runWhenLoaded(() =>
+        annotationRef.current?.removeAnnotations(
+          refs.map(({ type, id }) => ({ type: externalTypedMarkType(type), id })),
+        ),
+      );
     },
     formatPara(blockMarker) {
       assertEditable("format a paragraph");
@@ -1027,6 +1039,8 @@ const Editor = forwardRef(function Editor<TLogger extends LoggerBasic>(
     const editor = editorRef.current;
     if (!editor || !onUsjChange) return undefined;
     return editor.registerUpdateListener(({ tags, dirtyElements, dirtyLeaves }) => {
+      // Annotation updates use HISTORIC_TAG only to bypass history, not to restore a document.
+      if (tags.has(ANNOTATION_CHANGE_TAG)) return;
       if (!tags.has(HISTORIC_TAG)) {
         // Selection-only commits move no bytes; remote applies announce themselves through
         // `applyUpdate`'s own onUsjChange emission.
