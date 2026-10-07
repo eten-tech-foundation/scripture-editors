@@ -2,8 +2,8 @@
 
 The editor's toolbar icons are [Bootstrap Icons](https://icons.getbootstrap.com), from
 <https://github.com/twbs/icons>. They are redistributed with this package inlined as `data:` URIs
-in `dist/toolbar.css` and `dist/index.css`, so the full licence text below travels with every copy
-as the MIT terms require.
+in `dist/toolbar.css` and `dist/CommentPlugin.css`, so the full licence text below travels with
+every copy as the MIT terms require.
 
 The MIT License (MIT)
 

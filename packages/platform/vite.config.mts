@@ -36,13 +36,12 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     reportCompressedSize: true,
-    // Emit one stylesheet per entry. Vite defaults this to false whenever
-    // build.lib is set, which would concatenate every entry's CSS into a single
-    // asset; keeping it per-entry is what leaves dist/index.css (the comment
-    // styles reachable through ".") byte-for-byte unchanged while the bundled
-    // editor stylesheet lands in dist/styles.css. Safe here because this package
-    // has no dynamic imports, so each entry is a single chunk, and formats:["es"]
-    // means Vite never emits style-injection code into the JS.
+    // Emit one stylesheet per chunk. Vite defaults this to false whenever build.lib is set,
+    // which would concatenate all CSS into a single asset. With preserved modules, each CSS
+    // entry emits its public stylesheet (dist/styles.css, dist/toolbar.css, dist/nodes-menu.css
+    // and dist/context-menu.css), and the Marginal comment styles stay in internal per-module
+    // files such as dist/CommentPlugin.css. formats:["es"] means Vite never emits
+    // style-injection code into the JS.
     cssCodeSplit: true,
     commonjsOptions: {
       transformMixedEsModules: true,
@@ -63,7 +62,6 @@ export default defineConfig({
       // bundled vendor modules.
       fileName: (_format: string, entryName: string) =>
         `${entryName.replaceAll("node_modules", "vendor")}.js`,
-      cssFileName: "index",
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
       formats: ["es" as const],

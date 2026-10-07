@@ -102,12 +102,7 @@ if (!measureOnly) {
     );
   }
   const cssExports = Object.entries(manifest.exports).filter(([name]) => name.endsWith(".css"));
-  if (cssExports.length === 0) {
-    assert(
-      existsSync(path.join(packageRoot, "dist/index.css")),
-      "Keep the existing CSS artifact name",
-    );
-  }
+  assert(cssExports.length > 0, "The package must export its stylesheets");
   for (const [subpath, target] of cssExports) {
     assert(
       typeof target === "string" && existsSync(path.join(packageRoot, target)),
