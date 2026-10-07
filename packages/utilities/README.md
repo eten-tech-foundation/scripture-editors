@@ -23,6 +23,24 @@ For data that conforms to [USX/USJ v3.1](https://docs.usfm.bible/usfm/3.1/):
 npm install @eten-tech-foundation/scripture-utilities
 ```
 
+### Environment
+
+The USX⇔USJ converters use the platform's native `DOMParser` and `XMLSerializer`, available in
+browsers, web views, and test environments like jsdom. In Node.js, provide them as globals before
+converting, e.g.:
+
+```ts
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
+
+Reflect.set(globalThis, "DOMParser", DOMParser);
+Reflect.set(globalThis, "XMLSerializer", XMLSerializer);
+```
+
+`Reflect.set` avoids assigning xmldom's looser DOM types to TypeScript's native DOM types.
+`usxStringToUsj` only requires `DOMParser`; `usjToUsxString` also requires `XMLSerializer`.
+Malformed XML throws an `Error` beginning with `Invalid USX:` in either environment. Parser
+exceptions are retained as the error's `cause`.
+
 ## Usage
 
 ```ts
