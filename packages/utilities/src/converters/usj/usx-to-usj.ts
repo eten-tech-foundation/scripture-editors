@@ -4,10 +4,9 @@
  * @see https://github.com/usfm-bible/usfmtc/blob/0afa385a1f282b286cc6bff7bbc953ae788aa10c/src/usfmtc/usjproc.py
  */
 
-import { DOMParser, Element } from "@xmldom/xmldom";
 import { MarkerContent, MarkerObject, USJ_TYPE, USJ_VERSION, Usj } from "./usj.model.js";
 import { USX_TYPE } from "./usx.model.js";
-import { assertSafeKey } from "./converter.utils.js";
+import { assertDomEnvironment, assertSafeKey } from "./converter.utils.js";
 
 type Action = "append" | "merge" | "ignore";
 interface Attribs {
@@ -17,14 +16,32 @@ interface Attribs {
 /**
  * Converts a USX string to a USJ object.
  *
+ * @remarks Uses the platform's native `DOMParser` (browsers, web views, jsdom). In Node.js,
+ * provide a DOM implementation as globals before calling, e.g. from jsdom or `@xmldom/xmldom`.
+ *
  * @param usxString - The USX string to convert.
  * @returns The converted USJ object.
+ * @throws If no DOM environment is available or the USX is not well-formed XML.
+ * Malformed XML produces an `Error` beginning with `Invalid USX:`. If the DOM implementation
+ * throws while parsing, its original error is preserved as the cause.
  *
  * @public
  */
 export function usxStringToUsj(usxString: string): Usj {
+  assertDomEnvironment("usxStringToUsj", ["DOMParser"]);
   const parser = new DOMParser();
-  const inputUsxDom = parser.parseFromString(usxString, "text/xml");
+  let inputUsxDom: Document;
+  try {
+    inputUsxDom = parser.parseFromString(usxString, "text/xml");
+  } catch (cause) {
+    throw new Error(`Invalid USX: ${cause instanceof Error ? cause.message : String(cause)}`, {
+      cause,
+    });
+  }
+  // Native DOMParser reports malformed XML with a `parsererror` element instead of throwing.
+  if (inputUsxDom.documentElement.tagName === "parsererror")
+    throw new Error(`Invalid USX: ${inputUsxDom.documentElement.textContent}`);
+
   return usxDomToUsj(inputUsxDom.documentElement);
 }
 
