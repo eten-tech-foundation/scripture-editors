@@ -75,6 +75,7 @@ import {
   $milestoneAttributeRunPieces,
   $ownerOfRunPiece,
   $syncAndPendDisplayRun,
+  ANNOTATION_CHANGE_TAG,
   AttributeRunNode,
   ChapterNode,
   CharNode,
@@ -1110,7 +1111,9 @@ export function MarkerEditPlugin({
         // reached the file as raw bytes.
         const prevCommitAnchorKey = lastCommitAnchorKey;
         if (anchorKey !== undefined) lastCommitAnchorKey = anchorKey;
-        if (tags.has(HISTORIC_TAG)) {
+        // Annotations carry HISTORIC_TAG to bypass undo history, but do not restore a snapshot.
+        // Treating them as undo would suspend a live marker edit's settle timer.
+        if (tags.has(HISTORIC_TAG) && !tags.has(ANNOTATION_CHANGE_TAG)) {
           // Undo/redo: Lexical restores this state via setEditorState, which never runs node
           // transforms — so a restored literal (an undone settle's `\nd …\nd*` bytes, a closed
           // span's `|attrs` text, a diverged glyph or attribute run) would never re-pend itself,
