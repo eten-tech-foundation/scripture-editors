@@ -19,6 +19,15 @@
         "cwd": "{projectRoot}",
         "parallel": false
       }
+    },
+    "test-yalc": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["extract-api"],
+      "cache": false,
+      "options": {
+        "command": "node scripts/test-yalc.mjs",
+        "cwd": "{workspaceRoot}"
+      }
     }
   }
 }
