@@ -27,6 +27,15 @@
         "command": "node scripts/check-platform-bundle.mjs",
         "cwd": "{workspaceRoot}"
       }
+    },
+    "test-yalc": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["extract-api"],
+      "cache": false,
+      "options": {
+        "command": "node scripts/test-yalc.mjs",
+        "cwd": "{workspaceRoot}"
+      }
     }
   }
 }
