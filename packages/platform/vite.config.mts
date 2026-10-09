@@ -18,7 +18,9 @@ export default defineConfig({
     dts({
       entryRoot: "src",
       rollupTypes: true,
-      tsconfigPath: path.join(__dirname, "tsconfig.lib.json"),
+      bundledPackages: ["shared", "shared-react"],
+      // Roll up dependency declarations rather than their development source exports.
+      tsconfigPath: path.join(__dirname, "tsconfig.dts.json"),
       exclude: ["src/**/*.test.ts", "src/**/*.test.tsx"],
       aliasesExclude: ["@eten-tech-foundation/scripture-utilities"],
     }),
@@ -34,28 +36,32 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     reportCompressedSize: true,
-    // Emit one stylesheet per entry. Vite defaults this to false whenever
-    // build.lib is set, which would concatenate every entry's CSS into a single
-    // asset; keeping it per-entry is what leaves dist/index.css (the comment
-    // styles reachable through ".") byte-for-byte unchanged while the bundled
-    // editor stylesheet lands in dist/styles.css. Safe here because this package
-    // has no dynamic imports, so each entry is a single chunk, and formats:["es"]
-    // means Vite never emits style-injection code into the JS.
+    // Emit one stylesheet per chunk. Vite defaults this to false whenever build.lib is set,
+    // which would concatenate all CSS into a single asset. With preserved modules, each CSS
+    // entry emits its public stylesheet (dist/styles.css, dist/toolbar.css, dist/nodes-menu.css
+    // and dist/context-menu.css), and the Marginal comment styles stay in internal per-module
+    // files such as dist/CommentPlugin.css. formats:["es"] means Vite never emits
+    // style-injection code into the JS.
     cssCodeSplit: true,
     commonjsOptions: {
       transformMixedEsModules: true,
     },
     lib: {
-      // Entry resolution comes from rollupOptions.input below; this stays a
-      // STRING only to keep vite-plugin-dts in single-entry mode (it derives its
-      // entry list from lib.entry, and an object here makes api-extractor fail on
-      // the export-less CSS entry: "Unable to determine module for styles.d.ts").
-      // Don't "clean up" the apparent duplication.
-      entry: "src/index.ts",
+      // vite-plugin-dts derives its declaration entries from lib.entry, so list only the
+      // JavaScript entries here. Adding the export-less CSS entries makes api-extractor fail:
+      // "Unable to determine module for styles.d.ts". Rollup takes every entry, JavaScript and
+      // CSS, from rollupOptions.input below, so keep the JavaScript entries in both lists.
+      entry: {
+        index: "src/index.ts",
+        "editorial-entry": "src/editorial-entry.ts",
+        "view-options": "src/view-options.ts",
+      },
       name: "@eten-tech-foundation/platform-editor",
-      // Several inputs, so the name must be derived per entry — a fixed "index"
-      // makes Rollup dedup into index.js + index2.js.
-      fileName: (_format: string, entryName: string) => `${entryName}.js`,
+      // Several inputs, so the name must be derived per entry: a fixed "index" makes Rollup
+      // dedup into index.js + index2.js. npm excludes directories named node_modules, including
+      // bundled vendor modules.
+      fileName: (_format: string, entryName: string) =>
+        `${entryName.replaceAll("node_modules", "vendor")}.js`,
       // Change this to the formats you want to support.
       // Don't forget to update your package.json as well.
       formats: ["es" as const],
@@ -66,12 +72,20 @@ export default defineConfig({
       // relative ids would resolve against the current working directory.
       input: {
         index: path.resolve(__dirname, "src/index.ts"),
+        "editorial-entry": path.resolve(__dirname, "src/editorial-entry.ts"),
+        "view-options": path.resolve(__dirname, "src/view-options.ts"),
         styles: path.resolve(__dirname, "src/styles.ts"),
         // Optional UI stylesheets, kept out of styles.css so a consumer that supplies its own
         // toolbar/marker menu/context menu doesn't ship them (#516).
         toolbar: path.resolve(__dirname, "src/toolbar.ts"),
         "nodes-menu": path.resolve(__dirname, "src/nodes-menu.ts"),
         "context-menu": path.resolve(__dirname, "src/context-menu.ts"),
+      },
+      output: {
+        // Keep stylesheet export filenames stable while JavaScript retains its directories.
+        assetFileNames: (asset) => path.basename(asset.names[0] ?? "[name][extname]"),
+        preserveModules: true,
+        preserveModulesRoot: path.resolve(__dirname, "../.."),
       },
       external: [
         "react/jsx-runtime",

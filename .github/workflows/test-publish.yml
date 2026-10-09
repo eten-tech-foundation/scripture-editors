@@ -90,6 +90,10 @@ jobs:
       - name: Production build
         run: pnpm nx affected -t build
 
+      - name: Check platform bundle boundaries
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: pnpm nx affected -t check-bundle
+
       - name: Test yalc consumer
         if: matrix.os == 'ubuntu-latest'
         run: pnpm nx test-yalc platform-editor

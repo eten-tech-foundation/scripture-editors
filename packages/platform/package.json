@@ -25,7 +25,17 @@
     "./styles.css": "./dist/styles.css",
     "./toolbar.css": "./dist/toolbar.css",
     "./nodes-menu.css": "./dist/nodes-menu.css",
-    "./context-menu.css": "./dist/context-menu.css"
+    "./context-menu.css": "./dist/context-menu.css",
+    "./editorial": {
+      "types": "./dist/editorial-entry.d.ts",
+      "import": "./dist/editorial-entry.js",
+      "default": "./dist/editorial-entry.js"
+    },
+    "./view-options": {
+      "types": "./dist/view-options.d.ts",
+      "import": "./dist/view-options.js",
+      "default": "./dist/view-options.js"
+    }
   },
   "files": [
     "dist",
@@ -99,5 +109,8 @@
   },
   "volta": {
     "extends": "../../package.json"
-  }
+  },
+  "sideEffects": [
+    "**/*.css"
+  ]
 }

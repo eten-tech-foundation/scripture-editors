@@ -20,6 +20,40 @@ graph TB
   A[USJ-Editor adapter] <-- Editor State --> Editor
 ```
 
+## Smaller imports
+
+The root import remains supported. Consumers that only use `Editorial` do not include the
+deprecated `Marginal` implementation or its Yjs binding in a production bundle.
+
+Two subpaths also make that boundary explicit:
+
+```ts
+import { Editorial, type EditorRef } from "@eten-tech-foundation/platform-editor/editorial";
+import {
+  getViewOptions,
+  type ViewOptions,
+} from "@eten-tech-foundation/platform-editor/view-options";
+```
+
+The editorial entry exposes the root API except `Marginal`, `MarginalProps`, `MarginalRef`,
+`CommentBase`, `Comments`, and `Thread`. The view-options entry exposes view configuration helpers
+and their types without loading an editor. It is useful for host settings screens.
+
+JavaScript modules stay separate in `dist`, and CSS is declared as a side effect so consumer
+bundlers can remove unused JavaScript without dropping imported styles. Import the package or a
+documented subpath; paths inside `dist` are implementation details. `Marginal` remains available
+through the root entry during its deprecation period.
+
+To check bundle boundaries and measure production imports, run
+`pnpm nx check-bundle platform-editor`. The check bundles the built package with the esbuild
+version used by Vite, with React, React DOM, and Yjs external. It reports minified and gzip bytes,
+checks that `Editorial` does not include margin comments, and checks that view helpers do not
+include Lexical. For a before/after comparison, use the same lockfile, Node version, build command,
+and script on both revisions. `node scripts/check-platform-bundle.mjs --measure-only` reports
+sizes without requiring the new subpaths on an older revision. Add
+`--package-dir /path/to/built/package` to compare an archived baseline with the same script.
+That package must have its dependencies available for resolution.
+
 ## Install
 
 ```sh
